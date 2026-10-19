@@ -62,26 +62,40 @@ const make = Effect.gen(function* () {
   );
 
   const start: AtlasReconciler["Service"]["start"] = () =>
-    forkParked(
-      Stream.unwrap(
-        worker.enqueue(undefined).pipe(Effect.as(orchestrator.streamDomainEvents)),
-      ).pipe(
-        Stream.filter(
-          (event) =>
-            (event.type === "run.updated" &&
-              ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
-                event.payload.status,
-              )) ||
-            (event.type === "subagent.updated" &&
-              ["completed", "failed", "cancelled", "interrupted"].includes(event.payload.status)),
+    Effect.gen(function* () {
+      yield* forkParked(
+        Stream.unwrap(
+          worker.enqueue(undefined).pipe(Effect.as(orchestrator.streamDomainEvents)),
+        ).pipe(
+          Stream.filter(
+            (event) =>
+              (event.type === "run.updated" &&
+                ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
+                  event.payload.status,
+                )) ||
+              (event.type === "subagent.updated" &&
+                ["completed", "failed", "cancelled", "interrupted"].includes(event.payload.status)),
+          ),
+          Stream.runForEach((event) => worker.enqueue(event.threadId)),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Atlas completion stream failed; periodic recovery remains active", {
+              cause,
+            }),
+          ),
         ),
-        Stream.runForEach((event) => worker.enqueue(event.threadId)),
-        Effect.tapCause((cause) =>
-          Effect.logWarning("Atlas completion reconciliation stream failed", { cause }),
-        ),
-        Effect.retry(Schedule.spaced("1 second")),
-      ),
-    );
+      );
+      // The event stream is live-tail only; recover completions missed during startup or a disconnect.
+      yield* forkParked(
+        worker
+          .enqueue(undefined)
+          .pipe(
+            Effect.andThen(worker.drain),
+            Effect.repeat(Schedule.spaced("1 minute")),
+            Effect.delay("1 minute"),
+            Effect.asVoid,
+          ),
+      );
+    });
   return AtlasReconciler.of({ reconcile, start, drain: worker.drain });
 });
 

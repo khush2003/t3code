@@ -8,6 +8,7 @@ import {
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
+import * as TestClock from "effect/testing/TestClock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -119,6 +120,51 @@ it.effect("startup reconciliation resumes pending work and skips settled initiat
         const worker = yield* AtlasReconciler.AtlasReconciler;
         yield* worker.reconcile();
         assert.deepEqual(calls, [pending.id]);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
+it.effect("periodic recovery reconciles a missed completion after the event stream fails", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scanned = yield* Deferred.make<void>();
+      const recovered = yield* Deferred.make<void>();
+      const pending = initiative("initiative:missed", threadId, true);
+      const calls: string[] = [];
+      let lists = 0;
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () =>
+            Effect.gen(function* () {
+              lists++;
+              if (lists === 1) {
+                yield* Deferred.succeed(scanned, undefined);
+                return { initiatives: [] };
+              }
+              return { initiatives: [pending] };
+            }),
+          refreshInitiative: ({ initiativeId }) =>
+            Effect.sync(() => calls.push(initiativeId)).pipe(
+              Effect.andThen(Deferred.succeed(recovered, undefined)),
+              Effect.as(pending),
+            ),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          streamDomainEvents: Stream.fail(
+            new Orchestrator.OrchestratorProjectionError({ threadId }),
+          ),
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.start();
+        yield* Deferred.await(scanned);
+        yield* TestClock.adjust("1 minute");
+        yield* Deferred.await(recovered);
+        yield* worker.drain;
+        assert.deepEqual(calls, [pending.id]);
+        assert.strictEqual(lists, 2);
       }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
     }),
   ),
