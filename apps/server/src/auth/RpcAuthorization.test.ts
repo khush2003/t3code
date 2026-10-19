@@ -36,6 +36,27 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
+  it("separates Atlas observation, orchestration, and GitHub publishing permissions", () => {
+    for (const method of [WS_METHODS.atlasListInitiatives, WS_METHODS.atlasGetInitiative])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    for (const method of [
+      WS_METHODS.atlasRefreshInitiative,
+      WS_METHODS.atlasCreateInitiative,
+      WS_METHODS.atlasUpdateInitiative,
+      WS_METHODS.atlasDeleteInitiative,
+      WS_METHODS.atlasStartPlanning,
+      WS_METHODS.atlasImportPlan,
+      WS_METHODS.atlasExecuteTask,
+      WS_METHODS.atlasApproveTask,
+      WS_METHODS.atlasRequestChanges,
+      WS_METHODS.atlasStartAgentReview,
+    ])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.atlasPublishTaskIssue)).toBe(
+      AuthSourceControlWriteScope,
+    );
+  });
+
   it("requires operate access to stop a workflow", () => {
     expect(requiredScopeForRpcMethod(ORCHESTRATION_V2_WS_METHODS.stopWorkflow)).toBe(
       AuthOrchestrationOperateScope,

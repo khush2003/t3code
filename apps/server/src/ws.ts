@@ -98,6 +98,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  WsAtlasRpcGroup,
+  WsCoreRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -121,6 +123,7 @@ import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManag
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as Atlas from "./atlas/AtlasService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
@@ -544,6 +547,8 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
+const ServerWsAtlasRpcGroup = WsAtlasRpcGroup.middleware(RpcInstrumentation);
 // Replaying each intervening event costs a shell refetch; past this gap a
 // single O(active-threads) snapshot is cheaper and bounded.
 const SHELL_RESUME_MAX_GAP = 1_000;
@@ -1158,14 +1163,36 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
-const layerWsRpc = (
+const layerWsAtlasRpc = () =>
+  ServerWsAtlasRpcGroup.toLayer(
+    Effect.gen(function* () {
+      const atlas = yield* Atlas.AtlasService;
+      return ServerWsAtlasRpcGroup.of({
+        [WS_METHODS.atlasListInitiatives]: (input) => atlas.listInitiatives(input),
+        [WS_METHODS.atlasGetInitiative]: (input) => atlas.getInitiative(input),
+        [WS_METHODS.atlasCreateInitiative]: (input) => atlas.createInitiative(input),
+        [WS_METHODS.atlasUpdateInitiative]: (input) => atlas.updateInitiative(input),
+        [WS_METHODS.atlasDeleteInitiative]: (input) => atlas.deleteInitiative(input),
+        [WS_METHODS.atlasStartPlanning]: (input) => atlas.startPlanning(input),
+        [WS_METHODS.atlasImportPlan]: (input) => atlas.importPlan(input),
+        [WS_METHODS.atlasRefreshInitiative]: (input) => atlas.refreshInitiative(input),
+        [WS_METHODS.atlasExecuteTask]: (input) => atlas.executeTask(input),
+        [WS_METHODS.atlasApproveTask]: (input) => atlas.approveTask(input),
+        [WS_METHODS.atlasRequestChanges]: (input) => atlas.requestChanges(input),
+        [WS_METHODS.atlasStartAgentReview]: (input) => atlas.startAgentReview(input),
+        [WS_METHODS.atlasPublishTaskIssue]: (input) => atlas.publishTaskIssue(input),
+      });
+    }),
+  );
+
+const layerWsCoreRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerWsCoreRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1788,7 +1815,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerWsCoreRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -3076,6 +3103,9 @@ const layerWsRpc = (
       return handlers;
     }),
   );
+
+const layerWsRpc = (...args: Parameters<typeof layerWsCoreRpc>) =>
+  Layer.merge(layerWsCoreRpc(...args), layerWsAtlasRpc());
 
 // RpcServer's default sends a socket-level Defect frame instead, and the client
 // ends every pending request on the socket with it.

@@ -45,6 +45,19 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+
+  [WS_METHODS.atlasRefreshInitiative]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasCreateInitiative]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasUpdateInitiative]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasDeleteInitiative]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasStartPlanning]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasImportPlan]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasExecuteTask]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasApproveTask]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasRequestChanges]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasStartAgentReview]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasPublishTaskIssue]: AuthSourceControlWriteScope,
+
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;

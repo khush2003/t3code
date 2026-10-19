@@ -349,6 +349,25 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  AtlasApproveTaskInput,
+  AtlasCreateInitiativeInput,
+  AtlasDeleteInitiativeInput,
+  AtlasDeleteInitiativeResult,
+  AtlasError,
+  AtlasExecuteTaskInput,
+  AtlasGetInitiativeInput,
+  AtlasImportPlanInput,
+  AtlasInitiative,
+  AtlasListInitiativesInput,
+  AtlasListInitiativesResult,
+  AtlasPublishTaskIssueInput,
+  AtlasRefreshInitiativeInput,
+  AtlasRequestChangesInput,
+  AtlasStartAgentReviewInput,
+  AtlasStartPlanningInput,
+  AtlasUpdateInitiativeInput,
+} from "./atlas.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -512,6 +531,20 @@ export const WS_METHODS = {
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
+
+  atlasListInitiatives: "atlas.listInitiatives",
+  atlasGetInitiative: "atlas.getInitiative",
+  atlasCreateInitiative: "atlas.createInitiative",
+  atlasUpdateInitiative: "atlas.updateInitiative",
+  atlasDeleteInitiative: "atlas.deleteInitiative",
+  atlasStartPlanning: "atlas.startPlanning",
+  atlasImportPlan: "atlas.importPlan",
+  atlasRefreshInitiative: "atlas.refreshInitiative",
+  atlasExecuteTask: "atlas.executeTask",
+  atlasApproveTask: "atlas.approveTask",
+  atlasRequestChanges: "atlas.requestChanges",
+  atlasStartAgentReview: "atlas.startAgentReview",
+  atlasPublishTaskIssue: "atlas.publishTaskIssue",
 
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -1826,6 +1859,86 @@ const WsScheduledTasksGetWebhookDeliveryRpc = Rpc.make(
   },
 );
 
+const atlasError = Schema.Union([AtlasError, EnvironmentAuthorizationError]);
+
+const WsAtlasListInitiativesRpc = Rpc.make(WS_METHODS.atlasListInitiatives, {
+  payload: AtlasListInitiativesInput,
+  success: AtlasListInitiativesResult,
+  error: atlasError,
+});
+
+const WsAtlasGetInitiativeRpc = Rpc.make(WS_METHODS.atlasGetInitiative, {
+  payload: AtlasGetInitiativeInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasCreateInitiativeRpc = Rpc.make(WS_METHODS.atlasCreateInitiative, {
+  payload: AtlasCreateInitiativeInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasUpdateInitiativeRpc = Rpc.make(WS_METHODS.atlasUpdateInitiative, {
+  payload: AtlasUpdateInitiativeInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasDeleteInitiativeRpc = Rpc.make(WS_METHODS.atlasDeleteInitiative, {
+  payload: AtlasDeleteInitiativeInput,
+  success: AtlasDeleteInitiativeResult,
+  error: atlasError,
+});
+
+const WsAtlasStartPlanningRpc = Rpc.make(WS_METHODS.atlasStartPlanning, {
+  payload: AtlasStartPlanningInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasImportPlanRpc = Rpc.make(WS_METHODS.atlasImportPlan, {
+  payload: AtlasImportPlanInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasRefreshInitiativeRpc = Rpc.make(WS_METHODS.atlasRefreshInitiative, {
+  payload: AtlasRefreshInitiativeInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasExecuteTaskRpc = Rpc.make(WS_METHODS.atlasExecuteTask, {
+  payload: AtlasExecuteTaskInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasApproveTaskRpc = Rpc.make(WS_METHODS.atlasApproveTask, {
+  payload: AtlasApproveTaskInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasRequestChangesRpc = Rpc.make(WS_METHODS.atlasRequestChanges, {
+  payload: AtlasRequestChangesInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasStartAgentReviewRpc = Rpc.make(WS_METHODS.atlasStartAgentReview, {
+  payload: AtlasStartAgentReviewInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasPublishTaskIssueRpc = Rpc.make(WS_METHODS.atlasPublishTaskIssue, {
+  payload: AtlasPublishTaskIssueInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
 const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
   payload: Schema.Struct({}),
   success: AuthAccessStreamEvent,
@@ -1852,7 +1965,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const WsCoreRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2049,3 +2162,21 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsAtlasRpcGroup = RpcGroup.make(
+  WsAtlasListInitiativesRpc,
+  WsAtlasGetInitiativeRpc,
+  WsAtlasCreateInitiativeRpc,
+  WsAtlasUpdateInitiativeRpc,
+  WsAtlasDeleteInitiativeRpc,
+  WsAtlasStartPlanningRpc,
+  WsAtlasImportPlanRpc,
+  WsAtlasRefreshInitiativeRpc,
+  WsAtlasExecuteTaskRpc,
+  WsAtlasApproveTaskRpc,
+  WsAtlasRequestChangesRpc,
+  WsAtlasStartAgentReviewRpc,
+  WsAtlasPublishTaskIssueRpc,
+).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = WsCoreRpcGroup.merge(WsAtlasRpcGroup);

@@ -75,6 +75,9 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
 import * as ProcessRunner from "./processRunner.ts";
+import * as AtlasService from "./atlas/AtlasService.ts";
+import * as AtlasReconciler from "./atlas/AtlasReconciler.ts";
+import * as AtlasStore from "./atlas/AtlasStore.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -483,6 +486,11 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
   }),
 );
 
+const layerAtlasService = AtlasService.layer.pipe(Layer.provide(AtlasStore.layer));
+const layerAtlas = Layer.effectDiscard(
+  Effect.flatMap(AtlasReconciler.AtlasReconciler, (worker) => worker.start()),
+).pipe(Layer.provide(AtlasReconciler.layer), Layer.provideMerge(layerAtlasService));
+
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
@@ -544,6 +552,7 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  layerAtlas,
   AgentAwarenessRelay.layer,
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,

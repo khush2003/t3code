@@ -59,6 +59,40 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("uses destination grants for Atlas reads, agent actions, and GitHub publishing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const methods = [
+          [WS_METHODS.atlasRefreshInitiative, AuthOrchestrationOperateScope],
+          [WS_METHODS.atlasExecuteTask, AuthOrchestrationOperateScope],
+          [WS_METHODS.atlasStartAgentReview, AuthOrchestrationOperateScope],
+          [WS_METHODS.atlasApproveTask, AuthOrchestrationOperateScope],
+          [WS_METHODS.atlasPublishTaskIssue, AuthSourceControlWriteScope],
+        ] as const;
+        for (const [method, scope] of methods) {
+          const command = createCommandPermissions(runtime, method);
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(false),
+              scopes: [scope],
+              permissions: [scope],
+            }),
+          );
+          registry.set(sessions(other), AsyncResult.success(grant(false)));
+          expect(registry.get(command.permissionAtom(env))).toBe(true);
+          yield* command.authorize(registry, env);
+          expect(registry.get(command.permissionAtom(other))).toBe(false);
+          const denied = yield* command.authorize(registry, other).pipe(Effect.flip);
+          expect(denied._tag).toBe("EnvironmentAuthorizationError");
+          registry.set(sessions(env), AsyncResult.success(grant(false)));
+          expect(registry.get(command.permissionAtom(env))).toBe(false);
+        }
+      }),
+    ),
+  );
+
   it.effect("requires the destination settings grant to run storage cleanup", () =>
     Effect.scoped(
       Effect.gen(function* () {
