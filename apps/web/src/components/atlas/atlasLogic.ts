@@ -52,18 +52,6 @@ export function taskStatusLabel(status: AtlasTaskStatus): string {
   }
 }
 
-export const ATLAS_BOARD_COLUMNS: ReadonlyArray<{
-  readonly status: AtlasTaskStatus;
-  readonly label: string;
-}> = [
-  { status: "proposed", label: "Proposed" },
-  { status: "running", label: "Running" },
-  { status: "needs_review", label: "Needs review" },
-  { status: "changes_requested", label: "Changes requested" },
-  { status: "approved", label: "Approved" },
-  { status: "failed", label: "Failed" },
-];
-
 export function taskIsRunning(task: AtlasTask): boolean {
   return (
     task.status === "running" ||
@@ -103,8 +91,22 @@ export function canStartAgentReview(task: AtlasTask): boolean {
   );
 }
 
+/**
+ * Publishing never touches a workspace, so any task qualifies while it has no
+ * issue or its plan edits have outdated the published one.
+ */
+/**
+ * A reviewer that failed to launch leaves no thread behind, only the error on
+ * the launch attempt. The task stays in review until someone retries.
+ */
+export function reviewLaunchError(task: AtlasTask): string | null {
+  if (task.launch?.operation !== "review") return null;
+  const error = task.launch.error?.trim();
+  return error ? error : null;
+}
+
 export function canPublishTaskIssue(task: AtlasTask): boolean {
-  return task.issue === null && !taskIsRunning(task);
+  return task.issue === null || task.issue.needsSync === true;
 }
 
 export function initiativeHasActiveWork(initiative: AtlasInitiative): boolean {

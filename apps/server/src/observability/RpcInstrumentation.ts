@@ -100,6 +100,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.atlasUpdateInitiative]: "atlas",
   [WS_METHODS.atlasDeleteInitiative]: "atlas",
   [WS_METHODS.atlasStartPlanning]: "atlas",
+  [WS_METHODS.atlasStartPlanAdjustment]: "atlas",
+  [WS_METHODS.atlasApplyPlanAdjustment]: "atlas",
   [WS_METHODS.atlasImportPlan]: "atlas",
   [WS_METHODS.atlasRefreshInitiative]: "atlas",
   [WS_METHODS.atlasExecuteTask]: "atlas",

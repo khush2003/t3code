@@ -1174,6 +1174,8 @@ const layerWsAtlasRpc = () =>
         [WS_METHODS.atlasUpdateInitiative]: (input) => atlas.updateInitiative(input),
         [WS_METHODS.atlasDeleteInitiative]: (input) => atlas.deleteInitiative(input),
         [WS_METHODS.atlasStartPlanning]: (input) => atlas.startPlanning(input),
+        [WS_METHODS.atlasStartPlanAdjustment]: (input) => atlas.startPlanAdjustment(input),
+        [WS_METHODS.atlasApplyPlanAdjustment]: (input) => atlas.applyPlanAdjustment(input),
         [WS_METHODS.atlasImportPlan]: (input) => atlas.importPlan(input),
         [WS_METHODS.atlasRefreshInitiative]: (input) => atlas.refreshInitiative(input),
         [WS_METHODS.atlasExecuteTask]: (input) => atlas.executeTask(input),

@@ -4,7 +4,9 @@ import {
   AtlasInitiativeBusyError,
   AtlasInitiativeNotFoundError,
   AtlasIssuePublishError,
+  AtlasInitiative as AtlasInitiativeSchema,
   AtlasPlanImportError,
+  AtlasPlanRevisionConflictError,
   AtlasPlanValidationError,
   AtlasProviderLaunchError,
   AtlasProjectBusyError,
@@ -46,6 +48,8 @@ const isAtlasInitiativeNotFoundError = Schema.is(AtlasInitiativeNotFoundError);
 const isAtlasIssuePublishError = Schema.is(AtlasIssuePublishError);
 const isAtlasPlanImportError = Schema.is(AtlasPlanImportError);
 const isAtlasPlanValidationError = Schema.is(AtlasPlanValidationError);
+const isAtlasPlanRevisionConflictError = Schema.is(AtlasPlanRevisionConflictError);
+const decodeInitiative = Schema.decodeUnknownSync(AtlasInitiativeSchema);
 const isAtlasProjectBusyError = Schema.is(AtlasProjectBusyError);
 const isAtlasProviderLaunchError = Schema.is(AtlasProviderLaunchError);
 const isAtlasTaskNotRunnableError = Schema.is(AtlasTaskNotRunnableError);
@@ -1409,5 +1413,541 @@ it.effect("pins a failed launch retry to its original workspace", () => {
       [{ type: "root" }, { type: "root" }],
     );
     assert.equal(harness.launchCalls[0]!.input.commandId, harness.launchCalls[1]!.input.commandId);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+const setupAdjustablePlan = (service: AtlasService.AtlasService["Service"], harness: Harness) =>
+  Effect.gen(function* () {
+    const created = yield* createInitiative(service);
+    const imported = yield* service.importPlan({
+      initiativeId: created.id,
+      plan: plan(draft("a"), draft("b", { dependsOn: ["a"] }), draft("c", { dependsOn: ["b"] })),
+    });
+    const a = taskByTitle(imported, "Task a");
+    const executed = yield* executeOnlyTask(service, created.id, a.id);
+    harness.complete(
+      executed.tasks.find((task) => task.id === a.id)!.execution!.threadId,
+      "A shipped the shared contract.",
+    );
+    const initiative = yield* service.refreshInitiative({ initiativeId: created.id });
+    return {
+      initiative,
+      a: taskByTitle(initiative, "Task a"),
+      b: taskByTitle(initiative, "Task b"),
+      c: taskByTitle(initiative, "Task c"),
+    };
+  });
+
+it.effect("decodes legacy initiatives without plan revisions or review policy", () =>
+  Effect.sync(() => {
+    const legacy = decodeInitiative({
+      id: "atlas-initiative:legacy",
+      projectId,
+      title: "Legacy",
+      brief: "Old record",
+      deliverables: [],
+      status: "draft",
+      planSummary: null,
+      planner: { status: "idle", threadId: null, runId: null, error: null, launch: null },
+      tasks: [],
+      createdAt,
+      updatedAt: createdAt,
+    });
+    assert.equal(legacy.planRevision, 0);
+    assert.equal(legacy.planner.mode, "plan");
+    assert.isNull(legacy.planner.adjustment);
+    assert.isNull(legacy.autoReview);
+  }),
+);
+
+it.effect("persists the auto-review policy, keeps it when omitted, and clears it with null", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    assert.isNull(created.autoReview);
+    const policy = {
+      enabled: true,
+      modelSelection,
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+      autoApplyVerdict: false,
+    };
+    yield* service.updateInitiative({ initiativeId: created.id, autoReview: policy });
+    yield* service.updateInitiative({ initiativeId: created.id, title: "Renamed" });
+    const kept = yield* service.getInitiative({ initiativeId: created.id });
+    assert.deepEqual(kept.autoReview, policy);
+    assert.equal(kept.title, "Renamed");
+    const cleared = yield* service.updateInitiative({ initiativeId: created.id, autoReview: null });
+    assert.isNull(cleared.autoReview);
+    assert.isNull((yield* service.getInitiative({ initiativeId: created.id })).autoReview);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("applies an incremental adjustment while preserving started work and task ids", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative, a, b, c } = yield* setupAdjustablePlan(service, harness);
+    assert.equal(initiative.planRevision, 1);
+
+    const adjusted = yield* service.applyPlanAdjustment({
+      initiativeId: initiative.id,
+      expectedPlanRevision: 1,
+      adjustment: {
+        summary: "Split the UI work and drop c.",
+        updates: [{ taskId: b.id, title: "Task b2", dependsOn: [] }],
+        additions: [
+          draft("hud", { dependsOn: [a.id] }),
+          draft("hud-tests", { specialty: "tests", dependsOn: ["hud"] }),
+        ],
+        removals: [c.id],
+      },
+    });
+
+    assert.equal(adjusted.planRevision, 2);
+    assert.equal(adjusted.planSummary, "Plan summary");
+    const keptA = adjusted.tasks.find((task) => task.id === a.id)!;
+    assert.deepEqual(keptA.execution, a.execution);
+    assert.equal(keptA.status, "needs_review");
+    const keptB = adjusted.tasks.find((task) => task.id === b.id)!;
+    assert.equal(keptB.title, "Task b2");
+    assert.equal(keptB.description, b.description);
+    assert.deepEqual(keptB.dependsOn, []);
+    assert.deepEqual(keptB.blockedBy, []);
+    assert.isUndefined(adjusted.tasks.find((task) => task.id === c.id));
+    const hud = taskByTitle(adjusted, "Task hud");
+    const hudTests = taskByTitle(adjusted, "Task hud-tests");
+    assert.deepEqual(hud.dependsOn, [a.id]);
+    assert.deepEqual(hudTests.dependsOn, [hud.id]);
+    assert.deepEqual(
+      adjusted.tasks.map((task) => task.ordinal),
+      [0, 1, 3, 4],
+    );
+    assert.deepEqual(yield* service.getInitiative({ initiativeId: initiative.id }), adjusted);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect.each([
+  {
+    name: "editing a started task",
+    build: (ids: { a: string; b: string; c: string }) => ({
+      updates: [{ taskId: ids.a, title: "Rewrite history" }],
+    }),
+  },
+  { name: "removing a started task", build: (ids: { a: string }) => ({ removals: [ids.a] }) },
+  {
+    name: "a dependency cycle",
+    build: (ids: { b: string; c: string }) => ({
+      updates: [{ taskId: ids.b, dependsOn: [ids.c] }],
+    }),
+  },
+  {
+    name: "an unknown dependency",
+    build: () => ({ additions: [draft("x", { dependsOn: ["atlas-task:missing"] })] }),
+  },
+  {
+    name: "a dependent left pointing at a removed task",
+    build: (ids: { b: string }) => ({ removals: [ids.b] }),
+  },
+  {
+    name: "an edited dependent that keeps pointing at a removed task",
+    build: (ids: { b: string; c: string }) => ({
+      removals: [ids.b],
+      updates: [{ taskId: ids.c, title: "Renamed c" }],
+    }),
+  },
+])("rejects an adjustment with $name and leaves the plan untouched", (testCase) => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative, a, b, c } = yield* setupAdjustablePlan(service, harness);
+    const patch = testCase.build({ a: a.id, b: b.id, c: c.id }) as Record<string, unknown>;
+    const error = yield* Effect.flip(
+      service.applyPlanAdjustment({
+        initiativeId: initiative.id,
+        expectedPlanRevision: 1,
+        adjustment: {
+          summary: "bad",
+          updates: [],
+          additions: [],
+          removals: [],
+          ...patch,
+        } as never,
+      }),
+    );
+    assert.isTrue(isAtlasPlanValidationError(error), `got ${error._tag}`);
+    const after = yield* service.getInitiative({ initiativeId: initiative.id });
+    assert.equal(after.planRevision, 1);
+    assert.deepEqual(
+      after.tasks.map((task) => [task.id, task.title, task.dependsOn]),
+      initiative.tasks.map((task) => [task.id, task.title, task.dependsOn]),
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("rejects an adjustment prepared against a stale plan revision", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative } = yield* setupAdjustablePlan(service, harness);
+    const error = yield* Effect.flip(
+      service.applyPlanAdjustment({
+        initiativeId: initiative.id,
+        expectedPlanRevision: 0,
+        adjustment: { summary: "late", updates: [], additions: [draft("late")], removals: [] },
+      }),
+    );
+    if (!isAtlasPlanRevisionConflictError(error)) throw new Error(`got ${error._tag}`);
+    assert.equal(error.actualPlanRevision, 1);
+    assert.equal((yield* service.getInitiative({ initiativeId: initiative.id })).tasks.length, 3);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("runs an agent-assisted adjustment as a previewable patch, then applies it", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative, a, c } = yield* setupAdjustablePlan(service, harness);
+
+    const started = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add a HUD task after the shared contract.",
+      ...runOptions,
+    });
+    assert.equal(started.planner.status, "running");
+    assert.equal(started.planner.mode, "adjust");
+    assert.equal(started.planner.baseRevision, 1);
+    const prompt = harness.launchCalls.at(-1)!.input.initialMessage?.text ?? "";
+    assert.include(prompt, "Add a HUD task after the shared contract.");
+    assert.include(prompt, a.id);
+    assert.include(prompt, "A shipped the shared contract.");
+    assert.include(prompt, `${c.id} — Task c\nState: not started, editable\n`);
+
+    const proposal = {
+      summary: "Add HUD, drop c.",
+      additions: [draft("hud", { dependsOn: [a.id] })],
+      removals: [c.id],
+    };
+    harness.complete(started.planner.threadId!, `Here is the patch:\n${JSON.stringify(proposal)}`);
+    const previewed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+    assert.isNull(previewed.planner.error);
+    assert.deepEqual(previewed.planner.adjustment?.removals, [c.id]);
+    assert.deepEqual(previewed.planner.adjustment?.updates, []);
+    assert.equal(previewed.tasks.length, 3);
+
+    const importError = yield* Effect.flip(service.importPlan({ initiativeId: initiative.id }));
+    assert.isTrue(isAtlasPlanImportError(importError));
+
+    const applied = yield* service.applyPlanAdjustment({
+      initiativeId: initiative.id,
+      expectedPlanRevision: 1,
+    });
+    assert.equal(applied.planRevision, 2);
+    assert.isNull(applied.planner.adjustment);
+    assert.deepEqual(taskByTitle(applied, "Task hud").dependsOn, [a.id]);
+    assert.isUndefined(applied.tasks.find((task) => task.id === c.id));
+
+    const again = yield* Effect.flip(
+      service.applyPlanAdjustment({ initiativeId: initiative.id, expectedPlanRevision: 2 }),
+    );
+    assert.isTrue(isAtlasPlanRevisionConflictError(again));
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("treats a planner proposal as stale once the plan changes underneath it", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative } = yield* setupAdjustablePlan(service, harness);
+    const started = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add docs.",
+      ...runOptions,
+    });
+    yield* service.applyPlanAdjustment({
+      initiativeId: initiative.id,
+      expectedPlanRevision: 1,
+      adjustment: { summary: "manual", updates: [], additions: [draft("manual")], removals: [] },
+    });
+    harness.complete(
+      started.planner.threadId!,
+      JSON.stringify({ summary: "docs", additions: [draft("docs")] }),
+    );
+    const refreshed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+    assert.isNull(refreshed.planner.adjustment);
+    const error = yield* Effect.flip(
+      service.applyPlanAdjustment({ initiativeId: initiative.id, expectedPlanRevision: 2 }),
+    );
+    if (!isAtlasPlanRevisionConflictError(error)) throw new Error(`got ${error._tag}`);
+    assert.equal(error.expectedPlanRevision, 1);
+    assert.equal(error.actualPlanRevision, 2);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("surfaces an unusable planner proposal as a planner error instead of a preview", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative, a } = yield* setupAdjustablePlan(service, harness);
+    const started = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Redo a.",
+      ...runOptions,
+    });
+    harness.complete(
+      started.planner.threadId!,
+      JSON.stringify({ summary: "redo", removals: [a.id] }),
+    );
+    const refreshed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+    assert.equal(refreshed.planner.status, "completed");
+    assert.isNull(refreshed.planner.adjustment);
+    assert.include(refreshed.planner.error ?? "", "already started");
+    const error = yield* Effect.flip(
+      service.applyPlanAdjustment({ initiativeId: initiative.id, expectedPlanRevision: 1 }),
+    );
+    assert.isTrue(isAtlasPlanImportError(error));
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("never resurrects or reapplies a consumed planner proposal on later refreshes", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative } = yield* setupAdjustablePlan(service, harness);
+    const started = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add docs.",
+      ...runOptions,
+    });
+    harness.complete(
+      started.planner.threadId!,
+      JSON.stringify({ summary: "docs", additions: [draft("docs")] }),
+    );
+    yield* service.refreshInitiative({ initiativeId: initiative.id });
+    const applied = yield* service.applyPlanAdjustment({
+      initiativeId: initiative.id,
+      expectedPlanRevision: 1,
+    });
+    assert.equal(applied.tasks.length, 4);
+
+    for (let index = 0; index < 2; index += 1) {
+      const refreshed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+      assert.isNull(refreshed.planner.adjustment);
+      assert.isNull(refreshed.planner.error);
+      assert.equal(refreshed.planner.threadId, started.planner.threadId);
+      assert.equal(refreshed.tasks.length, 4);
+    }
+    const reapplied = yield* Effect.flip(
+      service.applyPlanAdjustment({ initiativeId: initiative.id, expectedPlanRevision: 2 }),
+    );
+    assert.isTrue(isAtlasPlanRevisionConflictError(reapplied));
+    assert.equal((yield* service.getInitiative({ initiativeId: initiative.id })).tasks.length, 4);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+const publishUnstartedAndEdit = (service: AtlasService.AtlasService["Service"], harness: Harness) =>
+  Effect.gen(function* () {
+    const { initiative, b, c } = yield* setupAdjustablePlan(service, harness);
+    yield* service.publishTaskIssue({ initiativeId: initiative.id, taskId: b.id });
+    const published = yield* service.publishTaskIssue({
+      initiativeId: initiative.id,
+      taskId: c.id,
+    });
+    const publishedB = published.tasks.find((task) => task.id === b.id)!;
+    const adjusted = yield* service.applyPlanAdjustment({
+      initiativeId: initiative.id,
+      expectedPlanRevision: 1,
+      adjustment: {
+        summary: "Clarify b.",
+        updates: [{ taskId: b.id, title: "Task b revised", dependsOn: [] }],
+        additions: [],
+        removals: [],
+      },
+    });
+    return { initiativeId: initiative.id, b, c, publishedB, adjusted };
+  });
+
+it.effect("lets published but unstarted tasks be edited and marks their issue for sync", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiativeId, b, c, publishedB, adjusted } = yield* publishUnstartedAndEdit(
+      service,
+      harness,
+    );
+    const editedB = adjusted.tasks.find((task) => task.id === b.id)!;
+    assert.equal(editedB.title, "Task b revised");
+    assert.deepEqual(editedB.dependsOn, []);
+    assert.deepEqual(editedB.issue, { ...publishedB.issue!, needsSync: true });
+    assert.notStrictEqual(adjusted.tasks.find((task) => task.id === c.id)!.issue?.needsSync, true);
+    assert.equal(ghSubcommandCalls(harness, "edit"), 0);
+
+    const removal = yield* Effect.flip(
+      service.applyPlanAdjustment({
+        initiativeId,
+        expectedPlanRevision: 2,
+        adjustment: { summary: "drop c", updates: [], additions: [], removals: [c.id] },
+      }),
+    );
+    assert.isTrue(isAtlasPlanValidationError(removal));
+    assert.isDefined(
+      (yield* service.getInitiative({ initiativeId })).tasks.find((task) => task.id === c.id),
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("updates an outdated issue in place once and keeps its link", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiativeId, b, publishedB } = yield* publishUnstartedAndEdit(service, harness);
+    const createCalls = ghSubcommandCalls(harness, "create");
+
+    const synced = yield* service.publishTaskIssue({ initiativeId, taskId: b.id });
+    const edit = harness.processCalls.find(
+      (call) => call.command === "gh" && call.args[1] === "edit",
+    );
+    assert.equal(edit?.args[2], String(publishedB.issue!.number));
+    assert.include(edit?.args ?? [], "[Atlas] Task b revised");
+    const issue = synced.tasks.find((task) => task.id === b.id)!.issue!;
+    assert.deepEqual(
+      [issue.number, issue.url, issue.publishedAt],
+      [publishedB.issue!.number, publishedB.issue!.url, publishedB.issue!.publishedAt],
+    );
+    assert.notStrictEqual(issue.needsSync, true);
+
+    yield* service.publishTaskIssue({ initiativeId, taskId: b.id });
+    assert.equal(ghSubcommandCalls(harness, "edit"), 1);
+    assert.equal(ghSubcommandCalls(harness, "create"), createCalls);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("keeps an issue marked for sync when the update fails so it can be retried", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiativeId, b } = yield* publishUnstartedAndEdit(service, harness);
+    harness.state.failNextIssue = true;
+    const failure = yield* Effect.flip(service.publishTaskIssue({ initiativeId, taskId: b.id }));
+    if (!isAtlasIssuePublishError(failure)) throw new Error(`got ${failure._tag}`);
+    assert.equal(failure.operation, "update");
+    const afterFailure = yield* service.getInitiative({ initiativeId });
+    assert.isTrue(afterFailure.tasks.find((task) => task.id === b.id)!.issue!.needsSync);
+
+    const retried = yield* service.publishTaskIssue({ initiativeId, taskId: b.id });
+    assert.notStrictEqual(retried.tasks.find((task) => task.id === b.id)!.issue!.needsSync, true);
+    assert.equal(ghSubcommandCalls(harness, "edit"), 2);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("tells the adjustment planner that published unstarted tasks cannot be removed", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative, c } = yield* setupAdjustablePlan(service, harness);
+    yield* service.publishTaskIssue({ initiativeId: initiative.id, taskId: c.id });
+    yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Trim scope.",
+      ...runOptions,
+    });
+    const prompt = harness.launchCalls.at(-1)!.input.initialMessage?.text ?? "";
+    assert.include(prompt, `${c.id} — Task c\nState: not started, editable but NOT removable`);
+    assert.include(prompt, "issue #42");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("a failed adjustment launch after an applied proposal never resurrects it", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative } = yield* setupAdjustablePlan(service, harness);
+    const first = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add docs.",
+      ...runOptions,
+    });
+    harness.complete(
+      first.planner.threadId!,
+      JSON.stringify({ summary: "docs", additions: [draft("docs")] }),
+    );
+    yield* service.refreshInitiative({ initiativeId: initiative.id });
+    yield* service.applyPlanAdjustment({ initiativeId: initiative.id, expectedPlanRevision: 1 });
+
+    harness.state.failNextLaunch = true;
+    const failed = yield* Effect.flip(
+      service.startPlanAdjustment({
+        initiativeId: initiative.id,
+        instructions: "Add tests.",
+        ...runOptions,
+      }),
+    );
+    assert.isTrue(isAtlasProviderLaunchError(failed));
+    const refreshed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+    assert.equal(refreshed.planner.status, "failed");
+    assert.isNull(refreshed.planner.threadId);
+    assert.isNull(refreshed.planner.adjustment);
+    assert.equal(refreshed.planner.baseRevision, 2);
+    assert.equal(refreshed.tasks.length, 4);
+    const recorded = refreshed.planner.launch!;
+
+    const retried = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add tests.",
+      ...runOptions,
+    });
+    assert.equal(retried.planner.status, "running");
+    assert.equal(harness.launchCalls.at(-1)!.input.commandId, recorded.commandId);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("a failed full replan launch after an adjustment does not revive the old run", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiative } = yield* setupAdjustablePlan(service, harness);
+    const adjusting = yield* service.startPlanAdjustment({
+      initiativeId: initiative.id,
+      instructions: "Add docs.",
+      ...runOptions,
+    });
+    harness.complete(adjusting.planner.threadId!, "not json");
+    yield* service.refreshInitiative({ initiativeId: initiative.id });
+
+    harness.state.failNextLaunch = true;
+    yield* Effect.flip(service.startPlanning({ initiativeId: initiative.id, ...runOptions }));
+    const refreshed = yield* service.refreshInitiative({ initiativeId: initiative.id });
+    assert.equal(refreshed.planner.status, "failed");
+    assert.equal(refreshed.planner.mode, "plan");
+    assert.isNull(refreshed.planner.threadId);
+    assert.notEqual(
+      harness.launchCalls.at(-1)!.input.commandId,
+      harness.launchCalls.at(-2)!.input.commandId,
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("records a review launch failure on the task and clears it after a retry", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const { initiativeId, taskId } = yield* setupReviewableTask(service, harness);
+
+    harness.state.failNextLaunch = true;
+    const failed = yield* Effect.flip(
+      service.startAgentReview({ initiativeId, taskId, ...runOptions }),
+    );
+    assert.isTrue(isAtlasProviderLaunchError(failed));
+    const afterFailure = (yield* service.getInitiative({ initiativeId })).tasks[0]!;
+    assert.equal(afterFailure.launch?.operation, "review");
+    assert.isString(afterFailure.launch?.error);
+    assert.isNull(afterFailure.agentReview);
+    assert.equal(afterFailure.status, "needs_review");
+
+    const retried = yield* service.startAgentReview({ initiativeId, taskId, ...runOptions });
+    assert.equal(harness.launchCalls.at(-1)!.input.commandId, afterFailure.launch!.commandId);
+    assert.isNull(retried.tasks[0]!.launch);
+    assert.equal(retried.tasks[0]!.agentReview?.status, "running");
   }).pipe(Effect.provide(harness.layer));
 });

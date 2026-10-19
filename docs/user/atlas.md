@@ -20,7 +20,16 @@ Choose **New worktree** when launching independent tasks in parallel. Tasks shar
 checkout or the same worktree run one at a time. A new worktree starts from committed code at
 the selected base ref; integrate prerequisite deliverables into that ref before starting dependent
 work there. Re-runs keep their previous workspace unless you choose a new one.
-Dependent tasks become ready after their prerequisites are approved.
+Dependent tasks become ready after their prerequisites are approved. Dependencies represent
+required outputs, not a suggested order: independent tasks can share a stage and run together.
+Use the task list's bulk actions to launch ready work in separate worktrees,
+approve reviewed deliverables, or publish and update GitHub issues. Each action previews its eligible tasks and
+reports any individual failures so successful work does not need repeating.
+
+Enable **Auto review** on an initiative to start a reviewer as soon as each implementation task
+finishes, even while Atlas is closed. Choose the reviewer provider and model once for that
+initiative. Existing completed tasks without a review are also picked up. Failed reviews remain
+visible for manual retry; the system does not accept an unreadable or failed verdict.
 
 A completed agent run still needs review. Approve the deliverable or request changes with
 feedback. Agent review provides another pass over the work. By default, inspect its findings
@@ -33,7 +42,15 @@ Initiatives belong to the environment hosting the project. Other clients connect
 environment can read the same records. The Atlas workspace is currently available on web
 and desktop; use those clients for planning and review.
 
-You can edit the brief and deliverables or delete an idle initiative. Plans with
-execution history or published issues cannot be replaced by an import; create another
-initiative when changing the scope of work. Finish or stop active runs before deleting
-an initiative.
+Use **Adjust plan** when discoveries change the remaining work. Edit unstarted tasks and their
+dependencies, add follow-up work, or remove untouched tasks. You can also ask a planning agent
+to propose an adjustment based on current progress and results, then inspect and apply the patch.
+Adjustments preserve existing task IDs, results, reviews, and published issue links. Tasks that
+already started are preserved; add follow-up tasks to change their scope. Published issues keep
+their links when an unstarted task is edited and are marked for an explicit issue update. Use
+the publish/sync action to bring GitHub up to date. Published tasks cannot be removed.
+If the plan changed after a proposal was prepared, refresh the proposal before applying it.
+
+A full re-plan is still available for replacing an untouched plan. Plans with work history cannot
+be replaced through import. You can edit the brief and deliverables or delete an idle initiative;
+finish or stop active runs before deleting it.

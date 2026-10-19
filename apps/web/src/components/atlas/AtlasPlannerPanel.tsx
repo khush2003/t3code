@@ -1,6 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId } from "@t3tools/contracts";
-import { BotIcon, DownloadIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
+import {
+  BotIcon,
+  DownloadIcon,
+  RefreshCwIcon,
+  SlidersHorizontalIcon,
+  SparklesIcon,
+  WandSparklesIcon,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -22,24 +29,30 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AtlasRunOptionsDialog } from "./AtlasRunOptionsDialog";
+import { formatAdjustmentCounts, taskIsRemovable } from "./atlasAdjustmentLogic";
 import { parseAtlasPlanJson, type AtlasBadgeVariant } from "./atlasLogic";
+import type { AtlasAdjustmentSource } from "./AtlasPlanAdjustmentDialog";
 
-function plannerBadge(status: AtlasInitiative["planner"]["status"]): {
+function plannerBadge(planner: AtlasInitiative["planner"]): {
   readonly variant: AtlasBadgeVariant;
   readonly label: string;
 } {
-  switch (status) {
+  const adjusting = planner.mode === "adjust";
+  switch (planner.status) {
     case "idle":
       return { variant: "secondary", label: "Not planned" };
     case "running":
-      return { variant: "info", label: "Planning" };
+      return { variant: "info", label: adjusting ? "Proposing adjustment" : "Planning" };
     case "completed":
-      return { variant: "success", label: "Plan ready" };
+      return adjusting && planner.adjustment
+        ? { variant: "warning", label: "Adjustment proposed" }
+        : { variant: "success", label: "Plan ready" };
     case "failed":
-      return { variant: "error", label: "Planning failed" };
+      return { variant: "error", label: adjusting ? "Adjustment failed" : "Planning failed" };
   }
 }
 
@@ -53,11 +66,24 @@ export function AtlasPlannerPanel({
   environmentId,
   initiative,
   taskCount,
+  onAdjust,
 }: {
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
   readonly taskCount: number;
+  readonly onAdjust: (source: AtlasAdjustmentSource) => void;
 }) {
+  const startPlanAdjustment = useAtomCommand(atlasEnvironment.startPlanAdjustment, {
+    reportFailure: false,
+  });
+  const canAskForAdjustment = useAtomValue(
+    atlasEnvironment.startPlanAdjustment.permissionAtom(environmentId),
+  );
+  const canApplyAdjustment = useAtomValue(
+    atlasEnvironment.applyPlanAdjustment.permissionAtom(environmentId),
+  );
+  const [askOpen, setAskOpen] = useState(false);
+  const [instructions, setInstructions] = useState("");
   const startPlanning = useAtomCommand(atlasEnvironment.startPlanning, { reportFailure: false });
   const importPlan = useAtomCommand(atlasEnvironment.importPlan, { reportFailure: false });
   const refreshInitiative = useAtomCommand(atlasEnvironment.refreshInitiative, {
@@ -72,7 +98,13 @@ export function AtlasPlannerPanel({
   const [busy, setBusy] = useState(false);
 
   const planner = initiative.planner;
-  const badge = plannerBadge(planner.status);
+  const badge = plannerBadge(planner);
+  // Once any task has history, replacing the plan would orphan it; the plan
+  // only changes through adjustments from then on.
+  const untouched = initiative.tasks.every(taskIsRemovable);
+  const proposal =
+    planner.mode === "adjust" && planner.status === "completed" ? planner.adjustment : null;
+  const proposalStale = proposal !== null && planner.baseRevision !== initiative.planRevision;
   const parsed = pastedPlan.trim().length > 0 ? parseAtlasPlanJson(pastedPlan) : null;
   const canImportNow = parsed !== null ? parsed.ok : planner.status === "completed";
 
@@ -95,14 +127,18 @@ export function AtlasPlannerPanel({
   };
 
   const summary =
-    initiative.planSummary ??
-    (planner.status === "idle"
-      ? "A planning agent reads the brief and deliverables, then proposes tasks you can import, edit, and run."
-      : planner.status === "running"
-        ? "The planning agent is reading the brief. Answer its questions in the agent panel if it asks."
-        : planner.status === "completed" && taskCount === 0
-          ? "The plan is ready. Import it to create tasks."
-          : `${taskCount} task${taskCount === 1 ? "" : "s"} in the current plan.`);
+    proposal !== null
+      ? proposal.summary
+      : planner.mode === "adjust" && planner.status === "running"
+        ? "The planning agent is reviewing progress and results to propose changes to the remaining tasks."
+        : (initiative.planSummary ??
+          (planner.status === "idle"
+            ? "A planning agent reads the brief and deliverables, then proposes tasks you can import, edit, and run."
+            : planner.status === "running"
+              ? "The planning agent is reading the brief. Answer its questions in the agent panel if it asks."
+              : planner.status === "completed" && taskCount === 0
+                ? "The plan is ready. Import it to create tasks."
+                : `${taskCount} task${taskCount === 1 ? "" : "s"} in the current plan.`));
 
   return (
     <section
@@ -123,6 +159,26 @@ export function AtlasPlannerPanel({
               <Badge variant={badge.variant}>{badge.label}</Badge>
             </div>
             <p className="max-w-[68ch] text-muted-foreground text-sm leading-relaxed">{summary}</p>
+            {proposal !== null ? (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-sm">
+                  Proposed: <span className="font-medium">{formatAdjustmentCounts(proposal)}</span>
+                </span>
+                {proposalStale ? (
+                  <span className="text-warning-foreground text-xs">
+                    The plan changed since. Ask again to apply.
+                  </span>
+                ) : null}
+                <Button
+                  size="xs"
+                  variant={proposalStale ? "outline" : "default"}
+                  disabled={!canApplyAdjustment}
+                  onClick={() => onAdjust({ kind: "proposal" })}
+                >
+                  Review proposal
+                </Button>
+              </div>
+            ) : null}
             {planner.error ? (
               <p role="alert" className="text-destructive-foreground text-sm">
                 {planner.error}
@@ -154,27 +210,53 @@ export function AtlasPlannerPanel({
           >
             <RefreshCwIcon />
           </Button>
-          <Button
-            size="sm"
-            variant={planner.status === "completed" && taskCount === 0 ? "default" : "outline"}
-            disabled={!canImport}
-            onClick={() => {
-              setPastedPlan("");
-              setImportDialogOpen(true);
-            }}
-          >
-            <DownloadIcon />
-            Import plan
-          </Button>
-          <Button
-            size="sm"
-            variant={planner.status === "idle" ? "default" : "outline"}
-            disabled={!canPlan || planner.status === "running"}
-            onClick={() => setPlanDialogOpen(true)}
-          >
-            <SparklesIcon />
-            {planner.status === "idle" ? "Plan tasks" : "Re-plan"}
-          </Button>
+          {untouched && planner.mode === "plan" ? (
+            <Button
+              size="sm"
+              variant={planner.status === "completed" && taskCount === 0 ? "default" : "outline"}
+              disabled={!canImport}
+              onClick={() => {
+                setPastedPlan("");
+                setImportDialogOpen(true);
+              }}
+            >
+              <DownloadIcon />
+              Import plan
+            </Button>
+          ) : null}
+          {untouched ? (
+            <Button
+              size="sm"
+              variant={planner.status === "idle" ? "default" : "outline"}
+              disabled={!canPlan || planner.status === "running"}
+              onClick={() => setPlanDialogOpen(true)}
+            >
+              <SparklesIcon />
+              {planner.status === "idle" ? "Plan tasks" : "Re-plan"}
+            </Button>
+          ) : null}
+          {taskCount > 0 ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canAskForAdjustment || planner.status === "running"}
+                onClick={() => setAskOpen(true)}
+              >
+                <WandSparklesIcon />
+                Ask agent
+              </Button>
+              <Button
+                size="sm"
+                variant={untouched ? "outline" : "default"}
+                disabled={!canApplyAdjustment}
+                onClick={() => onAdjust({ kind: "manual", focusTaskId: null })}
+              >
+                <SlidersHorizontalIcon />
+                Adjust plan
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -202,6 +284,46 @@ export function AtlasPlannerPanel({
           }
         }}
       />
+
+      <AtlasRunOptionsDialog
+        open={askOpen}
+        onOpenChange={(open) => {
+          setAskOpen(open);
+          if (open) setInstructions("");
+        }}
+        environmentId={environmentId}
+        projectId={initiative.projectId}
+        title="Ask agent to adjust the plan"
+        description="A planning agent reads the current tasks, results, and reviews, then proposes edits, additions, and removals. Nothing changes until you review and apply the proposal."
+        confirmLabel="Propose adjustment"
+        confirmDisabled={instructions.trim().length === 0}
+        onConfirm={async (options) => {
+          setAskOpen(false);
+          const result = await startPlanAdjustment({
+            environmentId,
+            input: {
+              initiativeId: initiative.id,
+              instructions: instructions.trim(),
+              modelSelection: options.modelSelection!,
+              runtimeMode: options.runtimeMode,
+              interactionMode: options.interactionMode,
+            },
+          });
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            reportFailure("Could not start plan adjustment", squashAtomCommandFailure(result));
+          }
+        }}
+      >
+        <div className="mt-4 flex flex-col gap-1.5">
+          <Label htmlFor="atlas-adjust-instructions">What should change?</Label>
+          <Textarea
+            id="atlas-adjust-instructions"
+            value={instructions}
+            placeholder="e.g. Session logic does not need the scaffold. Split the HUD into its own task."
+            onChange={(event) => setInstructions(event.target.value)}
+          />
+        </div>
+      </AtlasRunOptionsDialog>
 
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogPopup>

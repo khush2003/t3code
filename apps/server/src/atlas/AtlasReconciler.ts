@@ -1,4 +1,9 @@
-import type { AtlasInitiative, AtlasPersistenceError, ThreadId } from "@t3tools/contracts";
+import type {
+  AtlasInitiative,
+  AtlasTask,
+  AtlasPersistenceError,
+  ThreadId,
+} from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -20,11 +25,24 @@ function usesThread(initiative: AtlasInitiative, threadId: ThreadId): boolean {
   );
 }
 
+function shouldAutoReview(initiative: AtlasInitiative, task: AtlasTask): boolean {
+  return (
+    initiative.autoReview?.enabled === true &&
+    task.execution?.status === "completed" &&
+    task.humanDecision.outcome === "pending" &&
+    task.agentReview === null &&
+    !(task.launch?.operation === "review" && task.launch.error)
+  );
+}
+
 function hasPendingWork(initiative: AtlasInitiative): boolean {
   return (
     initiative.planner.status === "running" ||
     initiative.tasks.some(
-      (task) => task.execution?.status === "running" || task.agentReview?.status === "running",
+      (task) =>
+        task.execution?.status === "running" ||
+        task.agentReview?.status === "running" ||
+        shouldAutoReview(initiative, task),
     )
   );
 }
@@ -50,9 +68,35 @@ const make = Effect.gen(function* () {
             threadId === undefined ? hasPendingWork(initiative) : usesThread(initiative, threadId),
           ),
           (initiative) =>
-            atlas
-              .refreshInitiative({ initiativeId: initiative.id })
-              .pipe(Effect.catchTags({ AtlasInitiativeNotFoundError: () => Effect.void })),
+            Effect.gen(function* () {
+              const refreshed = yield* atlas.refreshInitiative({ initiativeId: initiative.id });
+              for (const candidate of refreshed.tasks) {
+                if (!shouldAutoReview(refreshed, candidate)) continue;
+                // Settings or human decisions can change while earlier reviews are being launched.
+                const current = yield* atlas.getInitiative({ initiativeId: initiative.id });
+                const task = current.tasks.find((item) => item.id === candidate.id);
+                const policy = current.autoReview;
+                if (!policy?.enabled || !task || !shouldAutoReview(current, task)) continue;
+                yield* atlas
+                  .startAgentReview({
+                    initiativeId: current.id,
+                    taskId: task.id,
+                    modelSelection: policy.modelSelection,
+                    runtimeMode: policy.runtimeMode,
+                    interactionMode: policy.interactionMode,
+                    autoApplyVerdict: policy.autoApplyVerdict,
+                  })
+                  .pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logWarning("Atlas automatic review could not start", {
+                        initiativeId: current.id,
+                        taskId: task.id,
+                        cause,
+                      }),
+                    ),
+                  );
+              }
+            }).pipe(Effect.catchTags({ AtlasInitiativeNotFoundError: () => Effect.void })),
           { discard: true, concurrency: 1 },
         ),
       ),

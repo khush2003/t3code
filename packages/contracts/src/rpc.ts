@@ -366,6 +366,8 @@ import {
   AtlasRequestChangesInput,
   AtlasStartAgentReviewInput,
   AtlasStartPlanningInput,
+  AtlasStartPlanAdjustmentInput,
+  AtlasApplyPlanAdjustmentInput,
   AtlasUpdateInitiativeInput,
 } from "./atlas.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
@@ -538,6 +540,8 @@ export const WS_METHODS = {
   atlasUpdateInitiative: "atlas.updateInitiative",
   atlasDeleteInitiative: "atlas.deleteInitiative",
   atlasStartPlanning: "atlas.startPlanning",
+  atlasStartPlanAdjustment: "atlas.startPlanAdjustment",
+  atlasApplyPlanAdjustment: "atlas.applyPlanAdjustment",
   atlasImportPlan: "atlas.importPlan",
   atlasRefreshInitiative: "atlas.refreshInitiative",
   atlasExecuteTask: "atlas.executeTask",
@@ -1897,6 +1901,18 @@ const WsAtlasStartPlanningRpc = Rpc.make(WS_METHODS.atlasStartPlanning, {
   error: atlasError,
 });
 
+const WsAtlasStartPlanAdjustmentRpc = Rpc.make(WS_METHODS.atlasStartPlanAdjustment, {
+  payload: AtlasStartPlanAdjustmentInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
+const WsAtlasApplyPlanAdjustmentRpc = Rpc.make(WS_METHODS.atlasApplyPlanAdjustment, {
+  payload: AtlasApplyPlanAdjustmentInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
 const WsAtlasImportPlanRpc = Rpc.make(WS_METHODS.atlasImportPlan, {
   payload: AtlasImportPlanInput,
   success: AtlasInitiative,
@@ -2170,6 +2186,8 @@ export const WsAtlasRpcGroup = RpcGroup.make(
   WsAtlasUpdateInitiativeRpc,
   WsAtlasDeleteInitiativeRpc,
   WsAtlasStartPlanningRpc,
+  WsAtlasStartPlanAdjustmentRpc,
+  WsAtlasApplyPlanAdjustmentRpc,
   WsAtlasImportPlanRpc,
   WsAtlasRefreshInitiativeRpc,
   WsAtlasExecuteTaskRpc,

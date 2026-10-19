@@ -1,6 +1,9 @@
 import {
   AtlasInitiative,
+  AtlasProviderLaunchError,
+  type AtlasStartAgentReviewInput,
   EventId,
+  CommandId,
   MessageId,
   ProviderInstanceId,
   RunId,
@@ -165,6 +168,221 @@ it.effect("periodic recovery reconciles a missed completion after the event stre
         yield* worker.drain;
         assert.deepEqual(calls, [pending.id]);
         assert.strictEqual(lists, 2);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
+const autoReviewPolicy = {
+  enabled: true,
+  modelSelection: { instanceId, model: "reviewer-model" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  autoApplyVerdict: false,
+} as const;
+
+function reviewableInitiative() {
+  return decodeInitiative({
+    ...initiative("initiative:auto-review", "thread:planner", false),
+    autoReview: autoReviewPolicy,
+    tasks: [
+      {
+        id: "task:reviewable",
+        ordinal: 0,
+        title: "Review a completed deliverable",
+        description: "Deliver the work",
+        specialty: "backend",
+        acceptanceCriteria: ["It works"],
+        dependsOn: [],
+        blockedBy: [],
+        status: "needs_review",
+        issue: null,
+        launch: null,
+        createdAt: now,
+        updatedAt: now,
+        humanDecision: { outcome: "pending", feedback: null, decidedAt: null },
+        agentReview: null,
+        execution: {
+          threadId,
+          runId,
+          status: "completed",
+          startedAt: now,
+          finishedAt: now,
+          result: "Done",
+          workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/deliverable" },
+        },
+      },
+    ],
+  });
+}
+
+it.effect("automatically starts one review after completion using the initiative policy", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let current = reviewableInitiative();
+      const calls: AtlasStartAgentReviewInput[] = [];
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () => Effect.succeed({ initiatives: [current] }),
+          refreshInitiative: () => Effect.succeed(current),
+          getInitiative: () => Effect.succeed(current),
+          startAgentReview: (input) =>
+            Effect.sync(() => {
+              calls.push(input);
+              current = {
+                ...current,
+                tasks: current.tasks.map((task) => ({
+                  ...task,
+                  agentReview: {
+                    threadId: ThreadId.make("thread:auto-review"),
+                    runId: RunId.make("run:auto-review"),
+                    status: "running",
+                    outcome: null,
+                    feedback: null,
+                    startedAt: now,
+                    finishedAt: null,
+                    result: null,
+                    autoApplyVerdict: false,
+                  },
+                })),
+              };
+              return current;
+            }),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.empty }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.reconcile(threadId);
+        yield* worker.reconcile(threadId);
+        assert.deepEqual(calls, [
+          {
+            initiativeId: current.id,
+            taskId: current.tasks[0]!.id,
+            modelSelection: autoReviewPolicy.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            autoApplyVerdict: false,
+          },
+        ]);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
+it.effect.each([
+  "disabled",
+  "unconfigured",
+  "human decision",
+  "review exists",
+  "incomplete execution",
+])("does not automatically review when $0", (reason) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const original = reviewableInitiative();
+      const first = original.tasks[0]!;
+      const current: AtlasInitiative = {
+        ...original,
+        autoReview:
+          reason === "disabled"
+            ? { ...autoReviewPolicy, enabled: false }
+            : reason === "unconfigured"
+              ? null
+              : autoReviewPolicy,
+        tasks: [
+          {
+            ...first,
+            humanDecision:
+              reason === "human decision"
+                ? { outcome: "approved", feedback: null, decidedAt: now }
+                : first.humanDecision,
+            execution:
+              reason === "incomplete execution"
+                ? { ...first.execution!, status: "running" }
+                : first.execution,
+            agentReview:
+              reason === "review exists"
+                ? {
+                    threadId,
+                    runId,
+                    status: "failed",
+                    outcome: null,
+                    feedback: null,
+                    startedAt: now,
+                    finishedAt: now,
+                    result: "Failed",
+                    autoApplyVerdict: false,
+                  }
+                : null,
+          },
+        ],
+      };
+      let calls = 0;
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () => Effect.succeed({ initiatives: [current] }),
+          refreshInitiative: () => Effect.succeed(current),
+          getInitiative: () => Effect.succeed(current),
+          startAgentReview: () =>
+            Effect.sync(() => {
+              calls++;
+              return current;
+            }),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.empty }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.reconcile(threadId);
+        assert.equal(calls, 0);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
+it.effect("does not automatically retry a persisted review launch error", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let current = reviewableInitiative();
+      let calls = 0;
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () => Effect.succeed({ initiatives: [current] }),
+          refreshInitiative: () => Effect.succeed(current),
+          getInitiative: () => Effect.succeed(current),
+          startAgentReview: () =>
+            Effect.suspend(() => {
+              calls++;
+              current = {
+                ...current,
+                tasks: current.tasks.map((task) => ({
+                  ...task,
+                  launch: {
+                    operation: "review",
+                    commandId: CommandId.make("command:failed-review"),
+                    messageId: MessageId.make("message:failed-review"),
+                    createdAt: now,
+                    error: "Reviewer model is unavailable",
+                  },
+                })),
+              };
+              return Effect.fail(
+                new AtlasProviderLaunchError({
+                  operation: "review",
+                  cause: "Reviewer model is unavailable",
+                }),
+              );
+            }),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.empty }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.reconcile();
+        yield* worker.reconcile();
+        yield* worker.reconcile(threadId);
+        assert.equal(calls, 1);
+        assert.equal(current.tasks[0]!.launch?.error, "Reviewer model is unavailable");
       }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
     }),
   ),

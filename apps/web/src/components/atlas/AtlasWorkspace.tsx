@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { LayoutGridIcon, ListIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -16,19 +16,15 @@ import { Button } from "../ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AtlasAgentControlPane } from "./AtlasAgentControlPane";
 import { AtlasInitiativeDialog } from "./AtlasInitiativeDialog";
 import { AtlasPlannerPanel } from "./AtlasPlannerPanel";
-import { AtlasProgressStrip, AtlasStatusDot } from "./AtlasProgress";
-import { AtlasTaskCard } from "./AtlasTaskCard";
-import {
-  ATLAS_BOARD_COLUMNS,
-  initiativeHasActiveWork,
-  initiativeStatusLabel,
-  taskCounts,
-} from "./atlasLogic";
+import { AtlasAutoReviewDialog } from "./AtlasAutoReviewDialog";
+import { AtlasPlanAdjustmentDialog, type AtlasAdjustmentSource } from "./AtlasPlanAdjustmentDialog";
+import { AtlasProgressStrip } from "./AtlasProgress";
+import { AtlasTaskList } from "./AtlasTaskList";
+import { initiativeHasActiveWork, initiativeStatusLabel, taskCounts } from "./atlasLogic";
 
 const ACTIVE_WORK_POLL_MS = 4_000;
 
@@ -45,12 +41,9 @@ function AtlasInitiativeDetail({
   readonly onEdit: () => void;
   readonly onDelete: () => void;
 }) {
-  const [view, setView] = useState<"board" | "list">("board");
+  const [adjustSource, setAdjustSource] = useState<AtlasAdjustmentSource | null>(null);
+  const [autoReviewOpen, setAutoReviewOpen] = useState(false);
   const counts = taskCounts(initiative.tasks);
-  const columns = ATLAS_BOARD_COLUMNS.flatMap((column) => {
-    const tasks = initiative.tasks.filter((task) => task.status === column.status);
-    return tasks.length > 0 ? [{ ...column, tasks }] : [];
-  });
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-5 pt-6 pb-16 sm:px-8">
@@ -116,73 +109,34 @@ function AtlasInitiativeDetail({
         environmentId={environmentId}
         initiative={initiative}
         taskCount={initiative.tasks.length}
+        onAdjust={setAdjustSource}
       />
 
       {initiative.tasks.length === 0 ? null : (
-        <section className="space-y-4" aria-label="Tasks">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-semibold text-base">
-              Tasks{" "}
-              <span className="font-normal text-muted-foreground tabular-nums">{counts.total}</span>
-            </h2>
-            <ToggleGroup
-              value={[view]}
-              onValueChange={(value) => {
-                const next = value[0];
-                if (next === "board" || next === "list") setView(next);
-              }}
-            >
-              <ToggleGroupItem value="board" aria-label="Board view">
-                <LayoutGridIcon />
-                Board
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label="List view">
-                <ListIcon />
-                List
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-
-          {view === "board" ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(17rem,100%),1fr))] items-start gap-3">
-              {columns.map((column) => (
-                <div
-                  key={column.status}
-                  className="flex min-w-0 flex-col gap-2 rounded-xl bg-muted/50 p-2 dark:bg-muted/30"
-                >
-                  <div className="flex items-center gap-2 px-1.5 pt-1 pb-0.5">
-                    <AtlasStatusDot status={column.status} />
-                    <span className="font-medium text-sm">{column.label}</span>
-                    <span className="ml-auto text-muted-foreground text-xs tabular-nums">
-                      {column.tasks.length}
-                    </span>
-                  </div>
-                  {column.tasks.map((task) => (
-                    <AtlasTaskCard
-                      key={task.id}
-                      environmentId={environmentId}
-                      initiative={initiative}
-                      task={task}
-                      showStatus={false}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {initiative.tasks.map((task) => (
-                <AtlasTaskCard
-                  key={task.id}
-                  environmentId={environmentId}
-                  initiative={initiative}
-                  task={task}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        <AtlasTaskList
+          environmentId={environmentId}
+          initiative={initiative}
+          onAdjust={(taskId) => setAdjustSource({ kind: "manual", focusTaskId: taskId })}
+          onConfigureAutoReview={() => setAutoReviewOpen(true)}
+        />
       )}
+
+      {adjustSource ? (
+        <AtlasPlanAdjustmentDialog
+          environmentId={environmentId}
+          initiative={initiative}
+          source={adjustSource}
+          onClose={() => setAdjustSource(null)}
+        />
+      ) : null}
+      {autoReviewOpen ? (
+        <AtlasAutoReviewDialog
+          environmentId={environmentId}
+          initiative={initiative}
+          open
+          onOpenChange={setAutoReviewOpen}
+        />
+      ) : null}
     </div>
   );
 }

@@ -76,6 +76,18 @@ export function createAtlasEnvironmentAtoms<R, E>(
       scheduler,
       onSuccess: ({ environmentId }, registry) => bump(registry, environmentId),
     }),
+    startPlanAdjustment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:atlas:start-plan-adjustment",
+      tag: WS_METHODS.atlasStartPlanAdjustment,
+      scheduler,
+      onSuccess: ({ environmentId }, registry) => bump(registry, environmentId),
+    }),
+    applyPlanAdjustment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:atlas:apply-plan-adjustment",
+      tag: WS_METHODS.atlasApplyPlanAdjustment,
+      scheduler,
+      onSuccess: ({ environmentId }, registry) => bump(registry, environmentId),
+    }),
     importPlan: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:atlas:import-plan",
       tag: WS_METHODS.atlasImportPlan,

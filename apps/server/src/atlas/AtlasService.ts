@@ -10,8 +10,10 @@ import {
   AtlasInitiativeId,
   AtlasIssuePublishError,
   AtlasPersistenceError,
+  AtlasPlanAdjustment,
   AtlasPlanDraft,
   AtlasPlanImportError,
+  AtlasPlanRevisionConflictError,
   AtlasPlanValidationError,
   AtlasProjectBusyError,
   AtlasProjectNotFoundError,
@@ -24,6 +26,8 @@ import {
   AtlasTaskNotRunnableError,
   AtlasTaskStatus,
   type AtlasAgentReview,
+  type AtlasApplyPlanAdjustmentInput,
+  type AtlasStartPlanAdjustmentInput,
   type AtlasCreateInitiativeInput,
   type AtlasDeleteInitiativeInput,
   type AtlasDeleteInitiativeResult,
@@ -69,6 +73,8 @@ const MAX_TASKS_PER_PLAN = 100;
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const isMissingProjection = Schema.is(ProjectionStoreThreadNotFoundError);
 const decodePlan = Schema.decodeUnknownEffect(AtlasPlanDraft);
+const decodeAdjustment = Schema.decodeUnknownEffect(AtlasPlanAdjustment);
+const decodeAdjustmentSync = Schema.decodeUnknownSync(AtlasPlanAdjustment);
 const isPlanValidationError = Schema.is(AtlasPlanValidationError);
 const decodeReviewVerdict = Schema.decodeUnknownSync(
   Schema.Struct({ outcome: AtlasAgentReviewOutcome, feedback: Schema.String }),
@@ -167,7 +173,11 @@ const validatePlan = (plan: AtlasPlanDraft): AtlasPlanDraft => {
     }
   }
 
-  const byKey = new Map(plan.tasks.map((task) => [task.key, task]));
+  assertAcyclic(new Map(plan.tasks.map((task) => [task.key, task.dependsOn])));
+  return plan;
+};
+
+const assertAcyclic = (dependencies: ReadonlyMap<string, ReadonlyArray<string>>) => {
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (key: string) => {
@@ -176,14 +186,151 @@ const validatePlan = (plan: AtlasPlanDraft): AtlasPlanDraft => {
       throw new AtlasPlanValidationError({ reason: `Dependencies form a cycle at "${key}".` });
     }
     visiting.add(key);
-    for (const dependency of byKey.get(key)?.dependsOn ?? []) visit(dependency);
+    for (const dependency of dependencies.get(key) ?? []) visit(dependency);
     visiting.delete(key);
     visited.add(key);
   };
-  for (const task of plan.tasks) visit(task.key);
-
-  return plan;
+  for (const key of dependencies.keys()) visit(key);
 };
+
+// Anything that has launched, run, or been reviewed carries history the user relies on, so
+// adjustments may only add follow-ups around it. Publication alone does not freeze a task.
+const isStartedTask = (task: AtlasTask): boolean =>
+  task.status !== "proposed" ||
+  task.execution !== null ||
+  task.agentReview !== null ||
+  task.launch !== null;
+
+const applyAdjustment = (
+  tasks: ReadonlyArray<AtlasTask>,
+  adjustment: AtlasPlanAdjustment,
+  newIds: ReadonlyArray<AtlasTaskId>,
+  now: string,
+): ReadonlyArray<AtlasTask> => {
+  const reject = (reason: string) => new AtlasPlanValidationError({ reason });
+  const byId = new Map(tasks.map((task) => [task.id as string, task]));
+  const requireUnstarted = (taskId: string, action: string) => {
+    const task = byId.get(taskId);
+    if (task === undefined) throw reject(`Cannot ${action} unknown task "${taskId}".`);
+    if (isStartedTask(task)) {
+      throw reject(
+        `Task "${task.title}" has already started; add a follow-up task instead of trying to ${action} it.`,
+      );
+    }
+    return task;
+  };
+
+  const removed = new Set<string>();
+  for (const taskId of adjustment.removals) {
+    if (removed.has(taskId)) throw reject(`Task "${taskId}" is removed more than once.`);
+    const task = requireUnstarted(taskId, "remove");
+    // Removing would orphan the GitHub issue, which Atlas cannot close on the user's behalf.
+    if (task.issue !== null) {
+      throw reject(
+        `Task "${task.title}" is published as issue #${task.issue.number}; edit it instead of removing it.`,
+      );
+    }
+    removed.add(taskId);
+  }
+
+  const updates = new Map<string, AtlasPlanAdjustment["updates"][number]>();
+  for (const update of adjustment.updates) {
+    if (updates.has(update.taskId)) throw reject(`Task "${update.taskId}" is updated twice.`);
+    if (removed.has(update.taskId)) {
+      throw reject(`Task "${update.taskId}" cannot be both updated and removed.`);
+    }
+    requireUnstarted(update.taskId, "edit");
+    updates.set(update.taskId, update);
+  }
+
+  const idByKey = new Map<string, AtlasTaskId>();
+  adjustment.additions.forEach((addition, index) => {
+    if (idByKey.has(addition.key)) throw reject(`Duplicate new task key "${addition.key}".`);
+    if (byId.has(addition.key)) {
+      throw reject(`New task key "${addition.key}" collides with an existing task id.`);
+    }
+    idByKey.set(addition.key, newIds[index]!);
+  });
+
+  const resolve = (owner: string, reference: string): AtlasTaskId => {
+    const added = idByKey.get(reference);
+    if (added !== undefined) return added;
+    if (removed.has(reference)) {
+      throw reject(`Task "${owner}" still depends on removed task "${reference}".`);
+    }
+    const existing = byId.get(reference);
+    if (existing === undefined) {
+      throw reject(`Task "${owner}" depends on unknown task "${reference}".`);
+    }
+    return existing.id;
+  };
+
+  const kept = tasks
+    .filter((task) => !removed.has(task.id))
+    .map((task): AtlasTask => {
+      const update = updates.get(task.id);
+      if (update === undefined) return task;
+      return {
+        ...task,
+        title: update.title ?? task.title,
+        description: update.description ?? task.description,
+        specialty: update.specialty ?? task.specialty,
+        acceptanceCriteria: update.acceptanceCriteria ?? task.acceptanceCriteria,
+        dependsOn:
+          update.dependsOn?.map((reference) => resolve(task.title, reference)) ?? task.dependsOn,
+        issue: task.issue === null ? null : { ...task.issue, needsSync: true },
+        updatedAt: now,
+      };
+    });
+
+  const nextOrdinal = tasks.reduce((max, task) => Math.max(max, task.ordinal + 1), 0);
+  const added = adjustment.additions.map((addition, index): AtlasTask => ({
+    id: idByKey.get(addition.key)!,
+    ordinal: nextOrdinal + index,
+    title: addition.title,
+    description: addition.description,
+    specialty: addition.specialty,
+    acceptanceCriteria: addition.acceptanceCriteria,
+    dependsOn: addition.dependsOn.map((reference) => resolve(addition.key, reference)),
+    blockedBy: [],
+    status: "proposed",
+    issue: null,
+    execution: null,
+    agentReview: null,
+    humanDecision: { outcome: "pending", feedback: null, decidedAt: null },
+    launch: null,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  const next = [...kept, ...added];
+  if (next.length === 0) throw reject("An adjustment cannot remove every task.");
+  if (next.length > MAX_TASKS_PER_PLAN) {
+    throw reject(`A plan may contain at most ${MAX_TASKS_PER_PLAN} tasks.`);
+  }
+  const finalIds = new Set(next.map((task) => task.id as string));
+  for (const task of next) {
+    const dangling = task.dependsOn.find((dependency) => !finalIds.has(dependency));
+    if (dangling !== undefined) {
+      throw reject(
+        removed.has(dangling)
+          ? `Task "${task.title}" still depends on removed task "${dangling}".`
+          : `Task "${task.title}" depends on unknown task "${dangling}".`,
+      );
+    }
+    if (new Set(task.dependsOn).size !== task.dependsOn.length) {
+      throw reject(`Task "${task.title}" lists the same dependency more than once.`);
+    }
+    if (task.dependsOn.includes(task.id)) throw reject(`Task "${task.title}" depends on itself.`);
+  }
+  assertAcyclic(new Map(next.map((task) => [task.id as string, task.dependsOn])));
+  return next;
+};
+
+const toValidationError = (cause: unknown) =>
+  isPlanValidationError(cause)
+    ? cause
+    : new AtlasPlanValidationError({ reason: String(cause).slice(0, 2_000) });
 
 const runOptions = (input: AtlasRunOptions) => ({
   modelSelection: input.modelSelection,
@@ -246,7 +393,15 @@ const PLANNER_FORMAT = `Return ONLY a final JSON object with this exact shape (n
   ]
 }
 Keys must be unique. dependsOn may only reference keys in this plan and must be acyclic.
-Every task must have at least one acceptance criterion. Keep tasks independently executable.`;
+Every task must have at least one acceptance criterion.`;
+
+// Each dependency serializes work, so the planner is pushed toward a wide DAG instead of a chain.
+const DEPENDENCY_GUIDANCE = `Dependencies:
+- Add a dependency only when a task cannot start without an artifact another task produces (a file, schema, API, or asset it must read or build on). Sequencing preference, topic similarity, or "it would be nicer first" is not a dependency.
+- Split work by specialty (for example backend, frontend, assets, tests, docs) so separate agents can run in parallel.
+- When several tasks need a shared interface, make one small early task that fixes that contract (types, schema, API shape, file layout) and let the specialty tasks depend only on it.
+- Do not chain every task after the previous one. Most tasks should be runnable in parallel once their real prerequisites are approved.
+- Keep each task independently reviewable against its acceptance criteria.`;
 
 const plannerPrompt = (initiative: AtlasInitiative): string =>
   formatPrompt([
@@ -257,9 +412,80 @@ const plannerPrompt = (initiative: AtlasInitiative): string =>
     initiative.deliverables.length === 0
       ? ""
       : `Deliverables:\n${initiative.deliverables.map((item) => `- ${item}`).join("\n")}`,
-    "Decompose the work into small, reviewable tasks. Capture every dependency explicitly.",
+    "Decompose the work into small, reviewable tasks.",
+    DEPENDENCY_GUIDANCE,
     "Do not edit files, create commits, or run mutating commands. Produce a plan only.",
     PLANNER_FORMAT,
+  ]);
+
+const truncate = (text: string, limit: number): string =>
+  text.length <= limit ? text : `${text.slice(0, limit)}\n…(truncated)`;
+
+const ADJUSTMENT_FORMAT = `Return ONLY a final JSON object with this exact shape (no markdown prose around it):
+{
+  "summary": "what changes and why",
+  "updates": [
+    {
+      "taskId": "existing NOT-STARTED task id",
+      "title": "optional new title",
+      "description": "optional new description",
+      "specialty": "optional new specialty",
+      "acceptanceCriteria": ["optional replacement criteria"],
+      "dependsOn": ["optional replacement list of task ids or new task keys"]
+    }
+  ],
+  "additions": [
+    {
+      "key": "new-local-key",
+      "title": "task title",
+      "description": "implementation details",
+      "specialty": "frontend | backend | tests | docs | ...",
+      "acceptanceCriteria": ["observable criterion"],
+      "dependsOn": ["existing task id or another new key"]
+    }
+  ],
+  "removals": ["existing NOT-STARTED task id"]
+}
+Omit fields you do not change. Leave arrays empty when there is nothing to do. Dependencies must stay acyclic.`;
+
+const adjustmentTaskSummary = (task: AtlasTask): string =>
+  [
+    `### ${task.id} — ${task.title}`,
+    `State: ${
+      isStartedTask(task)
+        ? `STARTED (${task.status}), read-only`
+        : task.issue !== null
+          ? `not started, editable but NOT removable (published as issue #${task.issue.number}${task.issue.needsSync === true ? ", issue out of date" : ""})`
+          : "not started, editable"
+    }`,
+    `Exact taskId for JSON: ${JSON.stringify(task.id)} (include the atlas-task: prefix)`,
+    `Specialty: ${task.specialty}`,
+    `Depends on: ${task.dependsOn.length === 0 ? "(none)" : task.dependsOn.join(", ")}`,
+    `Description:\n${truncate(task.description, 2_000)}`,
+    `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
+    task.execution?.result == null
+      ? ""
+      : `Latest implementation result:\n${truncate(task.execution.result, 3_000)}`,
+    task.humanDecision.feedback === null
+      ? ""
+      : `Reviewer feedback (${task.humanDecision.outcome}):\n${truncate(task.humanDecision.feedback, 2_000)}`,
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
+
+const adjustmentPrompt = (initiative: AtlasInitiative, instructions: string): string =>
+  formatPrompt([
+    "You are the Atlas planning agent. Propose an incremental adjustment to an existing task plan. A human will preview and apply your patch; you do not replace the plan.",
+    `Project id: ${initiative.projectId}`,
+    `Initiative: ${initiative.title}`,
+    `Brief:\n${initiative.brief}`,
+    initiative.planSummary === null ? "" : `Current plan summary:\n${initiative.planSummary}`,
+    `Requested change:\n${instructions}`,
+    `Current tasks:\n\n${initiative.tasks.map(adjustmentTaskSummary).join("\n\n")}`,
+    "Rules:\n- STARTED tasks are history: never update or remove them. If their outcome needs more work, add a follow-up task that depends on them.\n- Only update or remove tasks that have not started.\n- A not-started task published as a GitHub issue may be updated, but never removed; the user will sync its issue explicitly after applying.\n- Reuse existing task ids exactly as written above. Keep the patch minimal and do not rewrite tasks that do not need to change.\n- Base decisions on the recorded results and feedback, and inspect the workspace if needed.",
+    DEPENDENCY_GUIDANCE,
+    "Do not edit files, create commits, or run mutating commands. Produce a patch only.",
+    ADJUSTMENT_FORMAT,
   ]);
 
 const taskPrompt = (
@@ -374,6 +600,27 @@ export class AtlasService extends Context.Service<
       | AtlasPersistenceError
       | AtlasPlanImportError
       | AtlasPlanValidationError
+      | AtlasExecutionNotFinishedError
+    >;
+    readonly startPlanAdjustment: (
+      input: AtlasStartPlanAdjustmentInput,
+    ) => Effect.Effect<
+      AtlasInitiative,
+      | AtlasInitiativeNotFoundError
+      | AtlasProjectNotFoundError
+      | AtlasPlanValidationError
+      | AtlasPersistenceError
+      | AtlasProviderLaunchError
+    >;
+    readonly applyPlanAdjustment: (
+      input: AtlasApplyPlanAdjustmentInput,
+    ) => Effect.Effect<
+      AtlasInitiative,
+      | AtlasInitiativeNotFoundError
+      | AtlasPersistenceError
+      | AtlasPlanImportError
+      | AtlasPlanValidationError
+      | AtlasPlanRevisionConflictError
       | AtlasExecutionNotFinishedError
     >;
     readonly refreshInitiative: (
@@ -677,16 +924,7 @@ const make = Effect.gen(function* () {
           ? null
           : yield* readRun(initiative.planner.threadId, initiative.planner.runId);
       const planner =
-        plannerRun === null
-          ? initiative.planner
-          : {
-              ...initiative.planner,
-              status: mapPlannerStatus(plannerRun.status),
-              error:
-                plannerRun.status === "failed"
-                  ? (plannerRun.result ?? "The planning run failed.")
-                  : null,
-            };
+        plannerRun === null ? initiative.planner : syncPlanner(initiative, plannerRun, now);
 
       const tasks = yield* Effect.forEach(
         initiative.tasks,
@@ -722,6 +960,48 @@ const make = Effect.gen(function* () {
 
   const runOptionsFor = (input: AtlasRunOptions) => input;
 
+  const syncPlanner = (
+    initiative: AtlasInitiative,
+    run: LinkedRun,
+    now: string,
+  ): AtlasInitiative["planner"] => {
+    const status = mapPlannerStatus(run.status);
+    const base = { ...initiative.planner, status };
+    if (run.status === "failed") {
+      return { ...base, error: run.result ?? "The planning run failed.", adjustment: null };
+    }
+    if (status !== "completed" || initiative.planner.mode !== "adjust") {
+      return { ...base, error: null };
+    }
+    if (initiative.planner.adjustment !== null) return { ...base, error: null };
+    // The run's output stays readable after its proposal was applied or overtaken by another
+    // plan change, so only a run based on the current revision may produce a proposal.
+    if (initiative.planner.baseRevision !== initiative.planRevision) {
+      return { ...base, error: null, adjustment: null };
+    }
+    if (run.result === null) {
+      return { ...base, error: "The planner produced no assistant output." };
+    }
+    try {
+      const adjustment = decodeAdjustmentSync(parseJsonObject(run.result));
+      // Dry-run against the current tasks so an unusable patch surfaces before preview.
+      applyAdjustment(
+        initiative.tasks,
+        adjustment,
+        adjustment.additions.map((addition) => AtlasTaskId.make(`preview:${addition.key}`)),
+        now,
+      );
+      return { ...base, error: null, adjustment };
+    } catch (cause) {
+      return {
+        ...base,
+        error: isPlanValidationError(cause)
+          ? cause.reason
+          : "The planner output did not contain a valid plan adjustment.",
+      };
+    }
+  };
+
   const listInitiatives: AtlasService["Service"]["listInitiatives"] = (input) =>
     store.list(input.projectId).pipe(
       Effect.map((initiatives) => ({
@@ -747,7 +1027,19 @@ const make = Effect.gen(function* () {
         deliverables: input.deliverables,
         status: "draft",
         planSummary: null,
-        planner: { status: "idle", threadId: null, runId: null, error: null, launch: null },
+        planRevision: 0,
+        planner: {
+          status: "idle",
+          threadId: null,
+          runId: null,
+          error: null,
+          launch: null,
+          mode: "plan",
+          baseRevision: null,
+          instructions: null,
+          adjustment: null,
+        },
+        autoReview: null,
         tasks: [],
         createdAt: now,
         updatedAt: now,
@@ -767,6 +1059,7 @@ const make = Effect.gen(function* () {
           title: input.title ?? initiative.title,
           brief: input.brief ?? initiative.brief,
           deliverables: input.deliverables ?? initiative.deliverables,
+          autoReview: input.autoReview === undefined ? initiative.autoReview : input.autoReview,
           updatedAt: now,
         });
         yield* store.save(next);
@@ -803,6 +1096,83 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const launchPlanner = (
+    initiative: AtlasInitiative,
+    options: AtlasRunOptions,
+    request: Pick<AtlasInitiative["planner"], "mode" | "baseRevision" | "instructions">,
+    title: string,
+    prompt: string,
+  ) =>
+    Effect.gen(function* () {
+      yield* requireProject(initiative.projectId);
+      const previous = initiative.planner;
+      // A launch attempt is only retried for the same request; otherwise its command id
+      // would resolve to the thread of a different planning request.
+      const reusable =
+        previous.launch?.operation === "planner" &&
+        previous.mode === request.mode &&
+        previous.instructions === request.instructions
+          ? previous.launch
+          : null;
+      const attempt = reusable ?? (yield* makeLaunchAttempt("planner"));
+      // Drop the previous run link: once baseRevision moves, refresh would otherwise re-read
+      // that run and resurrect its already-applied proposal.
+      const pending = {
+        ...previous,
+        ...request,
+        status: "idle" as const,
+        threadId: null,
+        runId: null,
+        error: null,
+        adjustment: null,
+        launch: attempt,
+      };
+      if (reusable === null) {
+        yield* store.save(
+          withComputedView({ ...initiative, planner: pending, updatedAt: yield* nowIso }),
+        );
+      }
+      const launched = yield* launch(
+        "planner",
+        initiative,
+        title,
+        prompt,
+        runOptionsFor(options),
+        attempt,
+      ).pipe(
+        Effect.tapError(() =>
+          Effect.gen(function* () {
+            const now = yield* nowIso;
+            yield* store
+              .save(
+                withComputedView({
+                  ...initiative,
+                  planner: { ...pending, status: "failed", error: "Launch failed." },
+                  updatedAt: now,
+                }),
+              )
+              .pipe(Effect.ignore);
+          }),
+        ),
+      );
+      const now = yield* nowIso;
+      const next = withComputedView({
+        ...initiative,
+        planner: {
+          ...request,
+          status: "running",
+          threadId: launched.threadId,
+          runId: launched.runId,
+          error: null,
+          launch: null,
+          adjustment: null,
+        },
+        updatedAt: now,
+      });
+      yield* store.save(next);
+      return next;
+    });
+
   const startPlanning: AtlasService["Service"]["startPlanning"] = (input) =>
     initiativeLocks.withLock(
       input.initiativeId,
@@ -810,58 +1180,108 @@ const make = Effect.gen(function* () {
         const current = yield* load(input.initiativeId);
         const initiative = yield* syncInitiative(current);
         if (initiative.planner.status === "running") return initiative;
-        yield* requireProject(initiative.projectId);
-        const attempt =
-          initiative.planner.launch?.operation === "planner"
-            ? initiative.planner.launch
-            : yield* makeLaunchAttempt("planner");
-        if (initiative.planner.launch === null) {
-          yield* store.save(
-            withComputedView({
-              ...initiative,
-              planner: { ...initiative.planner, launch: attempt },
-              updatedAt: yield* nowIso,
+        return yield* launchPlanner(
+          initiative,
+          input,
+          { mode: "plan", baseRevision: null, instructions: null },
+          `Atlas plan: ${initiative.title}`,
+          plannerPrompt(initiative),
+        );
+      }),
+    );
+
+  const startPlanAdjustment: AtlasService["Service"]["startPlanAdjustment"] = (input) =>
+    initiativeLocks.withLock(
+      input.initiativeId,
+      Effect.gen(function* () {
+        const current = yield* load(input.initiativeId);
+        const initiative = yield* syncInitiative(current);
+        if (initiative.planner.status === "running") return initiative;
+        if (initiative.tasks.length === 0) {
+          return yield* Effect.fail(
+            new AtlasPlanValidationError({
+              reason: "There is no plan to adjust yet. Plan or import the initiative first.",
             }),
           );
         }
-        const launched = yield* launch(
-          "planner",
+        return yield* launchPlanner(
           initiative,
-          `Atlas plan: ${initiative.title}`,
-          plannerPrompt(initiative),
-          runOptionsFor(input),
-          attempt,
-        ).pipe(
-          Effect.tapError(() =>
-            Effect.gen(function* () {
-              const now = yield* nowIso;
-              yield* store
-                .save(
-                  withComputedView({
-                    ...initiative,
-                    planner: {
-                      ...initiative.planner,
-                      status: "failed",
-                      error: "Launch failed.",
-                      launch: attempt,
-                    },
-                    updatedAt: now,
-                  }),
-                )
-                .pipe(Effect.ignore);
-            }),
-          ),
+          input,
+          {
+            mode: "adjust",
+            baseRevision: initiative.planRevision,
+            instructions: input.instructions,
+          },
+          `Atlas plan adjustment: ${initiative.title}`,
+          adjustmentPrompt(initiative, input.instructions),
         );
+      }),
+    );
+
+  const applyPlanAdjustment: AtlasService["Service"]["applyPlanAdjustment"] = (input) =>
+    initiativeLocks.withLock(
+      input.initiativeId,
+      Effect.gen(function* () {
+        const current = yield* load(input.initiativeId);
+        const initiative = yield* syncInitiative(current);
+        const conflict = (expectedPlanRevision: number) =>
+          new AtlasPlanRevisionConflictError({
+            initiativeId: initiative.id,
+            expectedPlanRevision,
+            actualPlanRevision: initiative.planRevision,
+          });
+        if (input.expectedPlanRevision !== initiative.planRevision) {
+          return yield* Effect.fail(conflict(input.expectedPlanRevision));
+        }
+
+        let adjustment: AtlasPlanAdjustment;
+        if (input.adjustment !== undefined) {
+          adjustment = yield* decodeAdjustment(input.adjustment).pipe(
+            Effect.mapError(toValidationError),
+          );
+        } else {
+          const planner = initiative.planner;
+          if (planner.mode !== "adjust" || planner.threadId === null) {
+            return yield* Effect.fail(
+              new AtlasPlanImportError({ reason: "No plan adjustment run is linked." }),
+            );
+          }
+          if (planner.status === "running") {
+            return yield* Effect.fail(
+              new AtlasExecutionNotFinishedError({ threadId: planner.threadId, status: "running" }),
+            );
+          }
+          if (planner.baseRevision !== initiative.planRevision) {
+            return yield* Effect.fail(conflict(planner.baseRevision ?? 0));
+          }
+          if (planner.adjustment === null) {
+            return yield* Effect.fail(
+              new AtlasPlanImportError({
+                reason: (planner.error ?? "The planner has not proposed an adjustment.").slice(
+                  0,
+                  2_000,
+                ),
+              }),
+            );
+          }
+          adjustment = planner.adjustment;
+        }
+
         const now = yield* nowIso;
+        const ids = yield* Effect.forEach(
+          adjustment.additions,
+          () => randomId("atlas-task").pipe(Effect.map(AtlasTaskId.make)),
+          { concurrency: 1 },
+        );
+        const tasks = yield* Effect.try({
+          try: () => applyAdjustment(initiative.tasks, adjustment, ids, now),
+          catch: toValidationError,
+        });
         const next = withComputedView({
           ...initiative,
-          planner: {
-            status: "running",
-            threadId: launched.threadId,
-            runId: launched.runId,
-            error: null,
-            launch: null,
-          },
+          tasks,
+          planRevision: initiative.planRevision + 1,
+          planner: { ...initiative.planner, adjustment: null },
           updatedAt: now,
         });
         yield* store.save(next);
@@ -897,6 +1317,14 @@ const make = Effect.gen(function* () {
             Effect.mapError((cause) => new AtlasPlanValidationError({ reason: String(cause) })),
           );
         } else {
+          if (initiative.planner.mode === "adjust") {
+            return yield* Effect.fail(
+              new AtlasPlanImportError({
+                reason:
+                  "The latest planner run proposed an adjustment; apply it instead of importing it.",
+              }),
+            );
+          }
           if (initiative.planner.threadId === null || initiative.planner.runId === null) {
             return yield* Effect.fail(
               new AtlasPlanImportError({ reason: "No completed planner run is linked." }),
@@ -973,6 +1401,8 @@ const make = Effect.gen(function* () {
         const next = withComputedView({
           ...initiative,
           planSummary: validated.summary,
+          planRevision: initiative.planRevision + 1,
+          planner: { ...initiative.planner, adjustment: null },
           tasks,
           updatedAt: now,
         });
@@ -1264,6 +1694,21 @@ const make = Effect.gen(function* () {
           reviewPrompt(initiative, task),
           reviewOptions,
           attempt,
+        ).pipe(
+          Effect.tapError((error) =>
+            Effect.gen(function* () {
+              const now = yield* nowIso;
+              yield* store
+                .save(
+                  replaceTask(initiative, task.id, (previous) => ({
+                    ...previous,
+                    launch: { ...attempt, error: error.message },
+                    updatedAt: now,
+                  })),
+                )
+                .pipe(Effect.ignore);
+            }),
+          ),
         );
         const now = yield* nowIso;
         const next = replaceTask(initiative, task.id, (previous) => ({
@@ -1293,7 +1738,9 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const initiative = yield* load(input.initiativeId);
         const task = yield* findTask(initiative, input.taskId);
-        if (task.issue !== null) return withComputedView(initiative);
+        if (task.issue !== null && task.issue.needsSync !== true) {
+          return withComputedView(initiative);
+        }
 
         const project = yield* requireProject(initiative.projectId);
         const remote = yield* processRunner
@@ -1330,6 +1777,41 @@ const make = Effect.gen(function* () {
               reason: "unsupported_remote",
             }),
           );
+        }
+
+        if (task.issue !== null) {
+          const issue = task.issue;
+          const updateFailure = (exitCode: number | null, cause: unknown) =>
+            new AtlasIssuePublishError({ taskId: task.id, operation: "update", exitCode, cause });
+          const edited = yield* processRunner
+            .run({
+              command: "gh",
+              args: [
+                "issue",
+                "edit",
+                String(issue.number),
+                "--repo",
+                repository,
+                "--title",
+                `[Atlas] ${task.title}`,
+                "--body",
+                issueBody(initiative, task),
+              ],
+              cwd: project.workspaceRoot,
+              timeout: "60 seconds",
+            })
+            .pipe(Effect.mapError((cause) => updateFailure(null, cause)));
+          if (edited.code !== 0) {
+            return yield* Effect.fail(updateFailure(edited.code, edited.stderr));
+          }
+          const now = yield* nowIso;
+          const synced = replaceTask(initiative, task.id, (previous) => ({
+            ...previous,
+            issue: { number: issue.number, url: issue.url, publishedAt: issue.publishedAt },
+            updatedAt: now,
+          }));
+          yield* store.save(synced);
+          return synced;
         }
 
         const marker = issueMarker(task.id);
@@ -1494,6 +1976,8 @@ const make = Effect.gen(function* () {
     updateInitiative,
     deleteInitiative,
     startPlanning,
+    startPlanAdjustment,
+    applyPlanAdjustment,
     importPlan,
     refreshInitiative,
     executeTask,

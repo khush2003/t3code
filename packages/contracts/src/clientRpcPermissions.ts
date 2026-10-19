@@ -51,6 +51,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.atlasUpdateInitiative]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasDeleteInitiative]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasStartPlanning]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasStartPlanAdjustment]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasApplyPlanAdjustment]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasImportPlan]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasExecuteTask]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasApproveTask]: AuthOrchestrationOperateScope,

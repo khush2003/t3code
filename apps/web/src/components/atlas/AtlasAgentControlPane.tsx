@@ -10,6 +10,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { AtlasPendingRequests } from "./AtlasPendingRequests";
 import { atlasAgentPriority, collectAtlasAgentRows } from "./atlasControlLogic";
+import { reviewLaunchError } from "./atlasLogic";
 import { createAtlasAgentDetailsAtom } from "./atlasControlState";
 
 const agentDetailsAtom = createAtlasAgentDetailsAtom(environmentThreadDetails);
@@ -40,6 +41,10 @@ export function AtlasAgentControlPane({
   const active = rows.filter(({ row, pending }) => atlasAgentPriority(row, pending) <= 1);
   const history = rows.filter(({ row, pending }) => atlasAgentPriority(row, pending) > 1);
   const visible = showHistory || active.length === 0 ? rows : active;
+  const failedLaunches = initiative.tasks.flatMap((task) => {
+    const error = reviewLaunchError(task);
+    return error ? [{ task, error }] : [];
+  });
   return (
     <section className="flex min-w-0 flex-col" aria-label="Agents">
       <div className="space-y-1.5 px-4 pt-4 pb-3">
@@ -82,6 +87,25 @@ export function AtlasAgentControlPane({
           </span>
         </p>
       </div>
+      {failedLaunches.length > 0 ? (
+        <ul className="border-t" aria-label="Reviews that could not start">
+          {failedLaunches.map(({ task, error }) => (
+            <li
+              key={task.id}
+              className="min-w-0 space-y-1 border-b border-l-2 border-l-warning bg-warning/6 py-3 pr-4 pl-3.5 text-xs"
+            >
+              <p className="font-medium text-warning-foreground">Review could not start</p>
+              <p className="line-clamp-2 text-sm leading-snug wrap-anywhere">
+                #{task.ordinal + 1} {task.title}
+              </p>
+              <p className="line-clamp-3 text-muted-foreground wrap-anywhere">{error}</p>
+              <p className="text-muted-foreground">
+                Retry from the task&apos;s Agent review action.
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {rows.length === 0 ? (
         <div className="mx-4 mb-4 rounded-lg border border-dashed p-4">
           <p className="font-medium text-sm">No agents yet</p>

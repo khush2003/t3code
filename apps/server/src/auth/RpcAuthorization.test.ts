@@ -45,6 +45,8 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.atlasUpdateInitiative,
       WS_METHODS.atlasDeleteInitiative,
       WS_METHODS.atlasStartPlanning,
+      WS_METHODS.atlasStartPlanAdjustment,
+      WS_METHODS.atlasApplyPlanAdjustment,
       WS_METHODS.atlasImportPlan,
       WS_METHODS.atlasExecuteTask,
       WS_METHODS.atlasApproveTask,

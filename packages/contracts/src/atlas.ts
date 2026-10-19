@@ -80,6 +80,18 @@ export const AtlasRunOptions = Schema.Struct({
 });
 export type AtlasRunOptions = typeof AtlasRunOptions.Type;
 
+export const AtlasAutoReviewPolicy = Schema.Struct({
+  enabled: Schema.Boolean,
+  modelSelection: AtlasRunOptions.fields.modelSelection,
+  runtimeMode: AtlasRunOptions.fields.runtimeMode,
+  interactionMode: AtlasRunOptions.fields.interactionMode,
+  autoApplyVerdict: Schema.Boolean,
+}).annotate({
+  description:
+    "Starts an agent review when a task's execution completes. Reviews run in the execution workspace.",
+});
+export type AtlasAutoReviewPolicy = typeof AtlasAutoReviewPolicy.Type;
+
 export const AtlasTaskDraft = Schema.Struct({
   key: PlanKey.annotate({ description: "Planner-local key, unique within the plan." }),
   title: ShortText,
@@ -103,7 +115,11 @@ export type AtlasPlanDraft = typeof AtlasPlanDraft.Type;
 export const AtlasIssue = Schema.Struct({
   number: Schema.Int.check(Schema.isGreaterThan(0)),
   url: TrimmedNonEmptyString.check(Schema.isMaxLength(2_048)),
-  publishedAt: IsoDateTime,
+  publishedAt: IsoDateTime.annotate({ description: "When the issue was first published." }),
+  needsSync: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "True when the task changed after publication; publishing again updates the issue. Absent means in sync.",
+  }),
 });
 export type AtlasIssue = typeof AtlasIssue.Type;
 
@@ -113,6 +129,9 @@ export const AtlasLaunchAttempt = Schema.Struct({
   messageId: MessageId,
   workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
   createdAt: IsoDateTime,
+  error: Schema.optional(Schema.String.check(Schema.isMaxLength(2_000))).annotate({
+    description: "Why the last launch with this attempt failed. Retrying reuses the attempt.",
+  }),
 });
 export type AtlasLaunchAttempt = typeof AtlasLaunchAttempt.Type;
 
@@ -148,12 +167,65 @@ export const AtlasHumanDecision = Schema.Struct({
 });
 export type AtlasHumanDecision = typeof AtlasHumanDecision.Type;
 
+export const AtlasPlannerMode = Schema.Literals(["plan", "adjust"]);
+export type AtlasPlannerMode = typeof AtlasPlannerMode.Type;
+
+const TaskOrDraftRef = TrimmedNonEmptyString.check(Schema.isMaxLength(200)).annotate({
+  description: "An existing task id, or the local key of a task added in the same adjustment.",
+});
+
+export const AtlasTaskUpdate = Schema.Struct({
+  taskId: AtlasTaskId,
+  title: Schema.optional(ShortText),
+  description: Schema.optional(BodyText),
+  specialty: Schema.optional(ShortText),
+  acceptanceCriteria: Schema.optional(
+    Schema.Array(AcceptanceCriterion).check(Schema.isMinLength(1)),
+  ),
+  dependsOn: Schema.optional(Schema.Array(TaskOrDraftRef)).annotate({
+    description: "Replaces the dependency list. Only hard artifact prerequisites belong here.",
+  }),
+});
+export type AtlasTaskUpdate = typeof AtlasTaskUpdate.Type;
+
+export const AtlasTaskAddition = Schema.Struct({
+  ...AtlasTaskDraft.fields,
+  dependsOn: Schema.Array(TaskOrDraftRef).annotate({
+    description: "Existing task ids or keys of other additions. Must stay acyclic.",
+  }),
+});
+export type AtlasTaskAddition = typeof AtlasTaskAddition.Type;
+
+const emptyArray = <S extends Schema.Top>(item: S) =>
+  Schema.Array(item).pipe(Schema.withDecodingDefault(Effect.succeed([])));
+
+export const AtlasPlanAdjustment = Schema.Struct({
+  summary: BodyText,
+  updates: emptyArray(AtlasTaskUpdate).annotate({
+    description:
+      "Edits to tasks that have not started. Started tasks are immutable; edited published tasks are marked needsSync.",
+  }),
+  additions: emptyArray(AtlasTaskAddition),
+  removals: emptyArray(AtlasTaskId).annotate({
+    description: "Ids of tasks that have not started or been published as issues.",
+  }),
+});
+export type AtlasPlanAdjustment = typeof AtlasPlanAdjustment.Type;
+
 export const AtlasPlanner = Schema.Struct({
   status: AtlasPlannerStatus,
   threadId: Schema.NullOr(ThreadId),
   runId: Schema.NullOr(RunId),
   error: Schema.NullOr(Schema.String),
   launch: Schema.NullOr(AtlasLaunchAttempt),
+  mode: AtlasPlannerMode.pipe(Schema.withDecodingDefault(Effect.succeed("plan" as const))),
+  baseRevision: Schema.NullOr(Schema.Int).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  instructions: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  adjustment: Schema.NullOr(AtlasPlanAdjustment)
+    .pipe(Schema.withDecodingDefault(Effect.succeed(null)))
+    .annotate({
+      description: "The parsed proposal of a completed adjust run, awaiting preview and apply.",
+    }),
 });
 export type AtlasPlanner = typeof AtlasPlanner.Type;
 
@@ -187,7 +259,13 @@ export const AtlasInitiative = Schema.Struct({
   deliverables: Schema.Array(AcceptanceCriterion),
   status: AtlasInitiativeStatus,
   planSummary: Schema.NullOr(Schema.String),
+  planRevision: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(0))).annotate({
+    description: "Increments whenever the task plan is imported or adjusted.",
+  }),
   planner: AtlasPlanner,
+  autoReview: Schema.NullOr(AtlasAutoReviewPolicy).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   tasks: Schema.Array(AtlasTask),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -222,6 +300,9 @@ export const AtlasUpdateInitiativeInput = Schema.Struct({
   title: Schema.optional(ShortText),
   brief: Schema.optional(BodyText),
   deliverables: Schema.optional(Schema.Array(AcceptanceCriterion)),
+  autoReview: Schema.optional(Schema.NullOr(AtlasAutoReviewPolicy)).annotate({
+    description: "Omit to keep the current policy; null clears it.",
+  }),
 });
 export type AtlasUpdateInitiativeInput = typeof AtlasUpdateInitiativeInput.Type;
 
@@ -249,6 +330,22 @@ export const AtlasImportPlanInput = Schema.Struct({
   }),
 });
 export type AtlasImportPlanInput = typeof AtlasImportPlanInput.Type;
+
+export const AtlasStartPlanAdjustmentInput = Schema.Struct({
+  initiativeId: AtlasInitiativeId,
+  instructions: BodyText,
+  ...AtlasRunOptions.fields,
+});
+export type AtlasStartPlanAdjustmentInput = typeof AtlasStartPlanAdjustmentInput.Type;
+
+export const AtlasApplyPlanAdjustmentInput = Schema.Struct({
+  initiativeId: AtlasInitiativeId,
+  expectedPlanRevision: Schema.Int,
+  adjustment: Schema.optional(AtlasPlanAdjustment).annotate({
+    description: "The adjustment to apply. Omit to apply the planner's stored proposal.",
+  }),
+});
+export type AtlasApplyPlanAdjustmentInput = typeof AtlasApplyPlanAdjustmentInput.Type;
 
 export const AtlasRefreshInitiativeInput = Schema.Struct({
   initiativeId: AtlasInitiativeId,
@@ -356,6 +453,19 @@ export class AtlasPlanValidationError extends Schema.TaggedError<AtlasPlanValida
   }
 }
 
+export class AtlasPlanRevisionConflictError extends Schema.TaggedError<AtlasPlanRevisionConflictError>()(
+  "AtlasPlanRevisionConflictError",
+  {
+    initiativeId: AtlasInitiativeId,
+    expectedPlanRevision: Schema.Int,
+    actualPlanRevision: Schema.Int,
+  },
+) {
+  override get message(): string {
+    return `The plan changed since this adjustment was prepared (revision ${this.expectedPlanRevision}, now ${this.actualPlanRevision}). Review it again.`;
+  }
+}
+
 export class AtlasGitHubRepositoryError extends Schema.TaggedError<AtlasGitHubRepositoryError>()(
   "AtlasGitHubRepositoryError",
   {
@@ -374,13 +484,15 @@ export class AtlasIssuePublishError extends Schema.TaggedError<AtlasIssuePublish
   "AtlasIssuePublishError",
   {
     taskId: AtlasTaskId,
-    operation: Schema.Literal("create"),
+    operation: Schema.Literals(["create", "update"]),
     exitCode: Schema.NullOr(Schema.Int),
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    return `Failed to publish a GitHub issue for Atlas task ${this.taskId}.`;
+    return this.operation === "update"
+      ? `Failed to update the GitHub issue for Atlas task ${this.taskId}.`
+      : `Failed to publish a GitHub issue for Atlas task ${this.taskId}.`;
   }
 }
 
@@ -450,6 +562,7 @@ export const AtlasError = Schema.Union([
   AtlasExecutionNotFinishedError,
   AtlasPlanImportError,
   AtlasPlanValidationError,
+  AtlasPlanRevisionConflictError,
   AtlasIssuePublishError,
   AtlasGitHubRepositoryError,
   AtlasPersistenceError,
