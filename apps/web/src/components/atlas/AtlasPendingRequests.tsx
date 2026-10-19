@@ -179,7 +179,7 @@ export function AtlasPendingRequests({
     setBusyId(null);
   };
   return (
-    <div className="space-y-4 rounded-md border border-warning/30 bg-warning/5 p-3">
+    <div className="space-y-4 rounded-lg border bg-card p-3">
       {!canOperate ? (
         <p className="text-xs text-muted-foreground">
           This connection can view requests. Respond from a connection with permission to operate

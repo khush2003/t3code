@@ -12,7 +12,7 @@ Install `gh` and sign in on that host before publishing. Only GitHub.com reposit
 are supported in this first version.
 
 Start ready tasks with a provider and model available on the selected environment.
-The agent control pane shows questions and approval requests from running agents and their
+The **Agents** panel shows questions and approval requests from running agents and their
 child agents. Answer them directly in Atlas, or open the backing conversation to inspect the
 work, stop a run, and see its result.
 

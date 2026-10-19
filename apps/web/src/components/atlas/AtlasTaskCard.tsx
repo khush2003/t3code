@@ -5,8 +5,8 @@ import {
   ChevronDownIcon,
   ExternalLinkIcon,
   GitBranchIcon,
+  LockIcon,
   PlayIcon,
-  RefreshCwIcon,
   SendIcon,
   ShieldCheckIcon,
   XIcon,
@@ -67,7 +67,7 @@ function ThreadLink({
 }) {
   return (
     <Button
-      size="sm"
+      size="xs"
       variant="link"
       render={<Link to="/$environmentId/$threadId" params={{ environmentId, threadId }} />}
     >
@@ -88,16 +88,18 @@ function ExecutionSection({
   if (!execution) return null;
   return (
     <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        <span>Execution</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+        <span className="font-medium text-foreground">Run</span>
         <Badge variant={execution.status === "failed" ? "error" : "outline"}>
           {execution.status}
         </Badge>
-        <span>started {formatRelativeTimeLabel(execution.startedAt)}</span>
-        <ThreadLink environmentId={environmentId} threadId={execution.threadId} label="View run" />
+        <span>{formatRelativeTimeLabel(execution.startedAt)}</span>
+        <ThreadLink environmentId={environmentId} threadId={execution.threadId} label="Open" />
       </div>
       {execution.result ? (
-        <p className="whitespace-pre-wrap rounded-md bg-muted/48 p-2 text-xs">{execution.result}</p>
+        <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/48 p-2.5 text-xs leading-relaxed">
+          {execution.result}
+        </p>
       ) : null}
     </div>
   );
@@ -114,8 +116,8 @@ function AgentReviewSection({
   if (!review) return null;
   return (
     <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        <span>Agent review</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+        <span className="font-medium text-foreground">Review</span>
         <Badge
           variant={
             review.status === "failed"
@@ -129,10 +131,10 @@ function AgentReviewSection({
         >
           {review.outcome ?? agentReviewStatusLabel(review.status)}
         </Badge>
-        <ThreadLink environmentId={environmentId} threadId={review.threadId} label="View review" />
+        <ThreadLink environmentId={environmentId} threadId={review.threadId} label="Open" />
       </div>
       {(review.feedback ?? review.result) ? (
-        <p className="whitespace-pre-wrap rounded-md bg-muted/48 p-2 text-xs">
+        <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/48 p-2.5 text-xs leading-relaxed">
           {review.feedback ?? review.result}
         </p>
       ) : null}
@@ -144,10 +146,12 @@ export function AtlasTaskCard({
   environmentId,
   initiative,
   task,
+  showStatus = true,
 }: {
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
   readonly task: AtlasTask;
+  readonly showStatus?: boolean;
 }) {
   const executeTask = useAtomCommand(atlasEnvironment.executeTask, { reportFailure: false });
   const approveTask = useAtomCommand(atlasEnvironment.approveTask, { reportFailure: false });
@@ -228,144 +232,167 @@ export function AtlasTaskCard({
   const suggestion = task.agentReview?.outcome ?? null;
   const humanDecision = task.humanDecision.outcome;
 
+  const running = taskIsRunning(task);
+  const hasDetails =
+    task.description.length > 0 ||
+    task.acceptanceCriteria.length > 0 ||
+    task.execution !== null ||
+    task.agentReview !== null ||
+    task.dependsOn.length > 0;
+
   return (
-    <div className="rounded-lg border bg-card">
-      <Collapsible defaultOpen={task.status !== "proposed"}>
-        <div className="flex items-start justify-between gap-3 p-3">
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
+    <article className="min-w-0 rounded-lg border bg-card text-card-foreground">
+      <Collapsible defaultOpen={task.status === "needs_review" || task.status === "failed"}>
+        <div className="space-y-2.5 p-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {showStatus ? (
               <Badge variant={taskStatusBadgeVariant(task.status)}>
                 {taskStatusLabel(task.status)}
               </Badge>
-              <Badge variant="outline">{task.specialty}</Badge>
-              {task.issue ? (
-                <Button
-                  size="sm"
-                  variant="link"
-                  render={<a href={task.issue.url} target="_blank" rel="noreferrer" />}
-                >
-                  #{task.issue.number}
-                  <ExternalLinkIcon />
-                </Button>
-              ) : null}
-            </div>
-            <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left">
-              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-180" />
-              <span className="font-medium text-sm">{task.title}</span>
+            ) : null}
+            <Badge variant="outline">{task.specialty}</Badge>
+            {task.issue ? (
+              <Button
+                size="xs"
+                variant="link"
+                render={<a href={task.issue.url} target="_blank" rel="noreferrer" />}
+              >
+                #{task.issue.number}
+                <ExternalLinkIcon />
+              </Button>
+            ) : null}
+            {running ? (
+              <span className="ml-auto flex items-center gap-1.5 text-info-foreground text-xs">
+                <span aria-hidden className="size-1.5 rounded-full bg-info" />
+                Working
+              </span>
+            ) : null}
+          </div>
+
+          {hasDetails ? (
+            <CollapsibleTrigger className="group -mx-1 flex w-[calc(100%+0.5rem)] items-start gap-1.5 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+              <span className="min-w-0 flex-1 font-medium text-sm leading-snug wrap-anywhere">
+                {task.title}
+              </span>
+              <ChevronDownIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-180" />
             </CollapsibleTrigger>
-            {blockedByTitles.length > 0 ? (
-              <p className="text-muted-foreground text-xs">
-                Blocked by {blockedByTitles.join(", ")}
-              </p>
+          ) : (
+            <p className="font-medium text-sm leading-snug wrap-anywhere">{task.title}</p>
+          )}
+
+          {blockedByTitles.length > 0 ? (
+            <p className="flex items-start gap-1.5 text-muted-foreground text-xs">
+              <LockIcon className="mt-px size-3.5 shrink-0" />
+              <span>Waiting on {blockedByTitles.join(", ")}</span>
+            </p>
+          ) : null}
+          {suggestion ? (
+            <p className="flex items-start gap-1.5 text-muted-foreground text-xs">
+              <ShieldCheckIcon className="mt-px size-3.5 shrink-0" />
+              <span>
+                Reviewer suggests {suggestion === "approved" ? "approval" : "changes"}
+                {humanDecision === "pending" ? ". Your decision is pending." : "."}
+              </span>
+            </p>
+          ) : null}
+          {task.humanDecision.decidedBy ? (
+            <p className="text-muted-foreground text-xs">
+              Decided by{" "}
+              {task.humanDecision.decidedBy === "agent" ? "the review agent" : "a human reviewer"}
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
+            {canExecuteTask(task) ? (
+              <Button size="xs" disabled={!canExecute} onClick={() => setExecuteOpen(true)}>
+                <PlayIcon />
+                {task.execution ? "Re-run" : "Run task"}
+              </Button>
             ) : null}
-            {task.humanDecision.decidedBy ? (
-              <p className="text-muted-foreground text-xs">
-                Decision by{" "}
-                {task.humanDecision.decidedBy === "agent" ? "review agent" : "human reviewer"}
-              </p>
+            {canDecideOnTask(task) ? (
+              <>
+                <Button
+                  size="xs"
+                  variant={task.status === "needs_review" ? "default" : "outline"}
+                  disabled={!canDecide || busy}
+                  onClick={() => {
+                    setFeedback("");
+                    setDecision("approve");
+                  }}
+                >
+                  <CheckIcon />
+                  Approve
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={!canDecide || busy}
+                  onClick={() => {
+                    setFeedback("");
+                    setDecision("changes");
+                  }}
+                >
+                  <XIcon />
+                  Request changes
+                </Button>
+              </>
             ) : null}
-            {suggestion ? (
-              <p className="text-muted-foreground text-xs">
-                Agent review suggests {suggestion === "approved" ? "approval" : "changes"}
-                {humanDecision === "pending" ? " · awaiting your decision" : ""}
-              </p>
+            {canStartAgentReview(task) ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={!canReview}
+                onClick={() => setReviewOpen(true)}
+              >
+                <ShieldCheckIcon />
+                {task.agentReview ? "Re-review" : "Agent review"}
+              </Button>
+            ) : null}
+            {canPublishTaskIssue(task) ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={!canPublish || busy}
+                onClick={() => void runPublish()}
+              >
+                <SendIcon />
+                Publish issue
+              </Button>
             ) : null}
           </div>
         </div>
 
-        <CollapsiblePanel>
-          <div className="space-y-4 border-t p-3">
-            {task.description ? (
-              <p className="whitespace-pre-wrap text-sm">{task.description}</p>
-            ) : null}
-            {task.acceptanceCriteria.length > 0 ? (
-              <div className="space-y-1">
-                <p className="font-medium text-xs uppercase text-muted-foreground">
-                  Acceptance criteria
+        {hasDetails ? (
+          <CollapsiblePanel>
+            <div className="space-y-4 border-t px-3 pt-3 pb-3.5">
+              {task.description ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{task.description}</p>
+              ) : null}
+              {task.acceptanceCriteria.length > 0 ? (
+                <div className="space-y-1.5">
+                  <h4 className="font-medium text-muted-foreground text-xs">Acceptance criteria</h4>
+                  <ul className="space-y-1 text-sm">
+                    {task.acceptanceCriteria.map((criterion) => (
+                      <li key={criterion} className="flex gap-2">
+                        <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        <span>{criterion}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <ExecutionSection environmentId={environmentId} task={task} />
+              <AgentReviewSection environmentId={environmentId} task={task} />
+              {task.dependsOn.length > 0 ? (
+                <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <GitBranchIcon className="size-3.5" />
+                  Runs after {task.dependsOn.length} approved task
+                  {task.dependsOn.length === 1 ? "" : "s"}
                 </p>
-                <ul className="list-disc space-y-1 pl-5 text-sm">
-                  {task.acceptanceCriteria.map((criterion) => (
-                    <li key={criterion}>{criterion}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <ExecutionSection environmentId={environmentId} task={task} />
-            <AgentReviewSection environmentId={environmentId} task={task} />
-
-            <div className="flex flex-wrap items-center gap-2">
-              {canPublishTaskIssue(task) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!canPublish || busy}
-                  onClick={() => void runPublish()}
-                >
-                  <SendIcon />
-                  Publish issue
-                </Button>
-              ) : null}
-              {canExecuteTask(task) ? (
-                <Button size="sm" disabled={!canExecute} onClick={() => setExecuteOpen(true)}>
-                  <PlayIcon />
-                  {task.execution ? "Re-run task" : "Run task"}
-                </Button>
-              ) : null}
-              {canStartAgentReview(task) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!canReview}
-                  onClick={() => setReviewOpen(true)}
-                >
-                  <ShieldCheckIcon />
-                  {task.agentReview ? "Re-run agent review" : "Agent review"}
-                </Button>
-              ) : null}
-              {canDecideOnTask(task) ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!canDecide || busy}
-                    onClick={() => {
-                      setFeedback("");
-                      setDecision("approve");
-                    }}
-                  >
-                    <CheckIcon />
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!canDecide || busy}
-                    onClick={() => {
-                      setFeedback("");
-                      setDecision("changes");
-                    }}
-                  >
-                    <XIcon />
-                    Request changes
-                  </Button>
-                </>
-              ) : null}
-              {taskIsRunning(task) ? (
-                <span className="flex items-center gap-1 text-muted-foreground text-xs">
-                  <RefreshCwIcon className="size-3.5" />
-                  Working…
-                </span>
               ) : null}
             </div>
-            {task.dependsOn.length > 0 ? (
-              <p className="flex items-center gap-1 text-muted-foreground text-xs">
-                <GitBranchIcon className="size-3.5" />
-                Depends on {task.dependsOn.length} approved task
-                {task.dependsOn.length === 1 ? "" : "s"}
-              </p>
-            ) : null}
-          </div>
-        </CollapsiblePanel>
+          </CollapsiblePanel>
+        ) : null}
 
         <AtlasRunOptionsDialog
           open={executeOpen}
@@ -492,6 +519,6 @@ export function AtlasTaskCard({
           </DialogPopup>
         </Dialog>
       </Collapsible>
-    </div>
+    </article>
   );
 }

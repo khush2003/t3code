@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId } from "@t3tools/contracts";
-import { BotIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
+import { BotIcon, DownloadIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -94,69 +94,89 @@ export function AtlasPlannerPanel({
     }
   };
 
+  const summary =
+    initiative.planSummary ??
+    (planner.status === "idle"
+      ? "A planning agent reads the brief and deliverables, then proposes tasks you can import, edit, and run."
+      : planner.status === "running"
+        ? "The planning agent is reading the brief. Answer its questions in the agent panel if it asks."
+        : planner.status === "completed" && taskCount === 0
+          ? "The plan is ready. Import it to create tasks."
+          : `${taskCount} task${taskCount === 1 ? "" : "s"} in the current plan.`);
+
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <BotIcon className="size-4 text-muted-foreground" />
-          <span className="font-medium text-sm">Planning agent</span>
-          <Badge variant={badge.variant}>{badge.label}</Badge>
+    <section
+      aria-label="Planning agent"
+      className="@container rounded-xl border bg-card p-4 sm:p-5"
+    >
+      <div className="flex flex-col gap-4 @lg:flex-row @lg:items-start">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <span
+            aria-hidden
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+          >
+            <BotIcon className="size-4.5" />
+          </span>
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-semibold text-sm">Plan</h2>
+              <Badge variant={badge.variant}>{badge.label}</Badge>
+            </div>
+            <p className="max-w-[68ch] text-muted-foreground text-sm leading-relaxed">{summary}</p>
+            {planner.error ? (
+              <p role="alert" className="text-destructive-foreground text-sm">
+                {planner.error}
+              </p>
+            ) : null}
+            {planner.threadId ? (
+              <Button
+                size="xs"
+                variant="link"
+                render={
+                  <Link
+                    to="/$environmentId/$threadId"
+                    params={{ environmentId, threadId: planner.threadId }}
+                  />
+                }
+              >
+                Open planning thread
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 @max-lg:pl-12">
           <Button
-            size="sm"
+            size="icon-sm"
             variant="ghost"
+            aria-label="Refresh initiative"
             disabled={busy || !canRefresh}
             onClick={() => void runRefresh()}
           >
             <RefreshCwIcon />
-            Refresh
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant={planner.status === "completed" && taskCount === 0 ? "default" : "outline"}
             disabled={!canImport}
             onClick={() => {
               setPastedPlan("");
               setImportDialogOpen(true);
             }}
           >
+            <DownloadIcon />
             Import plan
           </Button>
           <Button
             size="sm"
+            variant={planner.status === "idle" ? "default" : "outline"}
             disabled={!canPlan || planner.status === "running"}
             onClick={() => setPlanDialogOpen(true)}
           >
             <SparklesIcon />
-            {planner.status === "idle" ? "Plan" : "Re-plan"}
+            {planner.status === "idle" ? "Plan tasks" : "Re-plan"}
           </Button>
         </div>
       </div>
-      {planner.error ? <p className="mt-3 text-destructive text-sm">{planner.error}</p> : null}
-      {initiative.planSummary ? (
-        <p className="mt-3 text-muted-foreground text-sm">{initiative.planSummary}</p>
-      ) : (
-        <p className="mt-3 text-muted-foreground text-sm">
-          {planner.status === "idle"
-            ? "No plan yet. Run the planning agent to turn the brief into tasks."
-            : `${taskCount} task${taskCount === 1 ? "" : "s"} in the current plan.`}
-        </p>
-      )}
-      {planner.threadId ? (
-        <Button
-          size="sm"
-          variant="link"
-          render={
-            <Link
-              to="/$environmentId/$threadId"
-              params={{ environmentId, threadId: planner.threadId }}
-            />
-          }
-        >
-          Open planning thread
-        </Button>
-      ) : null}
 
       <AtlasRunOptionsDialog
         open={planDialogOpen}
@@ -234,6 +254,6 @@ export function AtlasPlannerPanel({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </div>
+    </section>
   );
 }

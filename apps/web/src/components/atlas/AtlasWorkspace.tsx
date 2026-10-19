@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { LayersIcon, ListIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { LayoutGridIcon, ListIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -9,11 +9,11 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { atlasEnvironment } from "../../state/atlas";
-import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { cn } from "../../lib/utils";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
@@ -21,6 +21,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AtlasAgentControlPane } from "./AtlasAgentControlPane";
 import { AtlasInitiativeDialog } from "./AtlasInitiativeDialog";
 import { AtlasPlannerPanel } from "./AtlasPlannerPanel";
+import { AtlasProgressStrip, AtlasStatusDot } from "./AtlasProgress";
 import { AtlasTaskCard } from "./AtlasTaskCard";
 import {
   ATLAS_BOARD_COLUMNS,
@@ -34,111 +35,205 @@ const ACTIVE_WORK_POLL_MS = 4_000;
 function AtlasInitiativeDetail({
   environmentId,
   initiative,
+  canDelete,
+  onEdit,
+  onDelete,
 }: {
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
+  readonly canDelete: boolean;
+  readonly onEdit: () => void;
+  readonly onDelete: () => void;
 }) {
   const [view, setView] = useState<"board" | "list">("board");
   const counts = taskCounts(initiative.tasks);
+  const columns = ATLAS_BOARD_COLUMNS.flatMap((column) => {
+    const tasks = initiative.tasks.filter((task) => task.status === column.status);
+    return tasks.length > 0 ? [{ ...column, tasks }] : [];
+  });
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="order-2 min-w-0 space-y-4 2xl:order-1">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-5 pt-6 pb-16 sm:px-8">
+      <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className="font-semibold text-lg">{initiative.title}</h2>
-            <p className="text-muted-foreground text-sm">
-              {counts.approved}/{counts.total} approved · {counts.running} running · {counts.ready}{" "}
-              ready
-            </p>
+          <Badge variant="outline">{initiativeStatusLabel(initiative)}</Badge>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={onEdit}>
+              <PencilIcon />
+              Edit brief
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost-destructive"
+              aria-label="Delete initiative"
+              disabled={!canDelete}
+              onClick={onDelete}
+            >
+              <Trash2Icon />
+            </Button>
           </div>
-          <ToggleGroup
-            value={[view]}
-            onValueChange={(value) => {
-              const next = value[0];
-              if (next === "board" || next === "list") setView(next);
-            }}
-          >
-            <ToggleGroupItem value="board">
-              <LayersIcon />
-              Board
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list">
-              <ListIcon />
-              List
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
-
+        <h1 className="text-balance font-semibold text-2xl tracking-tight">{initiative.title}</h1>
         {initiative.brief ? (
-          <p className="whitespace-pre-wrap text-sm">{initiative.brief}</p>
+          <p className="max-w-[68ch] whitespace-pre-wrap text-muted-foreground text-sm leading-relaxed">
+            {initiative.brief}
+          </p>
         ) : null}
         {initiative.deliverables.length > 0 ? (
-          <div className="space-y-1">
-            <p className="font-medium text-xs uppercase text-muted-foreground">Deliverables</p>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
+          <div className="space-y-2">
+            <h2 className="font-medium text-sm">Deliverables</h2>
+            <ul className="max-w-[68ch] space-y-1.5 text-sm">
               {initiative.deliverables.map((deliverable) => (
-                <li key={deliverable}>{deliverable}</li>
+                <li key={deliverable} className="flex gap-2.5">
+                  <span
+                    aria-hidden
+                    className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+                  />
+                  <span>{deliverable}</span>
+                </li>
               ))}
             </ul>
           </div>
         ) : null}
+        {counts.total > 0 ? (
+          <div className="space-y-2 pt-2">
+            <p className="text-sm">
+              <span className="font-semibold tabular-nums">{counts.approved}</span>
+              <span className="text-muted-foreground"> of {counts.total} tasks approved</span>
+              {counts.running > 0 ? (
+                <span className="text-muted-foreground">, {counts.running} running</span>
+              ) : null}
+              {counts.ready > 0 ? (
+                <span className="text-muted-foreground">, {counts.ready} ready to run</span>
+              ) : null}
+            </p>
+            <AtlasProgressStrip tasks={initiative.tasks} legend />
+          </div>
+        ) : null}
+      </header>
 
-        <AtlasPlannerPanel
-          environmentId={environmentId}
-          initiative={initiative}
-          taskCount={initiative.tasks.length}
-        />
+      <AtlasPlannerPanel
+        environmentId={environmentId}
+        initiative={initiative}
+        taskCount={initiative.tasks.length}
+      />
 
-        {initiative.tasks.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No tasks yet. Run the planning agent, then import its plan.
-          </p>
-        ) : view === "board" ? (
-          <div className="grid grid-cols-1 gap-3">
-            {ATLAS_BOARD_COLUMNS.map((column) => {
-              const tasks = initiative.tasks.filter((task) => task.status === column.status);
-              if (tasks.length === 0) return null;
-              return (
-                <div key={column.status} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-xs uppercase text-muted-foreground">
-                      {column.label}
+      {initiative.tasks.length === 0 ? null : (
+        <section className="space-y-4" aria-label="Tasks">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-semibold text-base">
+              Tasks{" "}
+              <span className="font-normal text-muted-foreground tabular-nums">{counts.total}</span>
+            </h2>
+            <ToggleGroup
+              value={[view]}
+              onValueChange={(value) => {
+                const next = value[0];
+                if (next === "board" || next === "list") setView(next);
+              }}
+            >
+              <ToggleGroupItem value="board" aria-label="Board view">
+                <LayoutGridIcon />
+                Board
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" aria-label="List view">
+                <ListIcon />
+                List
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+
+          {view === "board" ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(17rem,100%),1fr))] items-start gap-3">
+              {columns.map((column) => (
+                <div
+                  key={column.status}
+                  className="flex min-w-0 flex-col gap-2 rounded-xl bg-muted/50 p-2 dark:bg-muted/30"
+                >
+                  <div className="flex items-center gap-2 px-1.5 pt-1 pb-0.5">
+                    <AtlasStatusDot status={column.status} />
+                    <span className="font-medium text-sm">{column.label}</span>
+                    <span className="ml-auto text-muted-foreground text-xs tabular-nums">
+                      {column.tasks.length}
                     </span>
-                    <Badge variant="secondary">{tasks.length}</Badge>
                   </div>
-                  <div className="space-y-2">
-                    {tasks.map((task) => (
-                      <AtlasTaskCard
-                        key={task.id}
-                        environmentId={environmentId}
-                        initiative={initiative}
-                        task={task}
-                      />
-                    ))}
-                  </div>
+                  {column.tasks.map((task) => (
+                    <AtlasTaskCard
+                      key={task.id}
+                      environmentId={environmentId}
+                      initiative={initiative}
+                      task={task}
+                      showStatus={false}
+                    />
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {initiative.tasks.map((task) => (
-              <AtlasTaskCard
-                key={task.id}
-                environmentId={environmentId}
-                initiative={initiative}
-                task={task}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="order-1 min-w-0 space-y-4 2xl:order-2">
-        <AtlasAgentControlPane environmentId={environmentId} initiative={initiative} />
-      </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {initiative.tasks.map((task) => (
+                <AtlasTaskCard
+                  key={task.id}
+                  environmentId={environmentId}
+                  initiative={initiative}
+                  task={task}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
+  );
+}
+
+function AtlasInitiativeRail({
+  initiatives,
+  activeInitiativeId,
+  onSelect,
+  onCreate,
+}: {
+  readonly initiatives: ReadonlyArray<AtlasInitiative>;
+  readonly activeInitiativeId: string | null;
+  readonly onSelect: (initiativeId: string) => void;
+  readonly onCreate: () => void;
+}) {
+  return (
+    <nav aria-label="Initiatives" className="flex flex-col gap-1 p-3">
+      <div className="flex items-center justify-between px-2 pt-1 pb-2">
+        <h2 className="font-medium text-muted-foreground text-xs">Initiatives</h2>
+        <Button size="icon-xs" variant="ghost" aria-label="New initiative" onClick={onCreate}>
+          <PlusIcon />
+        </Button>
+      </div>
+      {initiatives.map((initiative) => {
+        const counts = taskCounts(initiative.tasks);
+        const selected = initiative.id === activeInitiativeId;
+        return (
+          <button
+            key={initiative.id}
+            type="button"
+            aria-current={selected ? "page" : undefined}
+            onClick={() => onSelect(initiative.id)}
+            className={cn(
+              "flex w-full min-w-0 flex-col gap-2 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+              selected && "bg-accent hover:bg-accent",
+            )}
+          >
+            <span className="truncate font-medium text-sm">{initiative.title}</span>
+            <span className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
+              <span>{initiativeStatusLabel(initiative)}</span>
+              {counts.total > 0 ? (
+                <span className="tabular-nums">
+                  {counts.approved}/{counts.total}
+                </span>
+              ) : null}
+            </span>
+            {counts.total > 0 ? <AtlasProgressStrip tasks={initiative.tasks} size="sm" /> : null}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -221,19 +316,25 @@ export function AtlasWorkspace() {
     setSelectedInitiativeId(null);
   };
 
+  const openCreate = () => {
+    setEditingInitiative(null);
+    setDialogOpen(true);
+  };
+  const ready = activeEnvironmentId !== null && activeProjectId !== null;
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <WorkspacePageHeader>
-          <span className="font-medium">Atlas</span>
-          <div className="ml-auto flex items-center gap-2">
+        <WorkspacePageHeader className="border-b">
+          <span className="shrink-0 font-medium">Atlas</span>
+          <div className="ml-auto flex min-w-0 items-center gap-2 max-sm:flex-1">
             <Select
               value={activeEnvironmentId}
               onValueChange={(next) => {
                 if (next !== null) setEnvironmentId(next as EnvironmentId);
               }}
             >
-              <SelectTrigger size="sm" aria-label="Environment">
+              <SelectTrigger size="sm" aria-label="Environment" className="max-sm:min-w-0">
                 <SelectValue>
                   {environments.find(
                     (environment) => environment.environmentId === activeEnvironmentId,
@@ -254,7 +355,7 @@ export function AtlasWorkspace() {
                 if (next !== null) setProjectId(next as ProjectId);
               }}
             >
-              <SelectTrigger size="sm" aria-label="Project">
+              <SelectTrigger size="sm" aria-label="Project" className="max-sm:min-w-0">
                 <SelectValue>
                   {environmentProjects.find((project) => project.id === activeProjectId)?.title ??
                     "Project"}
@@ -268,122 +369,86 @@ export function AtlasWorkspace() {
                 ))}
               </SelectPopup>
             </Select>
-            <Button
-              size="sm"
-              disabled={activeEnvironmentId === null || activeProjectId === null}
-              onClick={() => {
-                setEditingInitiative(null);
-                setDialogOpen(true);
-              }}
-            >
+            <Button size="sm" disabled={!ready} onClick={openCreate}>
               <PlusIcon />
-              New initiative
+              <span className="max-sm:sr-only">New initiative</span>
             </Button>
           </div>
         </WorkspacePageHeader>
 
-        <div className="topbar-scroll-fade min-h-0 flex-1 overflow-y-auto">
-          <WorkspacePageContainer width="expanded">
-            {activeEnvironmentId === null || activeProjectId === null ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>No project selected</EmptyTitle>
-                  <EmptyDescription>
-                    Connect an environment and choose a project to start an Atlas initiative.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : query.error ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>Could not load initiatives</EmptyTitle>
-                  <EmptyDescription>{query.error}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : initiatives.length === 0 ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>No initiatives yet</EmptyTitle>
-                  <EmptyDescription>
-                    Create an initiative with a brief and deliverables, then plan it into tasks.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-                <aside className="space-y-2">
-                  {initiatives.map((initiative) => {
-                    const isSelected = initiative.id === selectedInitiativeId;
-                    return (
-                      <div
-                        key={initiative.id}
-                        className={`flex items-start gap-1 rounded-lg border p-3 ${
-                          isSelected ? "border-primary bg-accent/40" : "bg-card"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          className="min-w-0 flex-1 text-left"
-                          onClick={() => setSelectedInitiativeId(initiative.id)}
-                        >
-                          <p className="truncate font-medium text-sm">{initiative.title}</p>
-                          <p className="text-muted-foreground text-xs">
-                            {initiativeStatusLabel(initiative)} · {initiative.tasks.length} task
-                            {initiative.tasks.length === 1 ? "" : "s"}
-                          </p>
-                        </button>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label="Delete initiative"
-                          disabled={!canDelete}
-                          onClick={() => void runDelete(initiative)}
-                        >
-                          <Trash2Icon />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingInitiative(null);
+        {!ready ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>Choose a project</EmptyTitle>
+              <EmptyDescription>
+                Connect an environment and pick a project to plan work with Atlas.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : query.error ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>Could not load initiatives</EmptyTitle>
+              <EmptyDescription>{query.error}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : initiatives.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>Start an initiative</EmptyTitle>
+              <EmptyDescription>
+                Describe what you want built. A planning agent breaks it into tasks, other agents
+                run them in parallel, and you review the results.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button onClick={openCreate}>
+                <PlusIcon />
+                New initiative
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : (
+          // Below xl the whole page scrolls; at xl each pane scrolls on its own so
+          // agent requests stay in view while the board moves.
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:[grid-template-areas:'rail_control'_'rail_main'] xl:grid-cols-[15rem_minmax(0,1fr)_22rem] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden xl:[grid-template-areas:'rail_main_control']">
+            <aside className="min-w-0 border-b lg:row-span-2 lg:border-r lg:border-b-0 lg:[grid-area:rail] xl:overflow-y-auto">
+              <AtlasInitiativeRail
+                initiatives={initiatives}
+                activeInitiativeId={activeInitiativeId}
+                onSelect={setSelectedInitiativeId}
+                onCreate={openCreate}
+              />
+            </aside>
+            {selectedInitiative ? (
+              <>
+                <aside className="min-w-0 border-b lg:[grid-area:control] xl:overflow-y-auto xl:border-b-0 xl:border-l">
+                  <AtlasAgentControlPane
+                    environmentId={activeEnvironmentId}
+                    initiative={selectedInitiative}
+                  />
+                </aside>
+                <section
+                  aria-label="Initiative details"
+                  className="min-w-0 lg:[grid-area:main] xl:overflow-y-auto"
+                >
+                  <AtlasInitiativeDetail
+                    environmentId={activeEnvironmentId}
+                    initiative={selectedInitiative}
+                    canDelete={canDelete}
+                    onEdit={() => {
+                      setEditingInitiative(selectedInitiative);
                       setDialogOpen(true);
                     }}
-                  >
-                    <PlusIcon />
-                    New initiative
-                  </Button>
-                </aside>
+                    onDelete={() => void runDelete(selectedInitiative)}
+                  />
+                </section>
+              </>
+            ) : null}
+          </div>
+        )}
 
-                <div className="min-w-0">
-                  {selectedInitiative ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEditingInitiative(selectedInitiative);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          Edit brief
-                        </Button>
-                      </div>
-                      <AtlasInitiativeDetail
-                        environmentId={activeEnvironmentId}
-                        initiative={selectedInitiative}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            )}
-          </WorkspacePageContainer>
-        </div>
-
-        {activeEnvironmentId !== null && activeProjectId !== null ? (
+        {ready ? (
           <AtlasInitiativeDialog
             key={editingInitiative?.id ?? "new"}
             environmentId={activeEnvironmentId}
