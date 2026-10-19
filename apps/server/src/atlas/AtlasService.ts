@@ -54,6 +54,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ProjectService from "../project/ProjectService.ts";
@@ -446,6 +447,7 @@ const make = Effect.gen(function* () {
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const crypto = yield* Crypto.Crypto;
+  const path = yield* Path.Path;
   const initiativeLocks = yield* KeyedLock.make<AtlasInitiative["id"]>();
   const projectExecutionLocks = yield* KeyedLock.make<ProjectId>();
 
@@ -542,7 +544,11 @@ const make = Effect.gen(function* () {
         threadId: result.threadId,
         runId: run.id,
         startedAt: DateTime.formatIso(run.startedAt ?? run.requestedAt),
-        workspaceStrategy: resolvedWorkspace(currentProjection.thread),
+        workspaceStrategy:
+          currentProjection.thread.worktreePath === null &&
+          options.workspaceStrategy?.type === "worktree"
+            ? options.workspaceStrategy
+            : resolvedWorkspace(currentProjection.thread),
       };
     });
 
@@ -620,7 +626,12 @@ const make = Effect.gen(function* () {
                   startedAt: run.startedAt,
                   finishedAt: isTerminal(run.status) ? run.finishedAt : null,
                   result: run.result,
-                  workspaceStrategy: run.workspaceStrategy ?? execution.workspaceStrategy,
+                  workspaceStrategy:
+                    run.status === "running" &&
+                    run.workspaceStrategy?.type === "root" &&
+                    execution.workspaceStrategy?.type === "worktree"
+                      ? execution.workspaceStrategy
+                      : (run.workspaceStrategy ?? execution.workspaceStrategy),
                 },
           ),
         );
@@ -986,6 +997,8 @@ const make = Effect.gen(function* () {
   const ensureNoOtherActiveExecution = (
     initiative: AtlasInitiative,
     taskId: AtlasTaskId,
+    workspace: OrchestrationV2ThreadLaunchWorkspaceStrategy,
+    projectRoot: string,
   ): Effect.Effect<void, AtlasProjectBusyError | AtlasPersistenceError> =>
     Effect.gen(function* () {
       const initiatives = yield* store.list(initiative.projectId);
@@ -1001,9 +1014,27 @@ const make = Effect.gen(function* () {
             candidateTask.execution.threadId,
             candidateTask.execution.runId,
           );
-          // An unreadable live state is treated as active so two shared-root
-          // implementations can never start merely because a read was transient.
-          if (run === null || run.status === "running") {
+          const savedWorkspace = candidateTask.execution.workspaceStrategy ?? {
+            type: "root" as const,
+          };
+          const activeWorkspace =
+            savedWorkspace.type === "worktree" && run?.workspaceStrategy?.type === "root"
+              ? savedWorkspace
+              : (run?.workspaceStrategy ?? savedWorkspace);
+          const pathOf = (strategy: OrchestrationV2ThreadLaunchWorkspaceStrategy) =>
+            strategy.type === "worktree"
+              ? null
+              : path.resolve(strategy.type === "root" ? projectRoot : strategy.worktreePath);
+          const targetPath = pathOf(workspace);
+          const activePath = pathOf(activeWorkspace);
+          const sameBranch =
+            workspace.type !== "root" &&
+            activeWorkspace.type !== "root" &&
+            workspace.branch !== undefined &&
+            workspace.branch === activeWorkspace.branch;
+          const overlaps = sameBranch || (targetPath !== null && targetPath === activePath);
+          // An unreadable run keeps its workspace reserved until the next reconciliation.
+          if (overlaps && (run === null || run.status === "running")) {
             return yield* Effect.fail(
               new AtlasProjectBusyError({
                 projectId: initiative.projectId,
@@ -1048,24 +1079,36 @@ const make = Effect.gen(function* () {
           );
         }
         if (
-          task.status !== "proposed" &&
-          task.status !== "failed" &&
-          task.status !== "changes_requested"
+          task.agentReview?.status === "running" ||
+          (task.status !== "proposed" &&
+            task.status !== "failed" &&
+            task.status !== "changes_requested")
         ) {
           return yield* Effect.fail(
             new AtlasTaskNotRunnableError({ taskId: task.id, status: task.status }),
           );
         }
-        yield* requireProject(initiative.projectId);
+        const project = yield* requireProject(initiative.projectId);
         return yield* projectExecutionLocks.withLock(
           initiative.projectId,
           Effect.gen(function* () {
-            yield* ensureNoOtherActiveExecution(initiative, task.id);
-            const executionWorkspace = input.workspaceStrategy ?? { type: "root" as const };
+            const requestedWorkspace = input.workspaceStrategy ??
+              task.execution?.workspaceStrategy ?? { type: "root" as const };
             const attempt =
               task.launch?.operation === "execution"
                 ? task.launch
-                : yield* makeLaunchAttempt("execution");
+                : {
+                    ...(yield* makeLaunchAttempt("execution")),
+                    workspaceStrategy: requestedWorkspace,
+                  };
+            // Retried commands may already own a thread, so reserve their original workspace.
+            const executionWorkspace = attempt.workspaceStrategy ?? { type: "root" as const };
+            yield* ensureNoOtherActiveExecution(
+              initiative,
+              task.id,
+              executionWorkspace,
+              project.workspaceRoot,
+            );
             if (task.launch?.operation !== "execution") {
               const now = yield* nowIso;
               yield* store.save(

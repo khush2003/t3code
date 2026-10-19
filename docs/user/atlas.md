@@ -12,9 +12,14 @@ Install `gh` and sign in on that host before publishing. Only GitHub.com reposit
 are supported in this first version.
 
 Start ready tasks with a provider and model available on the selected environment.
-The agent control pane links to the backing conversations so you can inspect the work,
-answer questions, stop a run, and see the result. This first version runs one implementation
-task at a time per project to keep agents from editing the same checkout concurrently.
+The agent control pane shows questions and approval requests from running agents and their
+child agents. Answer them directly in Atlas, or open the backing conversation to inspect the
+work, stop a run, and see its result.
+
+Choose **New worktree** when launching independent tasks in parallel. Tasks sharing the project
+checkout or the same worktree run one at a time. A new worktree starts from committed code at
+the selected base ref; integrate prerequisite deliverables into that ref before starting dependent
+work there. Re-runs keep their previous workspace unless you choose a new one.
 Dependent tasks become ready after their prerequisites are approved.
 
 A completed agent run still needs review. Approve the deliverable or request changes with

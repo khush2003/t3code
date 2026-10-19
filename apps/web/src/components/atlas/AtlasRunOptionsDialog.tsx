@@ -8,6 +8,9 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { useEnvironmentProviders } from "../../state/environments";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -41,6 +44,8 @@ export function AtlasRunOptionsDialog({
   confirmLabel,
   confirmDisabled = false,
   children,
+  workspaceChoice = false,
+  reuseWorkspace = false,
   onConfirm,
 }: {
   readonly open: boolean;
@@ -52,6 +57,8 @@ export function AtlasRunOptionsDialog({
   readonly confirmLabel: string;
   readonly confirmDisabled?: boolean;
   readonly children?: ReactNode;
+  readonly workspaceChoice?: boolean;
+  readonly reuseWorkspace?: boolean;
   readonly onConfirm: (options: AtlasRunOptions) => void;
 }) {
   const settings = useEnvironmentSettings(environmentId);
@@ -82,12 +89,81 @@ export function AtlasRunOptionsDialog({
             onChange={setValue}
             disabled={confirmDisabled}
           />
+          {workspaceChoice ? (
+            <div className="mt-4 space-y-2">
+              <Label>Workspace</Label>
+              <Select
+                value={value.workspaceStrategy?.type === "worktree" ? "worktree" : "default"}
+                onValueChange={(next) =>
+                  setValue((previous) => ({
+                    ...previous,
+                    workspaceStrategy:
+                      next === "worktree"
+                        ? { type: "worktree", baseRef: "HEAD", startFromOrigin: false }
+                        : undefined,
+                  }))
+                }
+                items={[
+                  {
+                    value: "default",
+                    label: reuseWorkspace ? "Reuse previous workspace" : "Project checkout",
+                  },
+                  { value: "worktree", label: "New worktree · parallel execution" },
+                ]}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="default">
+                    {reuseWorkspace ? "Reuse previous workspace" : "Project checkout"}
+                  </SelectItem>
+                  <SelectItem value="worktree">New worktree · parallel execution</SelectItem>
+                </SelectPopup>
+              </Select>
+              {value.workspaceStrategy?.type === "worktree" ? (
+                <>
+                  <Label htmlFor="atlas-worktree-base">Committed base branch or revision</Label>
+                  <Input
+                    id="atlas-worktree-base"
+                    value={value.workspaceStrategy.baseRef ?? "HEAD"}
+                    onChange={(event) =>
+                      setValue((previous) => ({
+                        ...previous,
+                        workspaceStrategy: {
+                          type: "worktree",
+                          baseRef: event.target.value,
+                          startFromOrigin: false,
+                        },
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Runs independently alongside other workspaces. Starts from committed code;
+                    integrate dependency changes into the base first.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {reuseWorkspace
+                    ? "Continues in the previous execution workspace, including its existing changes."
+                    : "Uses current project files. Tasks sharing this checkout run one at a time."}
+                </p>
+              )}
+            </div>
+          ) : null}
           {children}
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>
           <Button
-            disabled={confirmDisabled || resolvedValue.modelSelection === null}
+            disabled={
+              confirmDisabled ||
+              resolvedValue.modelSelection === null ||
+              (workspaceChoice &&
+                value.workspaceStrategy?.type === "worktree" &&
+                value.workspaceStrategy.baseRef?.trim().length === 0)
+            }
             onClick={() => onConfirm(resolvedValue)}
           >
             {confirmLabel}

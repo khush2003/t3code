@@ -7,6 +7,7 @@ import {
   AtlasPlanImportError,
   AtlasPlanValidationError,
   AtlasProviderLaunchError,
+  AtlasProjectBusyError,
   AtlasTaskNotRunnableError,
   ProjectId,
   ProviderInstanceId,
@@ -25,6 +26,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import { ExitCode } from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
 
@@ -44,6 +46,7 @@ const isAtlasInitiativeNotFoundError = Schema.is(AtlasInitiativeNotFoundError);
 const isAtlasIssuePublishError = Schema.is(AtlasIssuePublishError);
 const isAtlasPlanImportError = Schema.is(AtlasPlanImportError);
 const isAtlasPlanValidationError = Schema.is(AtlasPlanValidationError);
+const isAtlasProjectBusyError = Schema.is(AtlasProjectBusyError);
 const isAtlasProviderLaunchError = Schema.is(AtlasProviderLaunchError);
 const isAtlasTaskNotRunnableError = Schema.is(AtlasTaskNotRunnableError);
 
@@ -332,6 +335,7 @@ function makeHarness() {
       Layer.mock(ThreadManagementService.ThreadManagementService)({ getThreadProjection }),
       Layer.mock(ProcessRunner.ProcessRunner)({ run: runProcess }),
       NodeCrypto.layer,
+      Path.layer,
     ),
   );
 
@@ -1249,5 +1253,161 @@ it.effect("recovers from a planning launch failure and can start planning again"
     assert.isNull(retried.planner.launch);
     assert.equal(harness.launchCalls.length, 2);
     assert.equal(harness.launchCalls[1]!.input.commandId, recordedAttempt!.commandId);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("runs independent tasks concurrently in separate worktrees", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* service.importPlan({
+      initiativeId: created.id,
+      plan: plan(draft("one"), draft("two")),
+    });
+    const first = yield* service.executeTask({
+      initiativeId: created.id,
+      taskId: imported.tasks[0]!.id,
+      ...runOptions,
+      workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/worktree-one" },
+    });
+    const second = yield* service.executeTask({
+      initiativeId: created.id,
+      taskId: imported.tasks[1]!.id,
+      ...runOptions,
+      workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/worktree-two" },
+    });
+    assert.equal(first.tasks[0]!.execution?.status, "running");
+    assert.deepEqual(
+      second.tasks.map((task) => task.execution?.status),
+      ["running", "running"],
+    );
+    assert.equal(harness.launchCalls.length, 2);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect.each([
+  {
+    title: "shared project checkout",
+    first: { type: "root" as const },
+    second: { type: "root" as const },
+  },
+  {
+    title: "equivalent worktree paths",
+    first: { type: "existing_worktree" as const, worktreePath: "/tmp/shared" },
+    second: { type: "existing_worktree" as const, worktreePath: "/tmp/nested/../shared" },
+  },
+  {
+    title: "a worktree path pointing at the project root",
+    first: { type: "root" as const },
+    second: { type: "existing_worktree" as const, worktreePath: "/tmp/atlas-project" },
+  },
+  {
+    title: "a branch already executing in a worktree",
+    first: {
+      type: "existing_worktree" as const,
+      worktreePath: "/tmp/branch-worktree",
+      branch: "atlas/shared",
+    },
+    second: { type: "worktree" as const, baseRef: "HEAD", branch: "atlas/shared" },
+  },
+])("rejects overlapping execution in $title", ({ first, second }) => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const one = yield* createInitiative(service);
+    const firstPlan = yield* importSingleTask(service, one.id);
+    yield* service.executeTask({
+      initiativeId: one.id,
+      taskId: firstPlan.tasks[0]!.id,
+      ...runOptions,
+      workspaceStrategy: first,
+    });
+    const two = yield* createInitiative(service);
+    const secondPlan = yield* importSingleTask(service, two.id);
+    const error = yield* service
+      .executeTask({
+        initiativeId: two.id,
+        taskId: secondPlan.tasks[0]!.id,
+        ...runOptions,
+        workspaceStrategy: second,
+      })
+      .pipe(Effect.flip);
+    assert.isTrue(isAtlasProjectBusyError(error));
+    assert.equal(harness.launchCalls.length, 1);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("reserves an isolated worktree during preparation without blocking a root task", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const first = yield* createInitiative(service);
+    const firstPlan = yield* importSingleTask(service, first.id);
+    harness.state.launchThread = { worktreePath: null, branch: null };
+    const worktree = { type: "worktree" as const, baseRef: "HEAD", branch: "atlas/preparing" };
+    const started = yield* service.executeTask({
+      initiativeId: first.id,
+      taskId: firstPlan.tasks[0]!.id,
+      ...runOptions,
+      workspaceStrategy: worktree,
+    });
+    assert.deepEqual(started.tasks[0]!.execution?.workspaceStrategy, worktree);
+    const refreshed = yield* service.refreshInitiative({ initiativeId: first.id });
+    assert.deepEqual(refreshed.tasks[0]!.execution?.workspaceStrategy, worktree);
+    const second = yield* createInitiative(service);
+    const secondPlan = yield* importSingleTask(service, second.id);
+    yield* service.executeTask({
+      initiativeId: second.id,
+      taskId: secondPlan.tasks[0]!.id,
+      ...runOptions,
+    });
+    assert.equal(harness.launchCalls.length, 2);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("retries in the existing execution worktree by default", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* importSingleTask(service, created.id);
+    const taskId = imported.tasks[0]!.id;
+    const workspace = { type: "existing_worktree" as const, worktreePath: "/tmp/retry-worktree" };
+    const started = yield* service.executeTask({
+      initiativeId: created.id,
+      taskId,
+      ...runOptions,
+      workspaceStrategy: workspace,
+    });
+    harness.complete(started.tasks[0]!.execution!.threadId, "Please review.");
+    yield* service.requestChanges({
+      initiativeId: created.id,
+      taskId,
+      feedback: "Fix the result.",
+    });
+    yield* service.executeTask({ initiativeId: created.id, taskId, ...runOptions });
+    assert.deepEqual(harness.launchCalls.at(-1)!.input.workspaceStrategy, workspace);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("pins a failed launch retry to its original workspace", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* importSingleTask(service, created.id);
+    const input = { initiativeId: created.id, taskId: imported.tasks[0]!.id, ...runOptions };
+    harness.state.failNextLaunch = true;
+    yield* service.executeTask(input).pipe(Effect.flip);
+    yield* service.executeTask({
+      ...input,
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    assert.deepEqual(
+      harness.launchCalls.map((call) => call.input.workspaceStrategy),
+      [{ type: "root" }, { type: "root" }],
+    );
+    assert.equal(harness.launchCalls[0]!.input.commandId, harness.launchCalls[1]!.input.commandId);
   }).pipe(Effect.provide(harness.layer));
 });

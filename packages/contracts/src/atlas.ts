@@ -111,6 +111,7 @@ export const AtlasLaunchAttempt = Schema.Struct({
   operation: Schema.Literals(["planner", "execution", "review"]),
   commandId: CommandId,
   messageId: MessageId,
+  workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
   createdAt: IsoDateTime,
 });
 export type AtlasLaunchAttempt = typeof AtlasLaunchAttempt.Type;
@@ -428,7 +429,7 @@ export class AtlasProjectBusyError extends Schema.TaggedError<AtlasProjectBusyEr
   },
 ) {
   override get message(): string {
-    return `Atlas is already implementing task ${this.activeTaskId} in initiative ${this.activeInitiativeId} for this project.`;
+    return `Atlas is already implementing task ${this.activeTaskId} in initiative ${this.activeInitiativeId} in the requested workspace. Choose a separate worktree to run in parallel.`;
   }
 }
 

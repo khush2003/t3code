@@ -352,7 +352,7 @@ export function AtlasTaskCard({
               ) : null}
               {taskIsRunning(task) ? (
                 <span className="flex items-center gap-1 text-muted-foreground text-xs">
-                  <RefreshCwIcon className="size-3.5 animate-spin" />
+                  <RefreshCwIcon className="size-3.5" />
                   Working…
                 </span>
               ) : null}
@@ -373,7 +373,9 @@ export function AtlasTaskCard({
           environmentId={environmentId}
           projectId={initiative.projectId}
           title={task.execution ? "Re-run task" : "Run task"}
-          description="Launches a real implementation agent for this task in the project workspace."
+          description="Choose an agent and workspace for this implementation task."
+          workspaceChoice
+          reuseWorkspace={task.execution !== null}
           confirmLabel={task.execution ? "Re-run" : "Run task"}
           onConfirm={async (options) => {
             setExecuteOpen(false);
@@ -385,6 +387,9 @@ export function AtlasTaskCard({
                 modelSelection: options.modelSelection!,
                 runtimeMode: options.runtimeMode,
                 interactionMode: options.interactionMode,
+                ...(options.workspaceStrategy
+                  ? { workspaceStrategy: options.workspaceStrategy }
+                  : {}),
               },
             });
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {

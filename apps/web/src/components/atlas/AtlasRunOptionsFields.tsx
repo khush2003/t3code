@@ -3,6 +3,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   type EnvironmentId,
   type ModelSelection,
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type ProjectId,
   ProviderInstanceId,
   type ProviderInteractionMode,
@@ -26,6 +27,7 @@ export interface AtlasRunOptions {
   readonly modelSelection: ModelSelection | null;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly workspaceStrategy?: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
 }
 
 export const DEFAULT_ATLAS_RUN_OPTIONS: AtlasRunOptions = {

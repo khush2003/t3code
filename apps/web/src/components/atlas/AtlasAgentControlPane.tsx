@@ -1,90 +1,19 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId } from "@t3tools/contracts";
-import { ExternalLinkIcon } from "lucide-react";
+import { BotIcon, ExternalLinkIcon, MessageCircleQuestionIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 
+import { environmentThreadDetails } from "../../state/threads";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { agentReviewStatusLabel, taskStatusLabel } from "./atlasLogic";
+import { AtlasPendingRequests } from "./AtlasPendingRequests";
+import { atlasAgentPriority, collectAtlasAgentRows } from "./atlasControlLogic";
+import { createAtlasAgentDetailsAtom } from "./atlasControlState";
 
-interface AgentRow {
-  readonly key: string;
-  readonly kind: string;
-  readonly title: string;
-  readonly status: string;
-  readonly badge: "info" | "success" | "error" | "warning" | "outline";
-  readonly startedAt: string;
-  readonly threadId: string;
-}
+const agentDetailsAtom = createAtlasAgentDetailsAtom(environmentThreadDetails);
 
-function collectAgentRows(initiative: AtlasInitiative): ReadonlyArray<AgentRow> {
-  const rows: AgentRow[] = [];
-  if (initiative.planner.threadId) {
-    rows.push({
-      key: "planner",
-      kind: "Planner",
-      title: initiative.title,
-      status:
-        initiative.planner.status === "running"
-          ? "Running"
-          : initiative.planner.status === "completed"
-            ? "Completed"
-            : initiative.planner.status === "failed"
-              ? "Failed"
-              : "Idle",
-      badge:
-        initiative.planner.status === "failed"
-          ? "error"
-          : initiative.planner.status === "completed"
-            ? "success"
-            : "info",
-      startedAt: initiative.updatedAt,
-      threadId: initiative.planner.threadId,
-    });
-  }
-  for (const task of initiative.tasks) {
-    if (task.execution) {
-      rows.push({
-        key: `${task.id}-exec`,
-        kind: "Task run",
-        title: task.title,
-        status: taskStatusLabel(task.status),
-        badge:
-          task.execution.status === "failed"
-            ? "error"
-            : task.execution.status === "completed"
-              ? "success"
-              : "info",
-        startedAt: task.execution.startedAt,
-        threadId: task.execution.threadId,
-      });
-    }
-    if (task.agentReview) {
-      rows.push({
-        key: `${task.id}-review`,
-        kind: "Agent review",
-        title: task.title,
-        status: agentReviewStatusLabel(task.agentReview.status),
-        badge:
-          task.agentReview.status === "failed"
-            ? "error"
-            : task.agentReview.outcome === "changes_requested"
-              ? "warning"
-              : task.agentReview.status === "completed"
-                ? "success"
-                : "info",
-        startedAt: task.agentReview.startedAt,
-        threadId: task.agentReview.threadId,
-      });
-    }
-  }
-  return rows;
-}
-
-/**
- * The real agents working on this initiative. Every row is a linked provider
- * thread launched by the server; there is no synthesized activity.
- */
 export function AtlasAgentControlPane({
   environmentId,
   initiative,
@@ -92,48 +21,115 @@ export function AtlasAgentControlPane({
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
 }) {
-  const rows = collectAgentRows(initiative);
+  const [showHistory, setShowHistory] = useState(false);
+  const baseRows = collectAtlasAgentRows(initiative);
+  const baseByThread = new Map(baseRows.map((row) => [row.threadId, row]));
+  const details = useAtomValue(
+    agentDetailsAtom([environmentId, ...baseRows.map((row) => row.threadId)].join("\n")),
+  );
+  const rows = details
+    .map(({ row, pending }) => ({ row: baseByThread.get(row.threadId) ?? row, pending }))
+    .toSorted(
+      (left, right) =>
+        atlasAgentPriority(left.row, left.pending) - atlasAgentPriority(right.row, right.pending),
+    );
+  const needsInput = rows.filter(
+    ({ pending }) => pending !== null && pending.approvals.length + pending.userInputs.length > 0,
+  ).length;
+  const running = rows.filter(({ row }) => row.running).length;
+  const active = rows.filter(({ row, pending }) => atlasAgentPriority(row, pending) <= 1);
+  const history = rows.filter(({ row, pending }) => atlasAgentPriority(row, pending) > 1);
+  const visible = showHistory || active.length === 0 ? rows : active;
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="border-b px-4 py-3">
-        <p className="font-medium text-sm">Agent control</p>
-        <p className="text-muted-foreground text-xs">Follow agent progress and review results.</p>
+    <section className="min-w-0 rounded-lg border bg-card" aria-label="Atlas agent control">
+      <div className="space-y-3 border-b px-4 py-4">
+        <div className="flex items-center gap-2">
+          <BotIcon className="size-4 text-muted-foreground" />
+          <h2 className="text-sm font-medium">Agent control</h2>
+        </div>
+        <p className="text-xs text-muted-foreground">Follow every thread and answer agents here.</p>
+        <div className="flex flex-wrap gap-2" aria-live="polite">
+          <Badge variant={needsInput > 0 ? "warning" : "outline"}>{needsInput} need input</Badge>
+          <Badge variant={running > 0 ? "info" : "outline"}>{running} running</Badge>
+          <Badge variant="outline">{rows.length} threads</Badge>
+        </div>
       </div>
       {rows.length === 0 ? (
-        <p className="p-4 text-muted-foreground text-sm">
-          No agents have run for this initiative yet.
-        </p>
+        <div className="space-y-2 p-4">
+          <p className="text-sm">Your agents will appear here.</p>
+          <p className="text-xs text-muted-foreground">
+            Start a planner or run a task. Questions and approval requests stay visible while other
+            threads work.
+          </p>
+        </div>
       ) : (
         <ul className="divide-y">
-          {rows.map((row) => (
-            <li key={row.key} className="space-y-1 px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground text-xs">{row.kind}</span>
-                <Badge variant={row.badge}>{row.status}</Badge>
-              </div>
-              <p className="truncate text-sm">{row.title}</p>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground text-xs">
-                  {formatRelativeTimeLabel(row.startedAt)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="link"
-                  render={
-                    <Link
-                      to="/$environmentId/$threadId"
-                      params={{ environmentId, threadId: row.threadId }}
+          {visible.map(({ row, pending }) => {
+            const waiting =
+              pending !== null && pending.approvals.length + pending.userInputs.length > 0;
+            return (
+              <li key={row.threadId} className="min-w-0 space-y-3 px-4 py-3">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">{row.kind}</span>
+                    <Badge
+                      variant={
+                        waiting
+                          ? "warning"
+                          : row.failed
+                            ? "error"
+                            : row.running
+                              ? "info"
+                              : "outline"
+                      }
+                    >
+                      {waiting ? "Needs input" : row.status}
+                    </Badge>
+                  </div>
+                  <p className="text-sm font-medium wrap-anywhere">{row.title}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {formatRelativeTimeLabel(row.startedAt)}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="link"
+                      render={
+                        <Link
+                          to="/$environmentId/$threadId"
+                          params={{ environmentId, threadId: row.threadId }}
+                        />
+                      }
+                    >
+                      Open thread
+                      <ExternalLinkIcon />
+                    </Button>
+                  </div>
+                </div>
+                {waiting ? (
+                  <>
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
+                      <MessageCircleQuestionIcon className="size-3.5" />
+                      Waiting for your response
+                    </p>
+                    <AtlasPendingRequests
+                      threadRef={{ environmentId, threadId: row.threadId }}
+                      pending={pending}
                     />
-                  }
-                >
-                  Open
-                  <ExternalLinkIcon />
-                </Button>
-              </div>
-            </li>
-          ))}
+                  </>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
-    </div>
+      {active.length > 0 && history.length > 0 ? (
+        <div className="border-t px-4 py-2">
+          <Button size="sm" variant="ghost" onClick={() => setShowHistory((previous) => !previous)}>
+            {showHistory ? "Hide settled threads" : `Show ${history.length} settled threads`}
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }

@@ -42,8 +42,8 @@ function AtlasInitiativeDetail({
   const counts = taskCounts(initiative.tasks);
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="space-y-4">
+    <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="order-2 min-w-0 space-y-4 2xl:order-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
             <h2 className="font-semibold text-lg">{initiative.title}</h2>
@@ -135,7 +135,7 @@ function AtlasInitiativeDetail({
         )}
       </div>
 
-      <div className="space-y-4">
+      <div className="order-1 min-w-0 space-y-4 2xl:order-2">
         <AtlasAgentControlPane environmentId={environmentId} initiative={initiative} />
       </div>
     </div>
