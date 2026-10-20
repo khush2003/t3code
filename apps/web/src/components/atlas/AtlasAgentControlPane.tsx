@@ -4,16 +4,13 @@ import { ArrowUpRightIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { environmentThreadDetails } from "../../state/threads";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { AtlasPendingRequests } from "./AtlasPendingRequests";
 import { atlasAgentPriority, collectAtlasAgentRows } from "./atlasControlLogic";
 import { reviewLaunchError } from "./atlasLogic";
-import { createAtlasAgentDetailsAtom } from "./atlasControlState";
-
-const agentDetailsAtom = createAtlasAgentDetailsAtom(environmentThreadDetails);
+import { atlasAgentDetailsAtom } from "./atlasAgentDetails";
 
 export function AtlasAgentControlPane({
   environmentId,
@@ -26,7 +23,7 @@ export function AtlasAgentControlPane({
   const baseRows = collectAtlasAgentRows(initiative);
   const baseByThread = new Map(baseRows.map((row) => [row.threadId, row]));
   const details = useAtomValue(
-    agentDetailsAtom([environmentId, ...baseRows.map((row) => row.threadId)].join("\n")),
+    atlasAgentDetailsAtom([environmentId, ...baseRows.map((row) => row.threadId)].join("\n")),
   );
   const rows = details
     .map(({ row, pending }) => ({ row: baseByThread.get(row.threadId) ?? row, pending }))

@@ -22,6 +22,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
@@ -45,18 +46,21 @@ function makeDeliverable(value = ""): DraftDeliverable {
 
 export function AtlasInitiativeDialog({
   environmentId,
-  projectId,
+  defaultProjectId,
+  projects,
   open,
   initiative,
   onOpenChange,
   onSaved,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
+  readonly defaultProjectId: ProjectId | null;
+  /** Projects a new initiative can be filed under; editing keeps its project. */
+  readonly projects: ReadonlyArray<{ readonly id: ProjectId; readonly title: string }>;
   readonly open: boolean;
   readonly initiative: AtlasInitiative | null;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onSaved: (initiativeId: string) => void;
+  readonly onSaved: (initiative: AtlasInitiative) => void;
 }) {
   const createInitiative = useAtomCommand(atlasEnvironment.createInitiative, {
     reportFailure: false,
@@ -71,6 +75,9 @@ export function AtlasInitiativeDialog({
     initiative && initiative.deliverables.length > 0
       ? initiative.deliverables.map((value) => makeDeliverable(value))
       : [makeDeliverable()],
+  );
+  const [projectId, setProjectId] = useState<ProjectId | null>(
+    defaultProjectId ?? projects[0]?.id ?? null,
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -89,16 +96,23 @@ export function AtlasInitiativeDialog({
       );
       return;
     }
-    setSubmitting(true);
-    const result = editing
-      ? await updateInitiative({
+    const save = () => {
+      if (editing) {
+        return updateInitiative({
           environmentId,
           input: { initiativeId: initiative.id, title, brief, deliverables: cleanDeliverables },
-        })
-      : await createInitiative({
-          environmentId,
-          input: { projectId, title, brief, deliverables: cleanDeliverables },
         });
+      }
+      if (projectId === null) return null;
+      return createInitiative({
+        environmentId,
+        input: { projectId, title, brief, deliverables: cleanDeliverables },
+      });
+    };
+    const pending = save();
+    if (pending === null) return;
+    setSubmitting(true);
+    const result = await pending;
     setSubmitting(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
@@ -112,7 +126,7 @@ export function AtlasInitiativeDialog({
       }
       return;
     }
-    onSaved(result.value.id);
+    onSaved(result.value);
     onOpenChange(false);
   };
 
@@ -126,6 +140,31 @@ export function AtlasInitiativeDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
+          {!editing && projects.length > 1 ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="atlas-initiative-project">Project</Label>
+              <Select
+                value={projectId}
+                onValueChange={(next) => {
+                  if (next !== null) setProjectId(next as ProjectId);
+                }}
+              >
+                <SelectTrigger id="atlas-initiative-project">
+                  <SelectValue>
+                    {projects.find((project) => project.id === projectId)?.title ??
+                      "Choose a project"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <Label htmlFor="atlas-initiative-title">Title</Label>
             <Input
@@ -190,7 +229,10 @@ export function AtlasInitiativeDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>
-          <Button disabled={submitting || (!editing && !canCreate)} onClick={() => void submit()}>
+          <Button
+            disabled={submitting || (!editing && (!canCreate || projectId === null))}
+            onClick={() => void submit()}
+          >
             {submitting ? "Saving…" : editing ? "Save changes" : "Create initiative"}
           </Button>
         </DialogFooter>

@@ -1,8 +1,10 @@
 # Atlas project orchestration
 
 Atlas turns a project brief into work that agents can execute and reviewers can accept.
-Open **Atlas** from the sidebar on web or desktop, choose a connected environment and
-project, and describe the outcome and deliverables in a new initiative.
+Open **Atlas** from the sidebar on web or desktop. The overview collects reviews, agent
+questions, and proposed plans from every project in the environment, so start there to see
+what needs you. Pick a project, then describe the outcome and deliverables in a new
+initiative.
 
 Use a planning agent to break the brief into concrete tasks. Each task should have
 acceptance criteria, a specialty, and dependencies. Inspect the proposed tasks before

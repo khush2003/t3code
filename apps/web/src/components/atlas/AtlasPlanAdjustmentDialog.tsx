@@ -266,7 +266,8 @@ export function AtlasPlanAdjustmentDialog({
     setDraft((previous) => ({ ...previous, edits: { ...previous.edits, [taskId]: fields } }));
   const discardEdit = (taskId: string) => {
     setDraft((previous) => {
-      const { [taskId]: _discarded, ...edits } = previous.edits;
+      const edits = { ...previous.edits };
+      delete edits[taskId];
       return { ...previous, edits };
     });
     setEditing((previous) => {
