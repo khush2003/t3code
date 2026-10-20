@@ -18,6 +18,7 @@ function task(overrides: Partial<AtlasTask> & { id: AtlasTaskId }): AtlasTask {
     title: "Task",
     description: "Do it",
     specialty: "backend",
+    deliverable: null,
     acceptanceCriteria: ["Works"],
     dependsOn: [],
     blockedBy: [],
@@ -40,6 +41,7 @@ const execution = (status: "running" | "completed") => ({
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: status === "completed" ? "2026-01-01T00:10:00.000Z" : null,
   result: null,
+  artifacts: [],
 });
 
 const review = (outcome: "approved" | "changes_requested") => ({

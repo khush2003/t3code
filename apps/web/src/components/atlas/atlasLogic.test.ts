@@ -17,6 +17,7 @@ function task(overrides: Partial<AtlasTask> = {}): AtlasTask {
     title: "Add the thing",
     description: "",
     specialty: "backend",
+    deliverable: null,
     acceptanceCriteria: ["It works"],
     dependsOn: [],
     blockedBy: [],
@@ -39,6 +40,7 @@ const finishedExecution = {
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: "2026-01-01T00:10:00.000Z",
   result: "done",
+  artifacts: [],
 };
 
 describe("parseAtlasPlanJson", () => {

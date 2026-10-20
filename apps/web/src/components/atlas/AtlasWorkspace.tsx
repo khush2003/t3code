@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { AtlasInitiative, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { AtlasInitiative, AtlasTaskId, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, LayoutGridIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -46,12 +46,16 @@ function AtlasInitiativeDetail({
   environmentId,
   initiative,
   canDelete,
+  openTaskId,
+  onOpenTask,
   onEdit,
   onDelete,
 }: {
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
   readonly canDelete: boolean;
+  readonly openTaskId: string | null;
+  readonly onOpenTask: (taskId: AtlasTaskId | null) => void;
   readonly onEdit: () => void;
   readonly onDelete: () => void;
 }) {
@@ -130,6 +134,8 @@ function AtlasInitiativeDetail({
         <AtlasTaskList
           environmentId={environmentId}
           initiative={initiative}
+          openTaskId={openTaskId}
+          onOpenTask={onOpenTask}
           onAdjust={(taskId) => setAdjustSource({ kind: "manual", focusTaskId: taskId })}
           onConfigureAutoReview={() => setAutoReviewOpen(true)}
         />
@@ -404,6 +410,15 @@ export function AtlasWorkspace({ search }: { readonly search: AtlasSearch }) {
             environmentId={activeEnvironmentId}
             initiative={selectedInitiative}
             canDelete={canDelete}
+            openTaskId={search.taskId ?? null}
+            onOpenTask={(taskId) =>
+              go({
+                ...environmentSearch,
+                projectId: selectedInitiative.projectId,
+                initiativeId: selectedInitiative.id,
+                ...(taskId === null ? {} : { taskId }),
+              })
+            }
             onEdit={() => {
               setDialogTarget({ kind: "edit", initiative: selectedInitiative });
               setDialogOpen(true);

@@ -27,6 +27,7 @@ function task(overrides: Partial<AtlasTask> & { id: AtlasTaskId }): AtlasTask {
     title: "Task",
     description: "Do it",
     specialty: "backend",
+    deliverable: null,
     acceptanceCriteria: ["Works"],
     dependsOn: [],
     blockedBy: [],
@@ -82,6 +83,7 @@ const design = task({
     startedAt: "2026-01-01T00:00:00.000Z",
     finishedAt: "2026-01-01T00:10:00.000Z",
     result: null,
+    artifacts: [],
   },
 });
 const scaffold = task({

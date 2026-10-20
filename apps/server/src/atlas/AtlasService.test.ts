@@ -1951,3 +1951,144 @@ it.effect("records a review launch failure on the task and clears it after a ret
     assert.equal(retried.tasks[0]!.agentReview?.status, "running");
   }).pipe(Effect.provide(harness.layer));
 });
+
+const artifactBlock = (entries: unknown) =>
+  `\`\`\`atlas-artifacts\n${JSON.stringify(entries)}\n\`\`\``;
+
+it("parses the last artifact block and strips it from the summary", () => {
+  const parsed = AtlasService.parseAtlasArtifacts(
+    [
+      "Added the auth flow doc.",
+      artifactBlock([{ kind: "image", title: "Stale", path: "old.png" }]),
+      "Verified with the unit tests.",
+      artifactBlock([
+        { kind: "document", title: "Auth flow", path: "./docs/auth.md", description: "Edge cases" },
+        { kind: "link", title: "Preview", url: "https://example.com/preview" },
+      ]),
+    ].join("\n\n"),
+  );
+  assert.deepEqual(parsed.artifacts, [
+    { kind: "document", title: "Auth flow", path: "docs/auth.md", description: "Edge cases" },
+    { kind: "link", title: "Preview", url: "https://example.com/preview" },
+  ]);
+  assert.equal(
+    parsed.summary,
+    `Added the auth flow doc.\n\n${artifactBlock([{ kind: "image", title: "Stale", path: "old.png" }])}\n\nVerified with the unit tests.`,
+  );
+});
+
+it("drops invalid and unsafe artifact entries individually", () => {
+  const parsed = AtlasService.parseAtlasArtifacts(
+    `Done.\n${artifactBlock([
+      { kind: "image", title: "Kept", path: "shots/home.png" },
+      { kind: "image", title: "Duplicate", path: "./shots/home.png" },
+      { kind: "video", title: "Unknown kind", path: "clip.mp4" },
+      { kind: "document", path: "missing-title.md" },
+      { kind: "document", title: "No path" },
+      { kind: "file", title: "Absolute", path: "/etc/passwd" },
+      { kind: "file", title: "Home", path: "~/secrets.txt" },
+      { kind: "file", title: "Drive", path: "C:\\Windows\\win.ini" },
+      { kind: "file", title: "Escapes", path: "docs/../../outside.md" },
+      { kind: "link", title: "Not http", url: "javascript:alert(1)" },
+      { kind: "link", title: "No url", path: "page.html" },
+      "not an object",
+      { kind: "html", title: "Preview", path: "preview/index.html", url: "file:///tmp/x" },
+    ])}`,
+  );
+  assert.deepEqual(parsed.artifacts, [
+    { kind: "image", title: "Kept", path: "shots/home.png" },
+    { kind: "html", title: "Preview", path: "preview/index.html" },
+  ]);
+  assert.equal(parsed.summary, "Done.");
+});
+
+it("caps reported artifacts", () => {
+  const entries = Array.from({ length: 30 }, (_, index) => ({
+    kind: "file",
+    title: `File ${index}`,
+    path: `out/${index}.txt`,
+  }));
+  assert.equal(AtlasService.parseAtlasArtifacts(artifactBlock(entries)).artifacts.length, 24);
+});
+
+it("keeps the result verbatim without a block and strips a malformed block", () => {
+  const plain = "Implemented it.\n\n```ts\nconst x = 1;\n```";
+  assert.deepEqual(AtlasService.parseAtlasArtifacts(plain), { artifacts: [], summary: plain });
+  assert.deepEqual(
+    AtlasService.parseAtlasArtifacts("Implemented it.\n```atlas-artifacts\n[{oops\n```"),
+    { artifacts: [], summary: "Implemented it." },
+  );
+});
+
+it.effect("carries the deliverable and reported artifacts from plan to review", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* service.importPlan({
+      initiativeId: created.id,
+      plan: plan(draft("doc", { deliverable: "A markdown doc at docs/auth.md." }), draft("bare")),
+    });
+    const task = taskByTitle(imported, "Task doc");
+    assert.equal(task.deliverable, "A markdown doc at docs/auth.md.");
+    assert.isNull(taskByTitle(imported, "Task bare").deliverable);
+
+    const executed = yield* executeOnlyTask(service, created.id, task.id);
+    assert.include(
+      harness.launchCalls.at(-1)!.input.initialMessage!.text,
+      "A markdown doc at docs/auth.md.",
+    );
+    assert.include(harness.launchCalls.at(-1)!.input.initialMessage!.text, "```atlas-artifacts");
+    assert.deepEqual(executed.tasks.find((t) => t.id === task.id)!.execution?.artifacts, []);
+
+    harness.complete(
+      executed.tasks.find((t) => t.id === task.id)!.execution!.threadId,
+      `Wrote the doc.\n\n${artifactBlock([{ kind: "document", title: "Auth", path: "docs/auth.md" }])}`,
+    );
+    const refreshed = yield* service.refreshInitiative({ initiativeId: created.id });
+    const execution = refreshed.tasks.find((t) => t.id === task.id)!.execution!;
+    assert.equal(execution.result, "Wrote the doc.");
+    assert.deepEqual(execution.artifacts, [
+      { kind: "document", title: "Auth", path: "docs/auth.md" },
+    ]);
+
+    yield* service.startAgentReview({ initiativeId: created.id, taskId: task.id, ...runOptions });
+    const reviewText = harness.launchCalls.at(-1)!.input.initialMessage!.text;
+    assert.include(reviewText, "A markdown doc at docs/auth.md.");
+    assert.include(reviewText, "- [document] Auth: docs/auth.md");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("edits a published task's deliverable and marks its issue for sync", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* service.importPlan({
+      initiativeId: created.id,
+      plan: plan(draft("only", { deliverable: "Screenshot of the login page." })),
+    });
+    const taskId = imported.tasks[0]!.id;
+    yield* service.publishTaskIssue({ initiativeId: created.id, taskId });
+    const createCall = harness.processCalls.findLast(
+      (call) => call.command === "gh" && call.args[1] === "create",
+    )!;
+    assert.include(
+      createCall.args[createCall.args.indexOf("--body") + 1]!,
+      "## Deliverable\nScreenshot of the login page.",
+    );
+
+    const adjusted = yield* service.applyPlanAdjustment({
+      initiativeId: created.id,
+      expectedPlanRevision: 1,
+      adjustment: {
+        summary: "Make the deliverable a doc.",
+        updates: [{ taskId, deliverable: "Login flow doc at docs/login.md." }],
+        additions: [],
+        removals: [],
+      },
+    });
+    assert.equal(adjusted.tasks[0]!.deliverable, "Login flow doc at docs/login.md.");
+    assert.equal(adjusted.tasks[0]!.issue?.needsSync, true);
+  }).pipe(Effect.provide(harness.layer));
+});

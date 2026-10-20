@@ -33,6 +33,11 @@ finishes, even while Atlas is closed. Choose the reviewer provider and model onc
 initiative. Existing completed tasks without a review are also picked up. Failed reviews remain
 visible for manual retry; the system does not accept an unreadable or failed verdict.
 
+Each planned task names the deliverable a reviewer will inspect. When a run finishes, open the
+task to review its deliverables in place: the agent's summary, the code changes, and any docs,
+images, HTML pages, files, or links the agent reported. Files are read from the run's workspace,
+so a deliverable deleted or moved after the run shows as unavailable.
+
 A completed agent run still needs review. Approve the deliverable or request changes with
 feedback. Agent review provides another pass over the work. By default, inspect its findings
 before accepting a deliverable. Enable **Apply the review decision automatically**

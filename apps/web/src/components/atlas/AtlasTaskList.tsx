@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, AtlasTaskId, EnvironmentId } from "@t3tools/contracts";
 import {
   CheckIcon,
@@ -11,14 +10,19 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { atlasEnvironment } from "../../state/atlas";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { autoReviewLabel } from "./AtlasAutoReviewDialog";
 import { AtlasBulkActionDialog } from "./AtlasBulkActionDialog";
-import { AtlasTaskRow, type AtlasTaskPermissions } from "./AtlasTaskRow";
+import {
+  AtlasTaskActionDialog,
+  useAtlasTaskPermissions,
+  type AtlasTaskDialogKind,
+} from "./AtlasTaskActions";
+import { AtlasTaskCard } from "./AtlasTaskCard";
+import { AtlasTaskDrawer } from "./AtlasTaskDrawer";
 import {
   ATLAS_TASK_LANES,
   blockingTasks,
@@ -35,21 +39,24 @@ import {
 export function AtlasTaskList({
   environmentId,
   initiative,
+  openTaskId,
+  onOpenTask,
   onAdjust,
   onConfigureAutoReview,
 }: {
   readonly environmentId: EnvironmentId;
   readonly initiative: AtlasInitiative;
+  /** The task whose sheet is open; it lives in the URL so links and back work. */
+  readonly openTaskId: string | null;
+  readonly onOpenTask: (taskId: AtlasTaskId | null) => void;
   readonly onAdjust: (taskId: AtlasTaskId | null) => void;
   readonly onConfigureAutoReview: () => void;
 }) {
-  const permissions: AtlasTaskPermissions = {
-    execute: useAtomValue(atlasEnvironment.executeTask.permissionAtom(environmentId)),
-    decide: useAtomValue(atlasEnvironment.approveTask.permissionAtom(environmentId)),
-    review: useAtomValue(atlasEnvironment.startAgentReview.permissionAtom(environmentId)),
-    publish: useAtomValue(atlasEnvironment.publishTaskIssue.permissionAtom(environmentId)),
-    adjust: useAtomValue(atlasEnvironment.applyPlanAdjustment.permissionAtom(environmentId)),
-  };
+  const permissions = useAtlasTaskPermissions(environmentId);
+  const [pendingAction, setPendingAction] = useState<{
+    readonly taskId: AtlasTaskId;
+    readonly kind: AtlasTaskDialogKind;
+  } | null>(null);
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<AtlasTaskId>>(new Set());
   const [collapsed, setCollapsed] = useState<ReadonlySet<AtlasTaskLane>>(new Set(["done"]));
@@ -85,6 +92,23 @@ export function AtlasTaskList({
       return updated;
     });
   const onSelectedChange = (taskId: AtlasTaskId, next: boolean) => setSelected([taskId], next);
+  const onAction = (taskId: AtlasTaskId, kind: AtlasTaskDialogKind) =>
+    setPendingAction({ taskId, kind });
+
+  const openTask = openTaskId === null ? null : (byId.get(openTaskId as AtlasTaskId) ?? null);
+  const actionTask = pendingAction ? (byId.get(pendingAction.taskId) ?? null) : null;
+  const actionDialog =
+    pendingAction && actionTask ? (
+      <AtlasTaskActionDialog
+        key={`${actionTask.id}:${pendingAction.kind}`}
+        environmentId={environmentId}
+        initiativeId={initiative.id}
+        projectId={initiative.projectId}
+        task={actionTask}
+        kind={pendingAction.kind}
+        onClose={() => setPendingAction(null)}
+      />
+    ) : null;
 
   const publishCandidates = bulkCandidates("publish", tasks, selection).filter(
     (candidate) => candidate.skipReason === null,
@@ -203,14 +227,14 @@ export function AtlasTaskList({
           No tasks match “{query}”.
         </p>
       ) : (
-        <div className="overflow-clip rounded-lg border">
+        <div className="space-y-5">
           {lanes.map(({ lane, label, tasks: laneTasks }) => {
             const isCollapsed = collapsed.has(lane) && query.trim().length === 0;
             const laneIds = laneTasks.map((task) => task.id);
             const selectedInLane = laneIds.filter((id) => selection.has(id)).length;
             return (
-              <div key={lane} className="border-b last:border-b-0">
-                <div className="sticky top-0 z-1 flex items-center gap-2.5 bg-muted px-3 py-1.5">
+              <section key={lane} aria-label={label} className="space-y-2.5">
+                <div className="flex items-center gap-2.5 px-1">
                   <Checkbox
                     aria-label={`Select all ${label.toLowerCase()} tasks`}
                     checked={selectedInLane > 0 && selectedInLane === laneIds.length}
@@ -228,7 +252,7 @@ export function AtlasTaskList({
                         return updated;
                       })
                     }
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    className="flex min-w-0 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                   >
                     <ChevronRightIcon
                       aria-hidden
@@ -239,7 +263,7 @@ export function AtlasTaskList({
                     />
                     <span
                       className={cn(
-                        "font-medium text-xs",
+                        "font-medium text-sm",
                         lane === "attention" ? "text-warning-foreground" : "text-foreground",
                       )}
                     >
@@ -251,30 +275,47 @@ export function AtlasTaskList({
                   </button>
                 </div>
                 {isCollapsed ? null : (
-                  <ul className="divide-y">
+                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
                     {laneTasks.map((task) => (
-                      <AtlasTaskRow
+                      <AtlasTaskCard
                         key={task.id}
-                        environmentId={environmentId}
-                        initiativeId={initiative.id}
-                        projectId={initiative.projectId}
                         task={task}
                         byId={byId}
-                        wave={waves.get(task.id) ?? 1}
                         reason={taskReason(task, byId)}
                         selected={selection.has(task.id)}
                         permissions={permissions}
                         onSelectedChange={onSelectedChange}
-                        onAdjust={onAdjust}
+                        onOpen={onOpenTask}
+                        onAction={onAction}
                       />
                     ))}
                   </ul>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>
       )}
+
+      <AtlasTaskDrawer
+        environmentId={environmentId}
+        initiativeId={initiative.id}
+        projectId={initiative.projectId}
+        task={openTask}
+        byId={byId}
+        reason={openTask ? taskReason(openTask, byId) : null}
+        permissions={permissions}
+        onClose={() => onOpenTask(null)}
+        onOpenTask={onOpenTask}
+        onAction={onAction}
+        onAdjust={(taskId) => {
+          onOpenTask(null);
+          onAdjust(taskId);
+        }}
+      >
+        {openTask ? actionDialog : null}
+      </AtlasTaskDrawer>
+      {openTask ? null : actionDialog}
 
       {bulk ? (
         <AtlasBulkActionDialog

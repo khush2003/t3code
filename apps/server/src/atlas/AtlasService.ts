@@ -1,5 +1,6 @@
 import {
   AtlasAgentReviewOutcome,
+  AtlasArtifact,
   AtlasDependencyNotApprovedError,
   AtlasExecutionNotFinishedError,
   AtlasGitHubRepositoryError,
@@ -80,6 +81,8 @@ const decodeReviewVerdict = Schema.decodeUnknownSync(
   Schema.Struct({ outcome: AtlasAgentReviewOutcome, feedback: Schema.String }),
 );
 
+const decodeArtifact = Schema.decodeUnknownOption(AtlasArtifact);
+
 type PlannerStatus = AtlasInitiative["planner"]["status"];
 type ReviewStatus = NonNullable<AtlasTask["agentReview"]>["status"];
 
@@ -141,6 +144,76 @@ const parseJsonObject = (text: string): unknown => {
     }
   }
   throw new Error("No JSON object was found in the model output.");
+};
+
+const MAX_ARTIFACTS = 24;
+const ARTIFACT_BLOCK = /```atlas-artifacts[^\S\n]*\n([\s\S]*?)```/g;
+
+// Artifact paths are opened relative to the task workspace, so anything that could escape it is dropped.
+const normalizeArtifactPath = (path: string): string | null => {
+  const normalized = path.replaceAll("\\", "/").replace(/^(?:\.\/)+/, "");
+  if (normalized.length === 0 || /^(?:\/|~|[a-z]:)/i.test(normalized)) return null;
+  return normalized.split("/").includes("..") ? null : normalized;
+};
+
+const isHttpUrl = (url: string): boolean => {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const toArtifact = (entry: unknown): AtlasArtifact | null => {
+  const decoded = decodeArtifact(entry);
+  if (Option.isNone(decoded)) return null;
+  const { path, url, ...rest } = decoded.value;
+  const safePath = path === undefined ? null : normalizeArtifactPath(path);
+  const safeUrl = url !== undefined && isHttpUrl(url) ? url : null;
+  if (rest.kind === "link" ? safeUrl === null : safePath === null) return null;
+  return {
+    ...rest,
+    ...(safePath === null ? {} : { path: safePath }),
+    ...(safeUrl === null ? {} : { url: safeUrl }),
+  };
+};
+
+/**
+ * Splits an implementation agent's final message into the artifacts it reported in its last
+ * `atlas-artifacts` block and the remaining human-facing summary. Invalid entries are dropped
+ * individually so one bad entry never hides the rest or fails the task.
+ */
+export const parseAtlasArtifacts = (
+  result: string,
+): { readonly artifacts: ReadonlyArray<AtlasArtifact>; readonly summary: string } => {
+  const match = [...result.matchAll(ARTIFACT_BLOCK)].at(-1);
+  if (match === undefined) return { artifacts: [], summary: result };
+  const before = result.slice(0, match.index).trimEnd();
+  const after = result.slice(match.index + match[0].length).trimStart();
+  const summary =
+    before.length === 0 || after.length === 0 ? before + after : `${before}\n\n${after}`;
+
+  let entries: unknown;
+  try {
+    entries = JSON.parse(match[1]!);
+  } catch {
+    return { artifacts: [], summary };
+  }
+  if (!Array.isArray(entries)) return { artifacts: [], summary };
+
+  const seen = new Set<string>();
+  const artifacts: AtlasArtifact[] = [];
+  for (const entry of entries) {
+    const artifact = toArtifact(entry);
+    if (artifact === null) continue;
+    const key = `${artifact.path ?? ""}\u0000${artifact.url ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    artifacts.push(artifact);
+    if (artifacts.length === MAX_ARTIFACTS) break;
+  }
+  return { artifacts, summary };
 };
 
 const validatePlan = (plan: AtlasPlanDraft): AtlasPlanDraft => {
@@ -275,6 +348,7 @@ const applyAdjustment = (
         title: update.title ?? task.title,
         description: update.description ?? task.description,
         specialty: update.specialty ?? task.specialty,
+        deliverable: update.deliverable ?? task.deliverable,
         acceptanceCriteria: update.acceptanceCriteria ?? task.acceptanceCriteria,
         dependsOn:
           update.dependsOn?.map((reference) => resolve(task.title, reference)) ?? task.dependsOn,
@@ -290,6 +364,7 @@ const applyAdjustment = (
     title: addition.title,
     description: addition.description,
     specialty: addition.specialty,
+    deliverable: addition.deliverable ?? null,
     acceptanceCriteria: addition.acceptanceCriteria,
     dependsOn: addition.dependsOn.map((reference) => resolve(addition.key, reference)),
     blockedBy: [],
@@ -378,6 +453,8 @@ const withComputedView = (initiative: AtlasInitiative): AtlasInitiative => {
   return { ...next, status: computeInitiativeStatus(next) };
 };
 
+const DELIVERABLE_GUIDANCE = `Every task must have a deliverable: one sentence naming the concrete thing a human will open to review it. Prefer something viewable: a markdown doc in the repo, a screenshot image, an HTML preview page, or a test report. Use "code change" only when the diff is genuinely all there is to review.`;
+
 const PLANNER_FORMAT = `Return ONLY a final JSON object with this exact shape (no markdown prose around it):
 {
   "summary": "short plan summary",
@@ -387,13 +464,15 @@ const PLANNER_FORMAT = `Return ONLY a final JSON object with this exact shape (n
       "title": "task title",
       "description": "implementation details",
       "specialty": "frontend | backend | tests | docs | ...",
+      "deliverable": "one sentence naming what a reviewer will open, e.g. a doc path or screenshot",
       "acceptanceCriteria": ["observable criterion"],
       "dependsOn": ["another-local-key"]
     }
   ]
 }
 Keys must be unique. dependsOn may only reference keys in this plan and must be acyclic.
-Every task must have at least one acceptance criterion.`;
+Every task must have at least one acceptance criterion.
+${DELIVERABLE_GUIDANCE}`;
 
 // Each dependency serializes work, so the planner is pushed toward a wide DAG instead of a chain.
 const DEPENDENCY_GUIDANCE = `Dependencies:
@@ -430,6 +509,7 @@ const ADJUSTMENT_FORMAT = `Return ONLY a final JSON object with this exact shape
       "title": "optional new title",
       "description": "optional new description",
       "specialty": "optional new specialty",
+      "deliverable": "optional new deliverable",
       "acceptanceCriteria": ["optional replacement criteria"],
       "dependsOn": ["optional replacement list of task ids or new task keys"]
     }
@@ -440,13 +520,15 @@ const ADJUSTMENT_FORMAT = `Return ONLY a final JSON object with this exact shape
       "title": "task title",
       "description": "implementation details",
       "specialty": "frontend | backend | tests | docs | ...",
+      "deliverable": "what a reviewer will look at",
       "acceptanceCriteria": ["observable criterion"],
       "dependsOn": ["existing task id or another new key"]
     }
   ],
   "removals": ["existing NOT-STARTED task id"]
 }
-Omit fields you do not change. Leave arrays empty when there is nothing to do. Dependencies must stay acyclic.`;
+Omit fields you do not change. Leave arrays empty when there is nothing to do. Dependencies must stay acyclic.
+${DELIVERABLE_GUIDANCE} When updating a task without a deliverable, add one.`;
 
 const adjustmentTaskSummary = (task: AtlasTask): string =>
   [
@@ -460,6 +542,7 @@ const adjustmentTaskSummary = (task: AtlasTask): string =>
     }`,
     `Exact taskId for JSON: ${JSON.stringify(task.id)} (include the atlas-task: prefix)`,
     `Specialty: ${task.specialty}`,
+    `Deliverable: ${task.deliverable ?? "(none)"}`,
     `Depends on: ${task.dependsOn.length === 0 ? "(none)" : task.dependsOn.join(", ")}`,
     `Description:\n${truncate(task.description, 2_000)}`,
     `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
@@ -488,6 +571,22 @@ const adjustmentPrompt = (initiative: AtlasInitiative, instructions: string): st
     ADJUSTMENT_FORMAT,
   ]);
 
+const ARTIFACT_INSTRUCTIONS = `Produce the deliverable as real files in the workspace where it makes sense (docs as .md, screenshots as .png, previews as .html). End your final message with a fenced block listing them as a JSON array. kind is one of document, image, html, link, file; path is workspace-relative and required except for link, which needs an http(s) url instead; description is optional:
+\`\`\`atlas-artifacts
+[{"kind":"document","title":"Auth flow","path":"docs/auth-flow.md","description":"Sequence and edge cases"},{"kind":"link","title":"Preview","url":"https://example.com/preview"}]
+\`\`\`
+Do not list code changes; Atlas shows the diff automatically. Use [] when there is nothing else to show.`;
+
+const formatArtifacts = (artifacts: ReadonlyArray<AtlasArtifact>): string =>
+  artifacts
+    .map(
+      (artifact) =>
+        `- [${artifact.kind}] ${artifact.title}: ${artifact.path ?? artifact.url}${
+          artifact.description === undefined ? "" : ` (${artifact.description})`
+        }`,
+    )
+    .join("\n");
+
 const taskPrompt = (
   initiative: AtlasInitiative,
   task: AtlasTask,
@@ -498,6 +597,7 @@ const taskPrompt = (
     `Initiative: ${initiative.title}\n${initiative.brief}`,
     `Task: ${task.title}\n${task.description}`,
     `Specialty: ${task.specialty}`,
+    task.deliverable === null ? "" : `Deliverable:\n${task.deliverable}`,
     `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
     dependencies.length === 0
       ? ""
@@ -514,6 +614,7 @@ const taskPrompt = (
       ? `A human requested these changes:\n${task.humanDecision.feedback}\nAddress every point in this retry.`
       : "",
     "Implement the task in this project. Run the relevant checks. Finish with a concise summary of what changed and how you verified it. Do not claim checks you did not run.",
+    ARTIFACT_INSTRUCTIONS,
   ]);
 
 const reviewPrompt = (initiative: AtlasInitiative, task: AtlasTask): string =>
@@ -521,10 +622,16 @@ const reviewPrompt = (initiative: AtlasInitiative, task: AtlasTask): string =>
     "You are the Atlas review agent. Review the implementation against its acceptance criteria.",
     `Initiative: ${initiative.title}\n${initiative.brief}`,
     `Task: ${task.title}\n${task.description}`,
+    task.deliverable === null ? "" : `Deliverable:\n${task.deliverable}`,
     `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
     `Implementation result:\n${task.execution?.result ?? "(no result recorded)"}`,
-    "Inspect the workspace when needed. Do not edit files, create commits, or run mutating commands. Review only.",
-    "Be strict about unmet criteria.",
+    `Reported artifacts (paths are relative to the workspace):\n${
+      task.execution === null || task.execution.artifacts.length === 0
+        ? "(none reported)"
+        : formatArtifacts(task.execution.artifacts)
+    }`,
+    "Open and inspect the deliverable and every reported artifact, and inspect the workspace when needed. Do not edit files, create commits, or run mutating commands. Review only.",
+    "Be strict about unmet criteria. A missing or unviewable deliverable is an unmet criterion.",
     `Finish with ONLY a final JSON object: {"outcome":"approved"|"changes_requested","feedback":"specific feedback"}`,
   ]);
 
@@ -543,6 +650,7 @@ const issueBody = (initiative: AtlasInitiative, task: AtlasTask): string =>
     "## Specialty",
     task.specialty,
     "",
+    ...(task.deliverable === null ? [] : ["## Deliverable", task.deliverable, ""]),
     "## Acceptance criteria",
     ...task.acceptanceCriteria.map((criterion) => `- [ ] ${criterion}`),
     ...(task.dependsOn.length === 0
@@ -864,23 +972,24 @@ const make = Effect.gen(function* () {
     execution === null
       ? Effect.succeed(null)
       : readRun(execution.threadId, execution.runId).pipe(
-          Effect.map((run) =>
-            run === null
-              ? execution
-              : {
-                  ...execution,
-                  status: run.status,
-                  startedAt: run.startedAt,
-                  finishedAt: isTerminal(run.status) ? run.finishedAt : null,
-                  result: run.result,
-                  workspaceStrategy:
-                    run.status === "running" &&
-                    run.workspaceStrategy?.type === "root" &&
-                    execution.workspaceStrategy?.type === "worktree"
-                      ? execution.workspaceStrategy
-                      : (run.workspaceStrategy ?? execution.workspaceStrategy),
-                },
-          ),
+          Effect.map((run) => {
+            if (run === null) return execution;
+            const parsed = run.result === null ? null : parseAtlasArtifacts(run.result);
+            return {
+              ...execution,
+              status: run.status,
+              startedAt: run.startedAt,
+              finishedAt: isTerminal(run.status) ? run.finishedAt : null,
+              result: parsed === null || parsed.summary.length === 0 ? null : parsed.summary,
+              artifacts: parsed?.artifacts ?? [],
+              workspaceStrategy:
+                run.status === "running" &&
+                run.workspaceStrategy?.type === "root" &&
+                execution.workspaceStrategy?.type === "worktree"
+                  ? execution.workspaceStrategy
+                  : (run.workspaceStrategy ?? execution.workspaceStrategy),
+            };
+          }),
         );
 
   const syncAgentReview = (
@@ -1385,6 +1494,7 @@ const make = Effect.gen(function* () {
           title: draft.title,
           description: draft.description,
           specialty: draft.specialty,
+          deliverable: draft.deliverable ?? null,
           acceptanceCriteria: draft.acceptanceCriteria,
           dependsOn: draft.dependsOn.map((key) => idByKey.get(key)!),
           blockedBy: [],
@@ -1593,6 +1703,7 @@ const make = Effect.gen(function* () {
                 finishedAt: null,
                 result: null,
                 workspaceStrategy: launched.workspaceStrategy,
+                artifacts: [],
               },
               agentReview: null,
               humanDecision: { outcome: "pending", feedback: null, decidedAt: null },

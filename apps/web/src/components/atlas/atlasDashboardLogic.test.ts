@@ -23,6 +23,7 @@ function task(
     title: `Task ${overrides.id}`,
     description: "Do the thing",
     specialty: "Frontend",
+    deliverable: null,
     acceptanceCriteria: ["It works"],
     dependsOn: [],
     blockedBy: [],

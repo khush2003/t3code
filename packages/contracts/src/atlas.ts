@@ -92,11 +92,17 @@ export const AtlasAutoReviewPolicy = Schema.Struct({
 });
 export type AtlasAutoReviewPolicy = typeof AtlasAutoReviewPolicy.Type;
 
+const DeliverableText = TrimmedNonEmptyString.check(Schema.isMaxLength(1_000)).annotate({
+  description:
+    "The concrete thing a reviewer inspects when the task is done: a document, screenshot, page, code change, or test report.",
+});
+
 export const AtlasTaskDraft = Schema.Struct({
   key: PlanKey.annotate({ description: "Planner-local key, unique within the plan." }),
   title: ShortText,
   description: BodyText,
   specialty: ShortText,
+  deliverable: Schema.optional(DeliverableText),
   acceptanceCriteria: Schema.Array(AcceptanceCriterion).check(Schema.isMinLength(1)).annotate({
     description: "Non-empty acceptance criteria. A task is not complete until these are met.",
   }),
@@ -135,6 +141,23 @@ export const AtlasLaunchAttempt = Schema.Struct({
 });
 export type AtlasLaunchAttempt = typeof AtlasLaunchAttempt.Type;
 
+export const AtlasArtifactKind = Schema.Literals(["document", "image", "html", "link", "file"]);
+export type AtlasArtifactKind = typeof AtlasArtifactKind.Type;
+
+export const AtlasArtifact = Schema.Struct({
+  kind: AtlasArtifactKind,
+  title: ShortText,
+  path: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(1_024))).annotate({
+    description:
+      "Workspace-relative path of a file the agent produced. Required unless kind is link.",
+  }),
+  url: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2_048))).annotate({
+    description: "http(s) URL for link artifacts, such as a deployed preview or test report.",
+  }),
+  description: Schema.optional(Schema.String.check(Schema.isMaxLength(2_000))),
+});
+export type AtlasArtifact = typeof AtlasArtifact.Type;
+
 export const AtlasTaskExecution = Schema.Struct({
   threadId: ThreadId,
   runId: RunId,
@@ -143,6 +166,12 @@ export const AtlasTaskExecution = Schema.Struct({
   finishedAt: Schema.NullOr(IsoDateTime),
   result: Schema.NullOr(Schema.String),
   workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
+  artifacts: Schema.Array(AtlasArtifact)
+    .pipe(Schema.withDecodingDefault(Effect.succeed([])))
+    .annotate({
+      description:
+        "Reviewable outputs the agent reported in its final message. Code changes come from the thread diff.",
+    }),
 });
 export type AtlasTaskExecution = typeof AtlasTaskExecution.Type;
 
@@ -179,6 +208,7 @@ export const AtlasTaskUpdate = Schema.Struct({
   title: Schema.optional(ShortText),
   description: Schema.optional(BodyText),
   specialty: Schema.optional(ShortText),
+  deliverable: Schema.optional(DeliverableText),
   acceptanceCriteria: Schema.optional(
     Schema.Array(AcceptanceCriterion).check(Schema.isMinLength(1)),
   ),
@@ -235,6 +265,9 @@ export const AtlasTask = Schema.Struct({
   title: ShortText,
   description: BodyText,
   specialty: ShortText,
+  deliverable: Schema.NullOr(DeliverableText).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   acceptanceCriteria: Schema.Array(AcceptanceCriterion),
   dependsOn: Schema.Array(AtlasTaskId),
   blockedBy: Schema.Array(AtlasTaskId).annotate({
