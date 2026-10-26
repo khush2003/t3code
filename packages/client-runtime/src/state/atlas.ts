@@ -106,6 +106,12 @@ export function createAtlasEnvironmentAtoms<R, E>(
       scheduler,
       onSuccess: ({ environmentId }, registry) => bump(registry, environmentId),
     }),
+    continueTask: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:atlas:continue-task",
+      tag: WS_METHODS.atlasContinueTask,
+      scheduler,
+      onSuccess: ({ environmentId }, registry) => bump(registry, environmentId),
+    }),
     approveTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:atlas:approve-task",
       tag: WS_METHODS.atlasApproveTask,

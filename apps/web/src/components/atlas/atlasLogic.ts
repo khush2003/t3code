@@ -2,6 +2,7 @@ import {
   AtlasPlanDraft,
   type AtlasAgentReviewStatus,
   type AtlasInitiative,
+  type AtlasRunFailure,
   type AtlasTask,
   type AtlasTaskStatus,
 } from "@t3tools/contracts";
@@ -69,6 +70,31 @@ export function canExecuteTask(task: AtlasTask): boolean {
   if (taskIsRunning(task) || task.blockedBy.length > 0 || task.status === "approved") return false;
   return (
     task.status === "proposed" || task.status === "failed" || task.status === "changes_requested"
+  );
+}
+
+/** The provider failure that stopped the latest run, if it reported one. */
+export function runFailure(task: AtlasTask): AtlasRunFailure | null {
+  const execution = task.execution;
+  return execution && execution.status !== "running" && execution.status !== "completed"
+    ? execution.failure
+    : null;
+}
+
+/**
+ * A stopped run can pick up where it left off on its own thread, on the same
+ * model or another one. It keeps the conversation and the workspace, unlike a
+ * re-run, which starts a fresh thread.
+ */
+export function canContinueTask(task: AtlasTask): boolean {
+  const execution = task.execution;
+  return (
+    execution !== null &&
+    task.status === "failed" &&
+    execution.status !== "running" &&
+    execution.status !== "completed" &&
+    task.agentReview?.status !== "running" &&
+    task.humanDecision.outcome === "pending"
   );
 }
 

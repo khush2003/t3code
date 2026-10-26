@@ -1,7 +1,18 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, AtlasTaskId, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, LayoutGridIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+  LayoutGridIcon,
+  PackageIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -12,9 +23,9 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { atlasEnvironment } from "../../state/atlas";
 import { cn } from "../../lib/utils";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
@@ -39,6 +50,7 @@ import { AtlasProjectView } from "./AtlasProjectView";
 import type { AtlasSearch } from "./atlasSearch";
 import { AtlasTaskList } from "./AtlasTaskList";
 import { initiativeHasActiveWork, initiativeStatusLabel, taskCounts } from "./atlasLogic";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 
 const ACTIVE_WORK_POLL_MS = 4_000;
 
@@ -64,73 +76,101 @@ function AtlasInitiativeDetail({
   const counts = taskCounts(initiative.tasks);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-5 pt-6 pb-16 sm:px-8">
-      <header className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Badge variant="outline">{initiativeStatusLabel(initiative)}</Badge>
-          <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" onClick={onEdit}>
-              <PencilIcon />
-              Edit brief
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost-destructive"
-              aria-label="Delete initiative"
-              disabled={!canDelete}
-              onClick={onDelete}
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 pt-7 pb-16 sm:px-8">
+      <header className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            {/* The breadcrumb switcher is hidden on small screens. */}
+            <Link
+              to="/atlas"
+              search={{ environmentId, projectId: initiative.projectId }}
+              className="flex w-fit items-center gap-1 rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset md:hidden"
             >
-              <Trash2Icon />
+              <ChevronLeftIcon aria-hidden className="size-3.5" />
+              Initiatives
+            </Link>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+              <span className="flex items-center gap-1.5 font-medium text-foreground">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    initiative.status === "completed"
+                      ? "bg-success"
+                      : initiativeHasActiveWork(initiative)
+                        ? "bg-info"
+                        : "bg-muted-foreground/40",
+                  )}
+                />
+                {initiativeStatusLabel(initiative)}
+              </span>
+              <span aria-hidden>·</span>
+              <span>Updated {formatRelativeTimeLabel(initiative.updatedAt)}</span>
+            </p>
+            <h1 className="text-balance font-semibold text-3xl text-atlas-ink leading-tight tracking-tight sm:text-4xl">
+              {initiative.title}
+            </h1>
+            {initiative.brief ? (
+              <p className="max-w-[68ch] whitespace-pre-wrap text-muted-foreground text-sm leading-relaxed">
+                {initiative.brief}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="outline" onClick={onEdit}>
+              <PencilIcon />
+              <span className="max-sm:sr-only">Edit brief</span>
             </Button>
+            <Menu>
+              <MenuTrigger
+                render={<Button size="icon-sm" variant="ghost" aria-label="Initiative actions" />}
+              >
+                <EllipsisIcon />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuItem variant="destructive" disabled={!canDelete} onClick={onDelete}>
+                  <Trash2Icon />
+                  Delete initiative
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
           </div>
         </div>
-        <h1 className="text-balance font-semibold text-2xl tracking-tight">{initiative.title}</h1>
-        {initiative.brief ? (
-          <p className="max-w-[68ch] whitespace-pre-wrap text-muted-foreground text-sm leading-relaxed">
-            {initiative.brief}
-          </p>
-        ) : null}
         {initiative.deliverables.length > 0 ? (
-          <div className="space-y-2">
-            <h2 className="font-medium text-sm">Deliverables</h2>
-            <ul className="max-w-[68ch] space-y-1.5 text-sm">
-              {initiative.deliverables.map((deliverable) => (
-                <li key={deliverable} className="flex gap-2.5">
-                  <span
-                    aria-hidden
-                    className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/50"
-                  />
-                  <span>{deliverable}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul aria-label="Deliverables" className="flex flex-wrap gap-2">
+            {initiative.deliverables.map((deliverable) => (
+              <li
+                key={deliverable}
+                className="flex max-w-full items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs"
+              >
+                <PackageIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{deliverable}</span>
+              </li>
+            ))}
+          </ul>
         ) : null}
         {counts.total > 0 ? (
-          <div className="space-y-2 pt-2">
-            <p className="text-sm">
-              <span className="font-semibold tabular-nums">{counts.approved}</span>
-              <span className="text-muted-foreground"> of {counts.total} tasks approved</span>
-              {counts.running > 0 ? (
-                <span className="text-muted-foreground">, {counts.running} running</span>
-              ) : null}
-              {counts.ready > 0 ? (
-                <span className="text-muted-foreground">, {counts.ready} ready to run</span>
-              ) : null}
+          <div className="max-w-3xl space-y-2.5 pt-1">
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-semibold text-atlas-ink text-2xl tabular-nums tracking-tight">
+                {counts.approved}
+                <span className="text-muted-foreground">/{counts.total}</span>
+              </span>
+              <span className="text-muted-foreground text-sm">tasks done</span>
             </p>
-            <AtlasProgressStrip tasks={initiative.tasks} legend />
+            <AtlasProgressStrip tasks={initiative.tasks} size="lg" legend />
           </div>
         ) : null}
       </header>
 
-      <AtlasPlannerPanel
-        environmentId={environmentId}
-        initiative={initiative}
-        taskCount={initiative.tasks.length}
-        onAdjust={setAdjustSource}
-      />
-
-      {initiative.tasks.length === 0 ? null : (
+      {initiative.tasks.length === 0 ? (
+        <AtlasPlannerPanel
+          environmentId={environmentId}
+          initiative={initiative}
+          taskCount={0}
+          onAdjust={setAdjustSource}
+        />
+      ) : (
         <AtlasTaskList
           environmentId={environmentId}
           initiative={initiative}
@@ -138,6 +178,15 @@ function AtlasInitiativeDetail({
           onOpenTask={onOpenTask}
           onAdjust={(taskId) => setAdjustSource({ kind: "manual", focusTaskId: taskId })}
           onConfigureAutoReview={() => setAutoReviewOpen(true)}
+        />
+      )}
+
+      {initiative.tasks.length === 0 ? null : (
+        <AtlasPlannerPanel
+          environmentId={environmentId}
+          initiative={initiative}
+          taskCount={initiative.tasks.length}
+          onAdjust={setAdjustSource}
         />
       )}
 
@@ -161,62 +210,82 @@ function AtlasInitiativeDetail({
   );
 }
 
-function AtlasInitiativeRail({
+/** Switches between a project's initiatives from the breadcrumb. */
+function AtlasInitiativeSwitcher({
   environmentId,
   projectId,
   initiatives,
-  activeInitiativeId,
+  active,
   onCreate,
 }: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly initiatives: ReadonlyArray<AtlasInitiative>;
-  readonly activeInitiativeId: string | null;
+  readonly active: AtlasInitiative;
   readonly onCreate: () => void;
 }) {
+  const navigate = useNavigate();
   return (
-    <nav aria-label="Initiatives" className="flex flex-col gap-1 p-3">
-      <div className="flex items-center justify-between px-2 pt-1 pb-2">
-        <Link
-          to="/atlas"
-          search={{ environmentId, projectId }}
-          className="flex items-center gap-1 rounded-sm font-medium text-muted-foreground text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        >
-          <LayoutGridIcon aria-hidden className="size-3.5" />
-          All initiatives
-        </Link>
-        <Button size="icon-xs" variant="ghost" aria-label="New initiative" onClick={onCreate}>
-          <PlusIcon />
-        </Button>
-      </div>
-      {initiatives.map((initiative) => {
-        const counts = taskCounts(initiative.tasks);
-        const selected = initiative.id === activeInitiativeId;
-        return (
-          <Link
-            key={initiative.id}
-            to="/atlas"
-            search={{ environmentId, projectId, initiativeId: initiative.id }}
-            aria-current={selected ? "page" : undefined}
-            className={cn(
-              "flex w-full min-w-0 flex-col gap-2 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-              selected && "bg-accent hover:bg-accent",
-            )}
-          >
-            <span className="truncate font-medium text-sm">{initiative.title}</span>
-            <span className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
-              <span>{initiativeStatusLabel(initiative)}</span>
-              {counts.total > 0 ? (
-                <span className="tabular-nums">
-                  {counts.approved}/{counts.total}
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-w-0 max-w-full"
+            aria-label="Switch initiative"
+          />
+        }
+      >
+        <span className="truncate">{active.title}</span>
+        <ChevronDownIcon className="opacity-60" />
+      </MenuTrigger>
+      <MenuPopup align="start" className="w-80">
+        {initiatives.map((initiative) => {
+          const counts = taskCounts(initiative.tasks);
+          return (
+            <MenuItem
+              key={initiative.id}
+              onClick={() =>
+                void navigate({
+                  to: "/atlas",
+                  search: { environmentId, projectId, initiativeId: initiative.id },
+                })
+              }
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">{initiative.title}</span>
+                  {initiative.id === active.id ? <CheckIcon className="opacity-70" /> : null}
                 </span>
-              ) : null}
-            </span>
-            {counts.total > 0 ? <AtlasProgressStrip tasks={initiative.tasks} size="sm" /> : null}
-          </Link>
-        );
-      })}
-    </nav>
+                <span className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
+                  <span>{initiativeStatusLabel(initiative)}</span>
+                  {counts.total > 0 ? (
+                    <span className="tabular-nums">
+                      {counts.approved}/{counts.total}
+                    </span>
+                  ) : null}
+                </span>
+                {counts.total > 0 ? (
+                  <AtlasProgressStrip tasks={initiative.tasks} size="sm" />
+                ) : null}
+              </span>
+            </MenuItem>
+          );
+        })}
+        <MenuSeparator />
+        <MenuItem
+          onClick={() => void navigate({ to: "/atlas", search: { environmentId, projectId } })}
+        >
+          <LayoutGridIcon />
+          All initiatives
+        </MenuItem>
+        <MenuItem onClick={onCreate}>
+          <PlusIcon />
+          New initiative
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -384,17 +453,8 @@ export function AtlasWorkspace({ search }: { readonly search: AtlasSearch }) {
     content = (
       // Below xl the whole page scrolls; at xl each pane scrolls on its own so
       // agent requests stay in view while the board moves.
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:[grid-template-areas:'rail_control'_'rail_main'] xl:grid-cols-[15rem_minmax(0,1fr)_22rem] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden xl:[grid-template-areas:'rail_main_control']">
-        <aside className="min-w-0 border-b lg:row-span-2 lg:border-r lg:border-b-0 lg:[grid-area:rail] xl:overflow-y-auto">
-          <AtlasInitiativeRail
-            environmentId={activeEnvironmentId}
-            projectId={activeProjectId}
-            initiatives={activeSummary?.initiatives ?? []}
-            activeInitiativeId={selectedInitiative.id}
-            onCreate={() => openCreate(activeProjectId)}
-          />
-        </aside>
-        <aside className="min-w-0 border-b lg:[grid-area:control] xl:overflow-y-auto xl:border-b-0 xl:border-l">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_22rem] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden xl:[grid-template-areas:'main_control']">
+        <aside className="order-last min-w-0 border-t bg-atlas-surface/60 xl:order-none xl:overflow-y-auto xl:border-t-0 xl:border-l xl:[grid-area:control]">
           <AtlasAgentControlPane
             key={selectedInitiative.id}
             environmentId={activeEnvironmentId}
@@ -403,7 +463,7 @@ export function AtlasWorkspace({ search }: { readonly search: AtlasSearch }) {
         </aside>
         <section
           aria-label="Initiative details"
-          className="min-w-0 lg:[grid-area:main] xl:overflow-y-auto"
+          className="min-w-0 xl:overflow-y-auto xl:[grid-area:main]"
         >
           <AtlasInitiativeDetail
             key={selectedInitiative.id}
@@ -458,8 +518,8 @@ export function AtlasWorkspace({ search }: { readonly search: AtlasSearch }) {
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      <div className="relative flex min-h-0 flex-1 flex-col">
+    <SidebarInset data-atlas className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
+      <div className="relative flex min-h-0 flex-1 flex-col bg-atlas-canvas text-atlas-ink">
         <WorkspacePageHeader className="border-b">
           <Link
             to="/atlas"
@@ -486,15 +546,21 @@ export function AtlasWorkspace({ search }: { readonly search: AtlasSearch }) {
               </div>
             </>
           ) : null}
-          {selectedInitiative ? (
+          {selectedInitiative && activeEnvironmentId !== null && activeProjectId !== null ? (
             <>
               <ChevronRightIcon
                 aria-hidden
                 className="size-3.5 shrink-0 text-muted-foreground/60 max-md:hidden"
               />
-              <span className="min-w-0 truncate text-muted-foreground text-sm max-md:hidden">
-                {selectedInitiative.title}
-              </span>
+              <div className="min-w-0 max-w-80 max-md:hidden">
+                <AtlasInitiativeSwitcher
+                  environmentId={activeEnvironmentId}
+                  projectId={activeProjectId}
+                  initiatives={activeSummary?.initiatives ?? [selectedInitiative]}
+                  active={selectedInitiative}
+                  onCreate={() => openCreate(activeProjectId)}
+                />
+              </div>
             </>
           ) : null}
           <div className="ml-auto flex shrink-0 items-center gap-2">

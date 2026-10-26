@@ -4,6 +4,7 @@ import {
   canDecideOnTask,
   canExecuteTask,
   reviewLaunchError,
+  runFailure,
   taskIsRunning,
   taskStatusLabel,
 } from "./atlasLogic";
@@ -19,16 +20,174 @@ export const ATLAS_TASK_LANES: ReadonlyArray<{
   readonly label: string;
 }> = [
   { lane: "attention", label: "Needs you" },
-  { lane: "ready", label: "Ready to run" },
   { lane: "running", label: "Running" },
+  { lane: "ready", label: "Up next" },
   { lane: "blocked", label: "Blocked" },
-  { lane: "done", label: "Approved" },
+  { lane: "done", label: "Done" },
 ];
+
+/** Atlas's colour vocabulary: one hue per kind of state, shared by every surface. */
+export type AtlasTone = "attention" | "waiting" | "running" | "ready" | "done" | "blocked";
+
+export const LANE_TONE: Record<AtlasTaskLane, AtlasTone> = {
+  attention: "attention",
+  running: "running",
+  ready: "ready",
+  blocked: "blocked",
+  done: "done",
+};
+
+export function taskTone(task: AtlasTask): AtlasTone {
+  if (taskIsRunning(task)) return "running";
+  if (task.status === "approved") return "done";
+  if (task.status === "failed" && runFailure(task)?.kind === "rate_limit") return "waiting";
+  if (
+    task.status === "needs_review" ||
+    task.status === "failed" ||
+    task.status === "changes_requested"
+  )
+    return "attention";
+  if (task.blockedBy.length > 0) return "blocked";
+  return canExecuteTask(task) ? "ready" : "blocked";
+}
+
+export type AtlasNextStepAction = "continue" | "review" | "open" | "rerun" | "run_ready";
+
+export interface AtlasNextStep {
+  readonly tone: AtlasTone;
+  readonly title: string;
+  readonly detail: string;
+  readonly action: AtlasNextStepAction | null;
+  readonly actionLabel: string | null;
+  readonly task: AtlasTask | null;
+}
+
+const label = (task: AtlasTask) => `#${task.ordinal + 1} ${task.title}`;
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * The single most useful thing to do next, in the order work gets unstuck:
+ * a stalled agent, a deliverable waiting on review, a failure, then new work.
+ */
+export function nextStep(tasks: ReadonlyArray<AtlasTask>): AtlasNextStep | null {
+  if (tasks.length === 0) return null;
+  const byOrdinal = tasks.toSorted((left, right) => left.ordinal - right.ordinal);
+  const limited = byOrdinal.filter(
+    (task) => task.status === "failed" && runFailure(task)?.kind === "rate_limit",
+  );
+  if (limited.length > 0) {
+    const first = limited[0]!;
+    return {
+      tone: "waiting",
+      title:
+        limited.length === 1
+          ? `${label(first)} hit a rate limit`
+          : `${plural(limited.length, "task")} hit a rate limit`,
+      detail: "Continue on another model. The agent keeps its conversation and workspace.",
+      action: "continue",
+      actionLabel: limited.length === 1 ? "Switch model" : `Switch model for #${first.ordinal + 1}`,
+      task: first,
+    };
+  }
+  const review = byOrdinal.filter((task) => task.status === "needs_review");
+  if (review.length > 0) {
+    const first = review[0]!;
+    return {
+      tone: "attention",
+      title:
+        review.length === 1
+          ? `${label(first)} is ready for review`
+          : `${plural(review.length, "deliverable")} waiting for your review`,
+      detail:
+        first.agentReview?.outcome === "approved"
+          ? "The reviewer suggests approving it."
+          : first.agentReview?.outcome === "changes_requested"
+            ? "The reviewer suggests changes."
+            : "Open it to check the deliverables against the acceptance criteria.",
+      action: "review",
+      actionLabel: review.length === 1 ? "Review" : `Review #${first.ordinal + 1}`,
+      task: first,
+    };
+  }
+  const failed = byOrdinal.filter((task) => task.status === "failed");
+  if (failed.length > 0) {
+    const first = failed[0]!;
+    return {
+      tone: "attention",
+      title: `${label(first)} stopped`,
+      detail: runFailure(first)?.message ?? "Open it to see what happened and continue.",
+      action: "open",
+      actionLabel: "Open task",
+      task: first,
+    };
+  }
+  const revise = byOrdinal.filter(
+    (task) => task.status === "changes_requested" && canExecuteTask(task),
+  );
+  if (revise.length > 0) {
+    const first = revise[0]!;
+    return {
+      tone: "attention",
+      title:
+        revise.length === 1
+          ? `${label(first)} needs another pass`
+          : `${plural(revise.length, "task")} need another pass`,
+      detail: first.humanDecision.feedback ?? "Re-run it with the requested changes.",
+      action: "rerun",
+      actionLabel: revise.length === 1 ? "Re-run with feedback" : `Re-run #${first.ordinal + 1}`,
+      task: first,
+    };
+  }
+  const running = byOrdinal.filter(taskIsRunning).length;
+  const ready = byOrdinal.filter(
+    (task) => task.execution === null && task.blockedBy.length === 0 && canExecuteTask(task),
+  );
+  if (ready.length > 0) {
+    return {
+      tone: "ready",
+      title: `${plural(ready.length, "task")} ready to start`,
+      detail:
+        running > 0
+          ? `${plural(running, "agent")} already working. These can run alongside in their own worktrees.`
+          : "Their dependencies are approved. Each runs in its own worktree.",
+      action: "run_ready",
+      actionLabel: ready.length === 1 ? "Run it" : `Run ${ready.length}`,
+      task: null,
+    };
+  }
+  if (running > 0) {
+    return {
+      tone: "running",
+      title: `${plural(running, "agent")} working`,
+      detail: "Nothing needs you right now. Atlas flags anything that does.",
+      action: null,
+      actionLabel: null,
+      task: null,
+    };
+  }
+  if (byOrdinal.every((task) => task.status === "approved")) {
+    return {
+      tone: "done",
+      title: "Every task is approved",
+      detail: "The initiative's deliverables are done.",
+      action: null,
+      actionLabel: null,
+      task: null,
+    };
+  }
+  return null;
+}
 
 export function taskLane(task: AtlasTask): AtlasTaskLane {
   if (taskIsRunning(task)) return "running";
   if (task.status === "approved") return "done";
-  if (task.status === "needs_review" || task.status === "failed") return "attention";
+  // Changes requested still waits on a person to re-run it with the feedback.
+  if (
+    task.status === "needs_review" ||
+    task.status === "failed" ||
+    task.status === "changes_requested"
+  )
+    return "attention";
   if (task.blockedBy.length > 0) return "blocked";
   if (canExecuteTask(task)) return "ready";
   return "attention";
@@ -75,9 +234,13 @@ export function taskReason(
   if (task.agentReview?.status === "running") return { text: "Agent reviewing", tone: "info" };
   if (taskIsRunning(task)) return { text: "Agent implementing", tone: "info" };
   if (task.status === "failed") {
+    const failure = runFailure(task);
+    if (failure?.kind === "rate_limit")
+      return { text: "The model hit its rate limit. Continue on another model", tone: "warning" };
+    if (failure) return { text: failure.message, tone: "error" };
     return task.execution?.status === "failed" || task.execution === null
-      ? { text: "Run failed. Re-run or inspect the thread", tone: "error" }
-      : { text: `Run ${task.execution.status}. Re-run when ready`, tone: "error" };
+      ? { text: "Run failed. Continue it or inspect the thread", tone: "error" }
+      : { text: `Run ${task.execution.status}. Continue when ready`, tone: "error" };
   }
   if (task.status === "needs_review") {
     if (reviewLaunchError(task) !== null)

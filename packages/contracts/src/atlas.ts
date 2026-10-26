@@ -158,6 +158,25 @@ export const AtlasArtifact = Schema.Struct({
 });
 export type AtlasArtifact = typeof AtlasArtifact.Type;
 
+export const AtlasRunFailureKind = Schema.Literals(["rate_limit", "provider_error", "other"]);
+export type AtlasRunFailureKind = typeof AtlasRunFailureKind.Type;
+
+export const AtlasRunFailure = Schema.Struct({
+  kind: AtlasRunFailureKind,
+  message: Schema.String.check(Schema.isMaxLength(4_096)),
+  /** When the provider says its limit resets, if it says. */
+  resetAt: Schema.NullOr(IsoDateTime),
+});
+export type AtlasRunFailure = typeof AtlasRunFailure.Type;
+
+export const AtlasTaskContinuation = Schema.Struct({
+  at: IsoDateTime,
+  modelSelection: ModelSelection,
+  /** Whether the provider changed, so the conversation was handed over as portable context. */
+  handoff: Schema.Boolean,
+});
+export type AtlasTaskContinuation = typeof AtlasTaskContinuation.Type;
+
 export const AtlasTaskExecution = Schema.Struct({
   threadId: ThreadId,
   runId: RunId,
@@ -172,6 +191,10 @@ export const AtlasTaskExecution = Schema.Struct({
       description:
         "Reviewable outputs the agent reported in its final message. Code changes come from the thread diff.",
     }),
+  failure: Schema.NullOr(AtlasRunFailure).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  continuations: Schema.Array(AtlasTaskContinuation)
+    .pipe(Schema.withDecodingDefault(Effect.succeed([])))
+    .annotate({ description: "Times the run was continued on its thread, newest last." }),
 });
 export type AtlasTaskExecution = typeof AtlasTaskExecution.Type;
 
@@ -391,6 +414,17 @@ export const AtlasExecuteTaskInput = Schema.Struct({
   ...AtlasRunOptions.fields,
 });
 export type AtlasExecuteTaskInput = typeof AtlasExecuteTaskInput.Type;
+
+export const AtlasContinueTaskInput = Schema.Struct({
+  initiativeId: AtlasInitiativeId,
+  taskId: AtlasTaskId,
+  modelSelection: ModelSelection.annotate({
+    description:
+      "Model for the continued run. A different provider receives the conversation as a portable context handoff.",
+  }),
+  instructions: Schema.optional(Schema.String.check(Schema.isMaxLength(4_000))),
+});
+export type AtlasContinueTaskInput = typeof AtlasContinueTaskInput.Type;
 
 export const AtlasApproveTaskInput = Schema.Struct({
   initiativeId: AtlasInitiativeId,

@@ -33,6 +33,9 @@ import {
   type AtlasDeleteInitiativeInput,
   type AtlasDeleteInitiativeResult,
   type AtlasExecuteTaskInput,
+  type AtlasContinueTaskInput,
+  type AtlasRunFailure,
+  type OrchestrationV2ProviderFailure,
   type AtlasGetInitiativeInput,
   type AtlasListInitiativesInput,
   type AtlasListInitiativesResult,
@@ -92,7 +95,25 @@ interface LinkedRun {
   readonly finishedAt: string | null;
   readonly result: string | null;
   readonly workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | null;
+  readonly failure: AtlasRunFailure | null;
 }
+
+// Providers disagree on how they label throttling: OpenCode reports `provider.quota`,
+// Claude and Codex classify a `usage_limit`, others only say so in the message.
+const RATE_LIMIT_TEXT = /rate.?limit|quota|too many requests|\b429\b|usage limit/i;
+
+export const classifyRunFailure = (failure: OrchestrationV2ProviderFailure): AtlasRunFailure => ({
+  kind:
+    failure.class === "usage_limit" ||
+    RATE_LIMIT_TEXT.test(failure.code ?? "") ||
+    RATE_LIMIT_TEXT.test(failure.message)
+      ? "rate_limit"
+      : failure.class === "provider_error" || failure.class === "transport_error"
+        ? "provider_error"
+        : "other",
+  message: failure.message,
+  resetAt: failure.resetAt ?? null,
+});
 
 const isTerminal = (status: string): boolean =>
   status === "completed" ||
@@ -575,7 +596,8 @@ const ARTIFACT_INSTRUCTIONS = `Produce the deliverable as real files in the work
 \`\`\`atlas-artifacts
 [{"kind":"document","title":"Auth flow","path":"docs/auth-flow.md","description":"Sequence and edge cases"},{"kind":"link","title":"Preview","url":"https://example.com/preview"}]
 \`\`\`
-Do not list code changes; Atlas shows the diff automatically. Use [] when there is nothing else to show.`;
+Do not list code changes; Atlas shows the diff automatically. Use [] when there is nothing else to show.
+Reviewers open html artifacts inside Atlas with only that file's folder, and no dev server is running. Make each html artifact self-contained: inline its scripts and styles, or load files from the same folder or a CDN. Never import the project's source (../src/...) or packages by name (import "three"); if a preview needs the project's code, bundle it into one file in the artifact's folder, or capture screenshots or a short video instead.`;
 
 const formatArtifacts = (artifacts: ReadonlyArray<AtlasArtifact>): string =>
   artifacts
@@ -747,6 +769,21 @@ export class AtlasService extends Context.Service<
       | AtlasPersistenceError
       | AtlasProviderLaunchError
     >;
+    /**
+     * Continues a stopped run on its own thread, optionally on another model. A
+     * different provider receives the conversation as a portable context handoff.
+     */
+    readonly continueTask: (
+      input: AtlasContinueTaskInput,
+    ) => Effect.Effect<
+      AtlasInitiative,
+      | AtlasInitiativeNotFoundError
+      | AtlasTaskNotFoundError
+      | AtlasProjectNotFoundError
+      | AtlasTaskNotRunnableError
+      | AtlasPersistenceError
+      | AtlasProviderLaunchError
+    >;
     readonly approveTask: (input: {
       readonly initiativeId: AtlasInitiative["id"];
       readonly taskId: AtlasTaskId;
@@ -913,6 +950,7 @@ const make = Effect.gen(function* () {
     finishedAt: now,
     result: `The linked thread ${threadId} is missing or inaccessible.`,
     workspaceStrategy: null,
+    failure: null,
   });
 
   const readRun = (threadId: ThreadId, runId: RunId): Effect.Effect<LinkedRun | null, never> =>
@@ -954,8 +992,16 @@ const make = Effect.gen(function* () {
             message.role === "assistant" &&
             message.text.trim().length > 0,
         )?.text ?? null;
+      const status = progress.state === "result_available" ? mapRunStatus(run.status) : "running";
+      const failureItem =
+        status === "failed" || status === "interrupted" || status === "cancelled"
+          ? (projection.turnItems ?? []).findLast(
+              (item) => item.type === "error" && item.runId === run.id,
+            )
+          : undefined;
       return {
-        status: progress.state === "result_available" ? mapRunStatus(run.status) : "running",
+        status,
+        failure: failureItem?.type === "error" ? classifyRunFailure(failureItem.failure) : null,
         startedAt: DateTime.formatIso(originalRun.startedAt ?? originalRun.requestedAt),
         finishedAt:
           progress.state !== "result_available" || run.completedAt === null
@@ -982,6 +1028,7 @@ const make = Effect.gen(function* () {
               finishedAt: isTerminal(run.status) ? run.finishedAt : null,
               result: parsed === null || parsed.summary.length === 0 ? null : parsed.summary,
               artifacts: parsed?.artifacts ?? [],
+              failure: run.failure,
               workspaceStrategy:
                 run.status === "running" &&
                 run.workspaceStrategy?.type === "root" &&
@@ -1704,6 +1751,8 @@ const make = Effect.gen(function* () {
                 result: null,
                 workspaceStrategy: launched.workspaceStrategy,
                 artifacts: [],
+                failure: null,
+                continuations: [],
               },
               agentReview: null,
               humanDecision: { outcome: "pending", feedback: null, decidedAt: null },
@@ -1714,6 +1763,102 @@ const make = Effect.gen(function* () {
             return next;
           }),
         );
+      }),
+    );
+
+  const continuePrompt = (task: AtlasTask, failure: AtlasRunFailure | null, extra?: string) =>
+    formatPrompt([
+      `Continue the Atlas task "${task.title}" from where the previous run stopped${
+        failure
+          ? ` (${failure.kind === "rate_limit" ? "the model hit a rate limit" : failure.message})`
+          : ""
+      }.`,
+      "Check what is already done in the workspace before changing anything, then finish the remaining work. Do not start over.",
+      task.deliverable ? `Deliverable: ${task.deliverable}` : "",
+      task.acceptanceCriteria.length > 0
+        ? `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`
+        : "",
+      extra?.trim() ? `Additional instructions:\n${extra.trim()}` : "",
+      ARTIFACT_INSTRUCTIONS,
+    ]);
+
+  const continueTask: AtlasService["Service"]["continueTask"] = (input) =>
+    initiativeLocks.withLock(
+      input.initiativeId,
+      Effect.gen(function* () {
+        const initiative = yield* syncInitiative(yield* load(input.initiativeId));
+        const task = yield* findTask(initiative, input.taskId);
+        const execution = task.execution;
+        if (
+          execution === null ||
+          execution.status === "running" ||
+          execution.status === "completed" ||
+          task.agentReview?.status === "running" ||
+          task.humanDecision.outcome !== "pending"
+        ) {
+          return yield* Effect.fail(
+            new AtlasTaskNotRunnableError({ taskId: task.id, status: task.status }),
+          );
+        }
+        yield* requireProject(initiative.projectId);
+        const previous = yield* threadManagement.getThreadProjection(execution.threadId).pipe(
+          Effect.map((projection) =>
+            projection.runs.reduce<(typeof projection.runs)[number] | undefined>(
+              (latest, run) =>
+                latest === undefined || run.ordinal > latest.ordinal ? run : latest,
+              undefined,
+            ),
+          ),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const sent = yield* threadManagement
+          .sendToThread({
+            projectId: initiative.projectId,
+            commandId: CommandId.make(yield* randomId("atlas-continue")),
+            threadId: execution.threadId,
+            messageId: MessageId.make(yield* randomId("atlas-continue-message")),
+            text: continuePrompt(task, execution.failure, input.instructions),
+            attachments: [],
+            modelSelection: input.modelSelection,
+            mode: "auto",
+            createdBy: "user",
+            creationSource: "server",
+          })
+          .pipe(
+            Effect.mapError((cause) => new AtlasProviderLaunchError({ operation: "task", cause })),
+          );
+        const now = yield* nowIso;
+        const next = withComputedView(
+          replaceTask(initiative, task.id, (current) => ({
+            ...current,
+            status: "running",
+            execution: {
+              ...execution,
+              status: "running",
+              finishedAt: null,
+              failure: null,
+              continuations: [
+                ...execution.continuations,
+                {
+                  at: now,
+                  modelSelection: input.modelSelection,
+                  handoff:
+                    previous !== undefined &&
+                    previous.modelSelection.instanceId !== input.modelSelection.instanceId,
+                },
+              ],
+            },
+            launch: null,
+            updatedAt: now,
+          })),
+        );
+        yield* Effect.logInfo("Atlas continued a task", {
+          taskId: task.id,
+          runId: sent.run.id,
+          delivery: sent.delivery,
+        });
+        yield* store.save(next);
+        return next;
       }),
     );
 
@@ -2092,6 +2237,7 @@ const make = Effect.gen(function* () {
     importPlan,
     refreshInitiative,
     executeTask,
+    continueTask,
     approveTask,
     requestChanges,
     startAgentReview,

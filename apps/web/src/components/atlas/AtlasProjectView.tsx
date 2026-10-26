@@ -56,20 +56,18 @@ export function AtlasProjectView({
         <div className="flex min-w-0 items-center gap-3.5">
           <ProjectFavicon project={project} className="size-10 shrink-0" />
           <div className="min-w-0 space-y-1">
-            <h1 className="truncate font-semibold text-2xl tracking-tight">{project.title}</h1>
+            <h1 className="truncate font-semibold text-3xl text-atlas-ink tracking-tight">
+              {project.title}
+            </h1>
             <p className="truncate font-mono text-muted-foreground text-xs">
               {project.workspaceRoot}
             </p>
           </div>
         </div>
-        <Button onClick={onCreate}>
-          <PlusIcon />
-          New initiative
-        </Button>
       </header>
 
       {initiatives.length === 0 ? (
-        <div className="rounded-xl border border-dashed">
+        <div className="rounded-2xl border border-dashed">
           <Empty>
             <EmptyHeader>
               <EmptyTitle>No initiatives in {project.title} yet</EmptyTitle>
@@ -127,7 +125,7 @@ export function AtlasProjectView({
             </div>
           </div>
           {visible.length === 0 ? (
-            <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+            <div className="rounded-2xl border border-dashed px-4 py-8 text-center">
               <p className="font-medium text-sm">No initiatives match</p>
               <p className="mt-1 text-muted-foreground text-xs">
                 Try another filter or clear the search.
@@ -156,7 +154,7 @@ export function AtlasProjectView({
                   <button
                     type="button"
                     onClick={onCreate}
-                    className="flex min-h-36 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-muted-foreground text-sm outline-none transition-colors hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    className="flex min-h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed text-muted-foreground text-sm outline-none transition-colors hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                   >
                     <PlusIcon aria-hidden className="size-4" />
                     New initiative

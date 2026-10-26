@@ -46,6 +46,9 @@ export function AtlasRunOptionsDialog({
   children,
   workspaceChoice = false,
   reuseWorkspace = false,
+  modelOnly = false,
+  preferredModelSelection = null,
+  avoidModelSelection = null,
   onConfirm,
 }: {
   readonly open: boolean;
@@ -59,6 +62,10 @@ export function AtlasRunOptionsDialog({
   readonly children?: ReactNode;
   readonly workspaceChoice?: boolean;
   readonly reuseWorkspace?: boolean;
+  readonly modelOnly?: boolean;
+  readonly preferredModelSelection?: AtlasRunOptions["modelSelection"];
+  /** A model that just failed; the default selection prefers another provider. */
+  readonly avoidModelSelection?: AtlasRunOptions["modelSelection"];
   readonly onConfirm: (options: AtlasRunOptions) => void;
 }) {
   const settings = useEnvironmentSettings(environmentId);
@@ -71,7 +78,9 @@ export function AtlasRunOptionsDialog({
   // selection, without an effect writing state back on mount.
   const resolvedValue: AtlasRunOptions = {
     ...value,
-    modelSelection: value.modelSelection ?? selectAtlasModel(entries, null),
+    modelSelection:
+      value.modelSelection ??
+      selectAtlasModel(entries, preferredModelSelection, avoidModelSelection),
   };
 
   return (
@@ -88,6 +97,7 @@ export function AtlasRunOptionsDialog({
             value={resolvedValue}
             onChange={setValue}
             disabled={confirmDisabled}
+            modelOnly={modelOnly}
           />
           {workspaceChoice ? (
             <div className="mt-4 space-y-2">

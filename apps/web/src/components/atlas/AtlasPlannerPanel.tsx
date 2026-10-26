@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { AtlasInitiative, EnvironmentId } from "@t3tools/contracts";
 import {
+  ArrowUpRightIcon,
   BotIcon,
   DownloadIcon,
   RefreshCwIcon,
@@ -15,6 +16,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { cn } from "../../lib/utils";
 import { atlasEnvironment } from "../../state/atlas";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Badge } from "../ui/badge";
@@ -96,6 +98,7 @@ export function AtlasPlannerPanel({
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [pastedPlan, setPastedPlan] = useState("");
   const [busy, setBusy] = useState(false);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   const planner = initiative.planner;
   const badge = plannerBadge(planner);
@@ -143,7 +146,7 @@ export function AtlasPlannerPanel({
   return (
     <section
       aria-label="Planning agent"
-      className="@container rounded-xl border bg-card p-4 sm:p-5"
+      className="@container rounded-3xl bg-atlas-surface p-5 shadow-xs/4 ring-1 ring-border/70 sm:p-6"
     >
       <div className="flex flex-col gap-4 @lg:flex-row @lg:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
@@ -158,7 +161,24 @@ export function AtlasPlannerPanel({
               <h2 className="font-semibold text-sm">Plan</h2>
               <Badge variant={badge.variant}>{badge.label}</Badge>
             </div>
-            <p className="max-w-[68ch] text-muted-foreground text-sm leading-relaxed">{summary}</p>
+            <p
+              className={cn(
+                "max-w-[68ch] text-muted-foreground text-sm leading-relaxed",
+                !summaryExpanded && "line-clamp-3",
+              )}
+            >
+              {summary}
+            </p>
+            {summary.length > 240 ? (
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                aria-expanded={summaryExpanded}
+                onClick={() => setSummaryExpanded((previous) => !previous)}
+              >
+                {summaryExpanded ? "Show less" : "Show full plan"}
+              </Button>
+            ) : null}
             {proposal !== null ? (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="text-sm">
@@ -184,23 +204,24 @@ export function AtlasPlannerPanel({
                 {planner.error}
               </p>
             ) : null}
-            {planner.threadId ? (
-              <Button
-                size="xs"
-                variant="link"
-                render={
-                  <Link
-                    to="/$environmentId/$threadId"
-                    params={{ environmentId, threadId: planner.threadId }}
-                  />
-                }
-              >
-                Open planning thread
-              </Button>
-            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 @max-lg:pl-12">
+          {planner.threadId ? (
+            <Button
+              size="sm"
+              variant="ghost-muted"
+              render={
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId, threadId: planner.threadId }}
+                />
+              }
+            >
+              Planning thread
+              <ArrowUpRightIcon />
+            </Button>
+          ) : null}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -248,7 +269,7 @@ export function AtlasPlannerPanel({
               </Button>
               <Button
                 size="sm"
-                variant={untouched ? "outline" : "default"}
+                variant="outline"
                 disabled={!canApplyAdjustment}
                 onClick={() => onAdjust({ kind: "manual", focusTaskId: null })}
               >

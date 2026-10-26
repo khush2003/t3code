@@ -53,6 +53,7 @@ import {
   artifactRelativePath,
   defaultDeliverableKey,
   deliverableEntries,
+  htmlArtifactOutsideDependencies,
   latestCheckpointTurnCount,
   type AtlasDeliverableEntry,
 } from "./atlasArtifactLogic";
@@ -333,6 +334,64 @@ function WorkspaceTextView({
   );
 }
 
+/**
+ * Atlas serves an HTML artifact with only its own folder, so a page that loads
+ * the project's source or packages would render blank. Say so before trying.
+ */
+function HtmlArtifactView({
+  environmentId,
+  cwd,
+  relativePath,
+  title,
+  threadRef,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly title: string;
+  readonly threadRef: ScopedThreadRef;
+}) {
+  const file = useProjectFileQuery(environmentId, cwd, relativePath);
+  const [showAnyway, setShowAnyway] = useState(false);
+  if (file.data === null && !file.error && !file.readError) {
+    return <ViewerMessage title="Opening page" busy />;
+  }
+  const outside = file.data ? htmlArtifactOutsideDependencies(file.data.contents) : [];
+  if (outside.length > 0 && !showAnyway) {
+    return (
+      <ViewerMessage title="This page needs the project's dev server">
+        <span className="block">
+          It loads files from outside its folder, so it cannot preview on its own:
+        </span>
+        <span className="mt-2 block font-mono text-xs">
+          {outside.slice(0, 4).join(", ")}
+          {outside.length > 4 ? ` and ${outside.length - 4} more` : ""}
+        </span>
+        <span className="mt-2 block">
+          Ask the agent for a self-contained page (inline the code or bundle it into one file), or
+          open it from the project&apos;s dev server.
+        </span>
+        <span className="mt-3 flex justify-center">
+          <Button size="xs" variant="outline" onClick={() => setShowAnyway(true)}>
+            Show anyway
+          </Button>
+        </span>
+      </ViewerMessage>
+    );
+  }
+  return (
+    <WorkspaceBrowserPreview
+      environmentId={environmentId}
+      threadRef={threadRef}
+      draft={false}
+      absolutePath={resolvePathLinkTarget(relativePath, cwd)}
+      workspaceRoot={cwd}
+      title={title}
+      workspaceMutationId={null}
+    />
+  );
+}
+
 function LinkView({ artifact }: { readonly artifact: AtlasArtifact }) {
   return (
     <div className="flex flex-1 items-start justify-center p-6">
@@ -403,15 +462,13 @@ function ArtifactView({
   }
   if (viewer === "html") {
     return (
-      <WorkspaceBrowserPreview
+      <HtmlArtifactView
         key={relativePath}
         environmentId={environmentId}
-        threadRef={threadRef}
-        draft={false}
-        absolutePath={resolvePathLinkTarget(relativePath, cwd)}
-        workspaceRoot={cwd}
+        cwd={cwd}
+        relativePath={relativePath}
         title={artifact.title}
-        workspaceMutationId={null}
+        threadRef={threadRef}
       />
     );
   }

@@ -1,6 +1,8 @@
 import type { AtlasTask, AtlasTaskId } from "@t3tools/contracts";
 import {
+  ArrowRightLeftIcon,
   CheckIcon,
+  CircleDotIcon,
   EyeIcon,
   FileIcon,
   FileTextIcon,
@@ -11,6 +13,7 @@ import {
   ListChecksIcon,
   PackageIcon,
   PlayIcon,
+  RotateCwIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,7 +29,9 @@ import {
   type AtlasArtifactGroup,
   type AtlasPillTone,
 } from "./atlasArtifactLogic";
-import type { AtlasTaskReason } from "./atlasTaskListLogic";
+import { runFailure } from "./atlasLogic";
+import { taskTone, type AtlasTaskReason } from "./atlasTaskListLogic";
+import { TONE_DOT, TONE_SOFT } from "./atlasTone";
 
 export const REASON_TONE: Record<AtlasTaskReason["tone"], string> = {
   muted: "text-muted-foreground",
@@ -56,6 +61,19 @@ export const ARTIFACT_GROUP_ICON: Record<AtlasArtifactGroup, LucideIcon> = {
 export function AtlasTaskStatusPill({ task }: { readonly task: AtlasTask }) {
   const pill = taskStatusPill(task);
   return <Badge variant={PILL_VARIANT[pill.tone]}>{pill.label}</Badge>;
+}
+
+/** A quieter status mark for dense surfaces: a dot and a label, no chip. */
+export function AtlasTaskStatusLabel({ task }: { readonly task: AtlasTask }) {
+  return (
+    <span className="flex items-center gap-1.5 font-medium text-xs">
+      <span
+        aria-hidden
+        className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[taskTone(task)])}
+      />
+      {taskStatusPill(task).label}
+    </span>
+  );
 }
 
 function ArtifactSummary({ task }: { readonly task: AtlasTask }) {
@@ -89,6 +107,7 @@ export function AtlasTaskCard({
   byId,
   reason,
   selected,
+  selecting = false,
   permissions,
   onSelectedChange,
   onOpen,
@@ -98,13 +117,16 @@ export function AtlasTaskCard({
   readonly byId: ReadonlyMap<AtlasTaskId, AtlasTask>;
   readonly reason: AtlasTaskReason;
   readonly selected: boolean;
+  /** Any task is selected, so every checkbox stays visible. */
+  readonly selecting?: boolean;
   readonly permissions: AtlasTaskPermissions;
   readonly onSelectedChange: (taskId: AtlasTaskId, selected: boolean) => void;
   readonly onOpen: (taskId: AtlasTaskId) => void;
   readonly onAction: (taskId: AtlasTaskId, kind: AtlasTaskDialogKind) => void;
 }) {
   const action = taskPrimaryAction(task);
-  const needsYou = task.status === "needs_review" || task.status === "failed";
+  const pill = taskStatusPill(task);
+  const rateLimited = runFailure(task)?.kind === "rate_limit";
   const dependencies = task.dependsOn.flatMap((id) => {
     const dependency = byId.get(id);
     return dependency ? [dependency] : [];
@@ -121,6 +143,16 @@ export function AtlasTaskCard({
         <CheckIcon />
         Approve
       </Button>
+    ) : action === "continue" ? (
+      <Button
+        size="xs"
+        variant={rateLimited ? "default" : "outline"}
+        disabled={!permissions.continue}
+        onClick={() => onAction(task.id, "continue")}
+      >
+        {rateLimited ? <ArrowRightLeftIcon /> : <RotateCwIcon />}
+        {rateLimited ? "Switch model" : "Continue"}
+      </Button>
     ) : action === "run" || action === "rerun" ? (
       <Button
         size="xs"
@@ -133,63 +165,82 @@ export function AtlasTaskCard({
       </Button>
     ) : null;
 
+  const tone = taskTone(task);
   return (
     <li
       className={cn(
-        "relative flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground transition-colors hover:border-foreground/20",
-        needsYou && "border-warning/45 bg-warning/5",
-        task.status === "failed" && "border-destructive/35 bg-destructive/4",
-        selected && "ring-2 ring-primary/40",
+        "group relative flex min-w-0 flex-col gap-3.5 rounded-2xl bg-atlas-surface p-4 text-atlas-ink shadow-xs/5 ring-1 ring-border/70 transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-lg/8",
+        selected && "ring-2 ring-atlas-brand/60",
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="relative z-1 flex">
+        <span
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs",
+            TONE_SOFT[tone],
+          )}
+        >
+          <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[tone])} />
+          {pill.label}
+        </span>
+        <span className="truncate text-muted-foreground text-xs">{task.specialty}</span>
+        <span className="ml-auto text-muted-foreground text-xs tabular-nums">
+          #{task.ordinal + 1}
+        </span>
+        <span
+          className={cn(
+            "relative z-1 flex transition-opacity",
+            !selected &&
+              !selecting &&
+              "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
           <Checkbox
             aria-label={`Select ${task.title}`}
             checked={selected}
             onCheckedChange={(next) => onSelectedChange(task.id, next === true)}
           />
         </span>
-        <span className="text-muted-foreground text-xs tabular-nums">#{task.ordinal + 1}</span>
-        <AtlasTaskStatusPill task={task} />
-        <span className="ml-auto min-w-0 truncate text-muted-foreground text-xs">
-          {task.specialty}
-        </span>
       </div>
 
-      <div className="min-w-0 space-y-1">
-        <h3 className="font-medium text-sm leading-snug">
+      <div className="min-w-0 space-y-1.5">
+        <h3 className="font-semibold text-base leading-snug tracking-tight">
           <button
             type="button"
             onClick={() => onOpen(task.id)}
-            className="line-clamp-2 text-left outline-none wrap-anywhere after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+            className="line-clamp-2 text-left outline-none wrap-anywhere after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-atlas-brand focus-visible:after:ring-inset"
           >
             {task.title}
           </button>
         </h3>
-        <p className={cn("line-clamp-1 text-xs", REASON_TONE[reason.tone])}>{reason.text}</p>
+        <p
+          className={cn(
+            "line-clamp-2 text-sm leading-relaxed wrap-anywhere",
+            REASON_TONE[reason.tone],
+          )}
+        >
+          {reason.text}
+        </p>
       </div>
 
       {task.deliverable ? (
-        <p className="flex min-w-0 items-start gap-2 rounded-lg bg-muted/48 px-2.5 py-2 text-xs">
-          <PackageIcon aria-hidden className="mt-px size-3.5 shrink-0 text-muted-foreground" />
-          <span className="line-clamp-1 wrap-anywhere">
+        <p className="flex min-w-0 items-start gap-2 rounded-xl bg-atlas-canvas px-3 py-2 text-muted-foreground text-xs leading-relaxed">
+          <PackageIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <span className="line-clamp-2 wrap-anywhere">
             <span className="sr-only">Deliverable: </span>
             {task.deliverable}
           </span>
         </p>
-      ) : (
-        <p className="line-clamp-2 text-muted-foreground text-xs leading-relaxed wrap-anywhere">
-          {task.description}
-        </p>
-      )}
+      ) : null}
 
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
         <ArtifactSummary task={task} />
         <span className="flex items-center gap-1 text-muted-foreground">
           <ListChecksIcon aria-hidden className="size-3.5" />
           {task.acceptanceCriteria.length}
-          {task.acceptanceCriteria.length === 1 ? " criterion" : " criteria"}
+          <span className="sr-only">
+            {task.acceptanceCriteria.length === 1 ? " criterion" : " criteria"}
+          </span>
         </span>
         {dependencies.length > 0 && task.blockedBy.length === 0 ? (
           <span className="flex items-center gap-1 text-muted-foreground">
@@ -202,14 +253,13 @@ export function AtlasTaskCard({
             <Button
               size="xs"
               variant="ghost-muted"
+              aria-label={`Issue #${task.issue.number}${task.issue.needsSync === true ? ", needs update" : ""}`}
               render={<a href={task.issue.url} target="_blank" rel="noreferrer" />}
             >
-              #{task.issue.number}
+              <CircleDotIcon />
+              {task.issue.number}
               {task.issue.needsSync === true ? (
-                <span aria-hidden className="size-1.5 rounded-full bg-warning" />
-              ) : null}
-              {task.issue.needsSync === true ? (
-                <span className="sr-only">, needs update</span>
+                <span aria-hidden className="size-1.5 rounded-full bg-atlas-waiting" />
               ) : null}
             </Button>
           ) : null}

@@ -35,6 +35,25 @@ function shouldAutoReview(initiative: AtlasInitiative, task: AtlasTask): boolean
   );
 }
 
+const UNSUCCESSFUL = new Set(["failed", "cancelled", "interrupted"]);
+
+/**
+ * A server restart cancels in-flight runs and then continues them in a new run
+ * on the same thread. That continuation can be created before this worker
+ * subscribes, so the startup pass re-reads undecided unsuccessful work too.
+ */
+function hasRecoverableWork(initiative: AtlasInitiative): boolean {
+  return (
+    initiative.planner.status === "failed" ||
+    initiative.tasks.some(
+      (task) =>
+        task.humanDecision.outcome === "pending" &&
+        (UNSUCCESSFUL.has(task.execution?.status ?? "") ||
+          UNSUCCESSFUL.has(task.agentReview?.status ?? "")),
+    )
+  );
+}
+
 function hasPendingWork(initiative: AtlasInitiative): boolean {
   return (
     initiative.planner.status === "running" ||
@@ -50,7 +69,10 @@ function hasPendingWork(initiative: AtlasInitiative): boolean {
 export class AtlasReconciler extends Context.Service<
   AtlasReconciler,
   {
-    readonly reconcile: (threadId?: ThreadId) => Effect.Effect<void, AtlasPersistenceError>;
+    /** `"startup"` also re-reads unsuccessful work a restart continuation may have revived. */
+    readonly reconcile: (
+      target?: ThreadId | "startup",
+    ) => Effect.Effect<void, AtlasPersistenceError>;
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly drain: Effect.Effect<void>;
   }
@@ -60,12 +82,16 @@ const make = Effect.gen(function* () {
   const atlas = yield* AtlasService.AtlasService;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
 
-  const reconcile: AtlasReconciler["Service"]["reconcile"] = (threadId) =>
+  const reconcile: AtlasReconciler["Service"]["reconcile"] = (target) =>
     atlas.listInitiatives({}).pipe(
       Effect.flatMap(({ initiatives }) =>
         Effect.forEach(
           initiatives.filter((initiative) =>
-            threadId === undefined ? hasPendingWork(initiative) : usesThread(initiative, threadId),
+            target === undefined
+              ? hasPendingWork(initiative)
+              : target === "startup"
+                ? hasPendingWork(initiative) || hasRecoverableWork(initiative)
+                : usesThread(initiative, target),
           ),
           (initiative) =>
             Effect.gen(function* () {
@@ -101,18 +127,22 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
-  const worker = yield* makeDrainableWorker<ThreadId | undefined, AtlasPersistenceError, never>(
-    reconcile,
-  );
+  const worker = yield* makeDrainableWorker<
+    ThreadId | "startup" | undefined,
+    AtlasPersistenceError,
+    never
+  >(reconcile);
 
   const start: AtlasReconciler["Service"]["start"] = () =>
     Effect.gen(function* () {
       yield* forkParked(
         Stream.unwrap(
-          worker.enqueue(undefined).pipe(Effect.as(orchestrator.streamDomainEvents)),
+          worker.enqueue("startup").pipe(Effect.as(orchestrator.streamDomainEvents)),
         ).pipe(
           Stream.filter(
             (event) =>
+              // A new run on a linked thread may be a restart continuation reviving failed work.
+              event.type === "run.created" ||
               (event.type === "run.updated" &&
                 ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
                   event.payload.status,

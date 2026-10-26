@@ -1,7 +1,7 @@
 import type { AtlasInitiative, AtlasTask, ProjectId, ThreadId } from "@t3tools/contracts";
 
 import { collectAtlasAgentRows } from "./atlasControlLogic";
-import { reviewLaunchError, taskIsRunning } from "./atlasLogic";
+import { reviewLaunchError, runFailure, taskIsRunning } from "./atlasLogic";
 
 export type AtlasAttentionKind =
   | "input"
@@ -10,6 +10,8 @@ export type AtlasAttentionKind =
   | "planner_failed"
   | "review"
   | "review_failed"
+  | "rate_limited"
+  | "changes"
   | "failed";
 
 export interface AtlasAttentionItem {
@@ -26,6 +28,8 @@ const ATTENTION_RANK: Record<AtlasAttentionKind, number> = {
   review: 1,
   adjustment: 2,
   plan_ready: 3,
+  rate_limited: 2,
+  changes: 3,
   review_failed: 4,
   failed: 5,
   planner_failed: 6,
@@ -112,6 +116,14 @@ export function collectAttentionItems(
           task,
           label: "Review could not start",
         });
+      } else if (task.status === "changes_requested") {
+        items.push({
+          key: `${task.id}:changes`,
+          kind: "changes",
+          initiative,
+          task,
+          label: "Changes requested · re-run with feedback",
+        });
       } else if (task.status === "needs_review") {
         items.push({
           key: `${task.id}:review`,
@@ -121,7 +133,17 @@ export function collectAttentionItems(
           label: "Ready for review",
         });
       } else if (task.status === "failed") {
-        items.push({ key: `${task.id}:failed`, kind: "failed", initiative, task, label: "Failed" });
+        items.push(
+          runFailure(task)?.kind === "rate_limit"
+            ? {
+                key: `${task.id}:failed`,
+                kind: "rate_limited",
+                initiative,
+                task,
+                label: "Rate limited · switch model",
+              }
+            : { key: `${task.id}:failed`, kind: "failed", initiative, task, label: "Failed" },
+        );
       }
     }
   }

@@ -356,6 +356,7 @@ import {
   AtlasDeleteInitiativeResult,
   AtlasError,
   AtlasExecuteTaskInput,
+  AtlasContinueTaskInput,
   AtlasGetInitiativeInput,
   AtlasImportPlanInput,
   AtlasInitiative,
@@ -545,6 +546,7 @@ export const WS_METHODS = {
   atlasImportPlan: "atlas.importPlan",
   atlasRefreshInitiative: "atlas.refreshInitiative",
   atlasExecuteTask: "atlas.executeTask",
+  atlasContinueTask: "atlas.continueTask",
   atlasApproveTask: "atlas.approveTask",
   atlasRequestChanges: "atlas.requestChanges",
   atlasStartAgentReview: "atlas.startAgentReview",
@@ -1931,6 +1933,12 @@ const WsAtlasExecuteTaskRpc = Rpc.make(WS_METHODS.atlasExecuteTask, {
   error: atlasError,
 });
 
+const WsAtlasContinueTaskRpc = Rpc.make(WS_METHODS.atlasContinueTask, {
+  payload: AtlasContinueTaskInput,
+  success: AtlasInitiative,
+  error: atlasError,
+});
+
 const WsAtlasApproveTaskRpc = Rpc.make(WS_METHODS.atlasApproveTask, {
   payload: AtlasApproveTaskInput,
   success: AtlasInitiative,
@@ -2191,6 +2199,7 @@ export const WsAtlasRpcGroup = RpcGroup.make(
   WsAtlasImportPlanRpc,
   WsAtlasRefreshInitiativeRpc,
   WsAtlasExecuteTaskRpc,
+  WsAtlasContinueTaskRpc,
   WsAtlasApproveTaskRpc,
   WsAtlasRequestChangesRpc,
   WsAtlasStartAgentReviewRpc,

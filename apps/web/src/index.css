@@ -2383,3 +2383,48 @@ code {
     }
   }
 }
+
+/* Atlas has its own identity inside the app: a cool paper canvas, a chart-teal
+   brand, and one saturated hue per task state so the board reads at a glance.
+   Scoped to [data-atlas]; the rest of the app keeps its theme. */
+@theme inline {
+  --color-atlas-canvas: var(--atlas-canvas);
+  --color-atlas-surface: var(--atlas-surface);
+  --color-atlas-ink: var(--atlas-ink);
+  --color-atlas-brand: var(--atlas-brand);
+  --color-atlas-brand-foreground: var(--atlas-brand-foreground);
+  --color-atlas-attention: var(--atlas-attention);
+  --color-atlas-waiting: var(--atlas-waiting);
+  --color-atlas-running: var(--atlas-running);
+  --color-atlas-ready: var(--atlas-ready);
+  --color-atlas-done: var(--atlas-done);
+  --color-atlas-blocked: var(--atlas-blocked);
+}
+
+[data-atlas] {
+  --atlas-canvas: oklch(97.4% 0.007 255);
+  --atlas-surface: oklch(100% 0 0);
+  --atlas-ink: oklch(23% 0.03 265);
+  --atlas-brand: oklch(55% 0.1 185);
+  --atlas-brand-foreground: oklch(99% 0.005 185);
+  --atlas-attention: oklch(64% 0.19 33);
+  --atlas-waiting: oklch(75% 0.15 72);
+  --atlas-running: oklch(60% 0.17 252);
+  --atlas-ready: oklch(56% 0.2 292);
+  --atlas-done: oklch(63% 0.15 152);
+  --atlas-blocked: oklch(66% 0.025 260);
+}
+
+.dark [data-atlas] {
+  --atlas-canvas: oklch(16.5% 0.012 265);
+  --atlas-surface: oklch(21% 0.015 265);
+  --atlas-ink: oklch(95% 0.008 265);
+  --atlas-brand: oklch(77% 0.12 185);
+  --atlas-brand-foreground: oklch(19% 0.03 200);
+  --atlas-attention: oklch(72% 0.17 35);
+  --atlas-waiting: oklch(81% 0.14 75);
+  --atlas-running: oklch(70% 0.15 252);
+  --atlas-ready: oklch(70% 0.17 292);
+  --atlas-done: oklch(74% 0.15 152);
+  --atlas-blocked: oklch(62% 0.025 260);
+}

@@ -47,7 +47,7 @@ export function AtlasInitiativeCard({
     <Link
       to="/atlas"
       search={{ environmentId, projectId: initiative.projectId, initiativeId: initiative.id }}
-      className="group flex w-full min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground outline-none transition-colors hover:border-foreground/20 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="group flex w-full min-w-0 flex-col gap-3 rounded-2xl bg-atlas-surface p-5 text-atlas-ink shadow-xs/4 outline-none ring-1 ring-border/70 transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-lg/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <div className="flex items-center justify-between gap-3">
         <AtlasInitiativeStatusLabel initiative={initiative} />

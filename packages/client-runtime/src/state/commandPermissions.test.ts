@@ -66,6 +66,7 @@ describe("command permissions", () => {
         const methods = [
           [WS_METHODS.atlasRefreshInitiative, AuthOrchestrationOperateScope],
           [WS_METHODS.atlasExecuteTask, AuthOrchestrationOperateScope],
+          [WS_METHODS.atlasContinueTask, AuthOrchestrationOperateScope],
           [WS_METHODS.atlasStartPlanAdjustment, AuthOrchestrationOperateScope],
           [WS_METHODS.atlasApplyPlanAdjustment, AuthOrchestrationOperateScope],
           [WS_METHODS.atlasStartAgentReview, AuthOrchestrationOperateScope],

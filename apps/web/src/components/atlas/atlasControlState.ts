@@ -1,6 +1,8 @@
 import {
   EnvironmentId,
   ThreadId,
+  type ModelSelection,
+  type OrchestrationV2ProviderTurnTokenUsage,
   type ScopedThreadRef,
   type OrchestrationV2Subagent,
 } from "@t3tools/contracts";
@@ -9,7 +11,14 @@ import { Atom } from "effect/reactivity";
 import * as DateTime from "effect/DateTime";
 import type { AtlasAgentRow } from "./atlasControlLogic";
 
+export interface AtlasAgentRuntime {
+  /** The model selection of the thread's latest run, including reasoning options. */
+  readonly modelSelection: ModelSelection | null;
+  readonly tokenUsage: OrchestrationV2ProviderTurnTokenUsage | null;
+}
+
 export function createAtlasAgentDetailsAtom(details: {
+  readonly runtimeAtom: (ref: ScopedThreadRef) => Atom.Atom<AtlasAgentRuntime | null>;
   readonly pendingRequestsAtom: (ref: ScopedThreadRef) => Atom.Atom<PendingThreadRequests | null>;
   readonly turnSubagentsAtom: (ref: ScopedThreadRef) => Atom.Atom<{
     readonly subagents: ReadonlyArray<
@@ -43,7 +52,7 @@ export function createAtlasAgentDetailsAtom(details: {
         const ref = { environmentId, threadId: row.threadId };
         const pending = get(details.pendingRequestsAtom(ref));
         const children = get(details.turnSubagentsAtom(ref));
-        rows.push({ row, pending });
+        rows.push({ row, pending, runtime: get(details.runtimeAtom(ref)) });
         for (const child of children?.subagents ?? []) {
           if (!child.childThreadId) continue;
           queue.push({

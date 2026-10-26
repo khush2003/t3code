@@ -13,15 +13,24 @@ project's origin repository and the GitHub CLI login on the host environment.
 Install `gh` and sign in on that host before publishing. Only GitHub.com repositories
 are supported in this first version.
 
-Start ready tasks with a provider and model available on the selected environment.
-The **Agents** panel shows questions and approval requests from running agents and their
-child agents. Answer them directly in Atlas, or open the backing conversation to inspect the
+Start ready tasks with a provider, model, and reasoning level available on the selected environment.
+The **Agents** panel shows each agent's model, reasoning level, and context usage, along with
+questions and approval requests from running agents and their child agents. Answer them directly in Atlas, or open the backing conversation to inspect the
 work, stop a run, and see its result.
 
 Choose **New worktree** when launching independent tasks in parallel. Tasks sharing the project
 checkout or the same worktree run one at a time. A new worktree starts from committed code at
 the selected base ref; integrate prerequisite deliverables into that ref before starting dependent
 work there. Re-runs keep their previous workspace unless you choose a new one.
+If the server restarts while a task runs and **Continue threads after restarts** is on, the task
+shows as running again once its agent resumes; you do not need to re-run it.
+
+When a run stops early, the task shows why. A provider rate limit reads **Rate limited**. Use
+**Switch model** (or **Continue** for other stops) to pick the work back up in the same thread and
+workspace, optionally with extra instructions. Choosing a model from another provider hands the
+conversation over as context, so the new agent continues instead of starting again; see
+[Context in portable handoffs](./portable-handoffs.md). **Re-run from scratch** starts a fresh thread.
+
 Dependent tasks become ready after their prerequisites are approved. Dependencies represent
 required outputs, not a suggested order: independent tasks can share a stage and run together.
 Use the task list's bulk actions to launch ready work in separate worktrees,
@@ -36,7 +45,9 @@ visible for manual retry; the system does not accept an unreadable or failed ver
 Each planned task names the deliverable a reviewer will inspect. When a run finishes, open the
 task to review its deliverables in place: the agent's summary, the code changes, and any docs,
 images, HTML pages, files, or links the agent reported. Files are read from the run's workspace,
-so a deliverable deleted or moved after the run shows as unavailable.
+so a deliverable deleted or moved after the run shows as unavailable. HTML pages preview on their own;
+a page that loads the project's source or packages needs the project's dev server, so Atlas lists
+what it is missing instead. Agents are asked to make preview pages self-contained.
 
 A completed agent run still needs review. Approve the deliverable or request changes with
 feedback. Agent review provides another pass over the work. By default, inspect its findings

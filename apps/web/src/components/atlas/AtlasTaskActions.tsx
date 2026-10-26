@@ -1,5 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { AtlasInitiativeId, AtlasTask, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type {
+  AtlasInitiativeId,
+  AtlasTask,
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -7,6 +13,8 @@ import {
 import { useState } from "react";
 
 import { atlasEnvironment } from "../../state/atlas";
+import { atlasThreadRuntimeAtom } from "./atlasAgentDetails";
+import { runFailure } from "./atlasLogic";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -27,6 +35,7 @@ import { AtlasRunOptionsDialog } from "./AtlasRunOptionsDialog";
 
 export interface AtlasTaskPermissions {
   readonly execute: boolean;
+  readonly continue: boolean;
   readonly decide: boolean;
   readonly review: boolean;
   readonly publish: boolean;
@@ -36,6 +45,7 @@ export interface AtlasTaskPermissions {
 export function useAtlasTaskPermissions(environmentId: EnvironmentId): AtlasTaskPermissions {
   return {
     execute: useAtomValue(atlasEnvironment.executeTask.permissionAtom(environmentId)),
+    continue: useAtomValue(atlasEnvironment.continueTask.permissionAtom(environmentId)),
     decide: useAtomValue(atlasEnvironment.approveTask.permissionAtom(environmentId)),
     review: useAtomValue(atlasEnvironment.startAgentReview.permissionAtom(environmentId)),
     publish: useAtomValue(atlasEnvironment.publishTaskIssue.permissionAtom(environmentId)),
@@ -44,7 +54,7 @@ export function useAtlasTaskPermissions(environmentId: EnvironmentId): AtlasTask
 }
 
 /** Actions that confirm through a dialog before reaching the server. */
-export type AtlasTaskDialogKind = "run" | "review" | "approve" | "changes";
+export type AtlasTaskDialogKind = "run" | "continue" | "review" | "approve" | "changes";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim().length > 0
@@ -77,6 +87,79 @@ export function useAtlasTaskPublish(environmentId: EnvironmentId, initiativeId: 
     }
   };
   return { publish, busy };
+}
+
+function ContinueTaskDialog({
+  environmentId,
+  initiativeId,
+  projectId,
+  task,
+  threadId,
+  onClose,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly initiativeId: AtlasInitiativeId;
+  readonly projectId: ProjectId;
+  readonly task: AtlasTask;
+  readonly threadId: ThreadId;
+  readonly onClose: () => void;
+}) {
+  const continueTask = useAtomCommand(atlasEnvironment.continueTask, { reportFailure: false });
+  const [instructions, setInstructions] = useState("");
+  const runtime = useAtomValue(atlasThreadRuntimeAtom({ environmentId, threadId }));
+  const previous = runtime?.modelSelection ?? null;
+  const failure = runFailure(task);
+  const rateLimited = failure?.kind === "rate_limit";
+  return (
+    <AtlasRunOptionsDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      environmentId={environmentId}
+      projectId={projectId}
+      modelOnly
+      preferredModelSelection={rateLimited ? null : previous}
+      avoidModelSelection={rateLimited ? previous : null}
+      title={rateLimited ? "Continue on another model" : "Continue task"}
+      description="The agent picks up in the same thread and workspace, with the conversation so far. Switching to another provider hands that conversation over as context."
+      confirmLabel="Continue"
+      onConfirm={async (options) => {
+        onClose();
+        const trimmed = instructions.trim();
+        const result = await continueTask({
+          environmentId,
+          input: {
+            initiativeId,
+            taskId: task.id,
+            modelSelection: options.modelSelection!,
+            ...(trimmed.length > 0 ? { instructions: trimmed } : {}),
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          reportFailure("Could not continue task", squashAtomCommandFailure(result));
+        }
+      }}
+    >
+      <div className="mt-4 space-y-2">
+        {failure ? (
+          <p className="rounded-lg bg-muted/56 px-3 py-2 text-muted-foreground text-xs leading-relaxed">
+            <span className="font-medium text-foreground">
+              {rateLimited ? "Rate limited: " : "Stopped: "}
+            </span>
+            {failure.message}
+          </p>
+        ) : null}
+        <Label htmlFor={`atlas-continue-${task.id}`}>Instructions (optional)</Label>
+        <Textarea
+          id={`atlas-continue-${task.id}`}
+          value={instructions}
+          onChange={(event) => setInstructions(event.target.value)}
+          placeholder="Anything the agent should know before it picks up"
+        />
+      </div>
+    </AtlasRunOptionsDialog>
+  );
 }
 
 /**
@@ -178,6 +261,19 @@ export function AtlasTaskActionDialog({
     );
   }
 
+  if (kind === "continue" && task.execution) {
+    return (
+      <ContinueTaskDialog
+        environmentId={environmentId}
+        initiativeId={initiativeId}
+        projectId={projectId}
+        task={task}
+        threadId={task.execution.threadId}
+        onClose={onClose}
+      />
+    );
+  }
+
   if (kind === "review") {
     const decisionPending = task.humanDecision.outcome === "pending";
     return (
@@ -228,6 +324,8 @@ export function AtlasTaskActionDialog({
   }
 
   const changes = kind === "changes";
+  const reviewerFeedback =
+    changes && task.agentReview?.status === "completed" ? task.agentReview.feedback : null;
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogPopup>
@@ -240,9 +338,16 @@ export function AtlasTaskActionDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <Label htmlFor={`atlas-task-feedback-${task.id}`}>
-            {changes ? "Required feedback" : "Feedback (optional)"}
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor={`atlas-task-feedback-${task.id}`}>
+              {changes ? "Required feedback" : "Feedback (optional)"}
+            </Label>
+            {reviewerFeedback ? (
+              <Button size="xs" variant="ghost" onClick={() => setFeedback(reviewerFeedback)}>
+                Use reviewer feedback
+              </Button>
+            ) : null}
+          </div>
           <Textarea
             id={`atlas-task-feedback-${task.id}`}
             value={feedback}

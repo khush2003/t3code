@@ -13,6 +13,7 @@ import {
   AtlasTaskNotRunnableError,
   ProjectId,
   ProviderInstanceId,
+  type OrchestrationV2ProviderFailure,
   RunId,
   ThreadId,
   type AtlasInitiative,
@@ -68,7 +69,7 @@ const projectionRun = (
   threadId: ThreadId,
   id: RunId,
   ordinal: number,
-  status: "running" | "completed",
+  status: "running" | "completed" | "cancelled",
   completedAt: DateTime.Utc | null,
 ) =>
   ({
@@ -108,6 +109,7 @@ const threadProjection = (input: {
   readonly messages: OrchestrationV2ThreadProjection["messages"];
   readonly subagents?: OrchestrationV2ThreadProjection["subagents"];
   readonly providerThreads?: OrchestrationV2ThreadProjection["providerThreads"];
+  readonly turnItems?: ReadonlyArray<unknown>;
 }) =>
   ({
     thread: {
@@ -120,7 +122,14 @@ const threadProjection = (input: {
     messages: input.messages,
     subagents: input.subagents ?? [],
     providerThreads: input.providerThreads ?? [],
+    turnItems: input.turnItems ?? [],
   }) as unknown as OrchestrationV2ThreadProjection;
+
+const errorItem = (runId: RunId, failure: Record<string, unknown>) => ({
+  type: "error",
+  runId,
+  failure: { code: null, retryable: null, ...failure },
+});
 
 const project: Project = {
   id: projectId,
@@ -195,6 +204,14 @@ function makeHarness() {
   const projections = new Map<ThreadId, OrchestrationV2ThreadProjection>();
   const projectionFailures = new Map<ThreadId, "transient" | "notfound">();
   const launchCalls: Array<LaunchCall> = [];
+  const sendCalls: Array<ThreadManagementService.ThreadManagementSendInput> = [];
+  const sendToThread = (input: ThreadManagementService.ThreadManagementSendInput) => {
+    sendCalls.push(input);
+    return Effect.succeed({
+      run: { id: RunId.make(`run:continued:${sendCalls.length}`) },
+      delivery: "started",
+    } as unknown as ThreadManagementService.ThreadManagementSendResult);
+  };
   const processCalls: Array<ProcessRunner.ProcessRunInput> = [];
   const state = {
     failNextLaunch: false,
@@ -336,7 +353,10 @@ function makeHarness() {
         getById: (id) => Effect.succeed(id === projectId ? Option.some(project) : Option.none()),
       }),
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({ launch }),
-      Layer.mock(ThreadManagementService.ThreadManagementService)({ getThreadProjection }),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({
+        getThreadProjection,
+        sendToThread,
+      }),
       Layer.mock(ProcessRunner.ProcessRunner)({ run: runProcess }),
       NodeCrypto.layer,
       Path.layer,
@@ -347,6 +367,7 @@ function makeHarness() {
     layer,
     state,
     launchCalls,
+    sendCalls,
     processCalls,
     setLaunchGate: (gate: Effect.Effect<void> | null) => {
       launchGate = gate;
@@ -662,6 +683,148 @@ it.effect("keeps delegated work running until children and wakes settle", () => 
     assert.equal(task.execution?.result, "Final wake result.");
     assert.equal(task.humanDecision.outcome, "pending");
     assert.equal(settled.status, "in_progress");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("follows a restart continuation back from a cancelled run to a reviewable result", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* importSingleTask(service, created.id);
+    const executed = yield* executeOnlyTask(service, created.id, imported.tasks[0]!.id);
+    const { threadId, runId } = executed.tasks[0]!.execution!;
+    const cancelled = projectionRun(threadId, runId, 1, "cancelled", runTime);
+    const continuationId = RunId.make("run:atlas:continuation");
+
+    harness.setProjection(
+      threadId,
+      threadProjection({ threadId, runs: [cancelled], messages: [] }),
+    );
+    const interrupted = yield* service.refreshInitiative({ initiativeId: created.id });
+    assert.equal(interrupted.tasks[0]!.status, "failed");
+
+    harness.setProjection(
+      threadId,
+      threadProjection({
+        threadId,
+        runs: [cancelled, projectionRun(threadId, continuationId, 2, "running", null)],
+        messages: [],
+      }),
+    );
+    const revived = yield* service.refreshInitiative({ initiativeId: created.id });
+    assert.equal(revived.tasks[0]!.status, "running");
+    assert.isNull(revived.tasks[0]!.execution?.finishedAt);
+
+    harness.setProjection(
+      threadId,
+      threadProjection({
+        threadId,
+        runs: [cancelled, projectionRun(threadId, continuationId, 2, "completed", laterRunTime)],
+        messages: [projectionMessage(continuationId, "Finished after the restart.")],
+      }),
+    );
+    const finished = yield* service.refreshInitiative({ initiativeId: created.id });
+    assert.equal(finished.tasks[0]!.status, "needs_review");
+    assert.equal(finished.tasks[0]!.execution?.result, "Finished after the restart.");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("classifies rate limits across provider wordings", () =>
+  Effect.sync(() => {
+    const failure = (fields: Partial<OrchestrationV2ProviderFailure>) =>
+      AtlasService.classifyRunFailure({
+        class: "provider_error",
+        message: "Something broke",
+        code: null,
+        retryable: null,
+        ...fields,
+      }).kind;
+    assert.equal(failure({ code: "provider.quota", message: "Try later" }), "rate_limit");
+    assert.equal(failure({ class: "usage_limit" }), "rate_limit");
+    assert.equal(failure({ message: "429 Too Many Requests" }), "rate_limit");
+    assert.equal(failure({}), "provider_error");
+    assert.equal(failure({ class: "validation_error" }), "other");
+  }),
+);
+
+it.effect("continues a rate-limited task on another model in the same thread", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const service = yield* AtlasService.AtlasService;
+    const created = yield* createInitiative(service);
+    const imported = yield* importSingleTask(service, created.id);
+    const taskId = imported.tasks[0]!.id;
+    const executed = yield* executeOnlyTask(service, created.id, taskId);
+    const { threadId, runId } = executed.tasks[0]!.execution!;
+    const failedRun = {
+      ...projectionRun(threadId, runId, 1, "completed", runTime),
+      status: "failed",
+      modelSelection,
+    } as unknown as OrchestrationV2ThreadProjection["runs"][number];
+    harness.setProjection(
+      threadId,
+      threadProjection({
+        threadId,
+        runs: [failedRun],
+        messages: [],
+        turnItems: [
+          errorItem(runId, {
+            class: "provider_error",
+            code: "provider.quota",
+            message: "Rate limit exceeded. Please try again later.",
+          }),
+        ],
+      }),
+    );
+    const limited = yield* service.refreshInitiative({ initiativeId: created.id });
+    assert.equal(limited.tasks[0]!.status, "failed");
+    assert.deepEqual(limited.tasks[0]!.execution?.failure, {
+      kind: "rate_limit",
+      message: "Rate limit exceeded. Please try again later.",
+      resetAt: null,
+    });
+
+    const other = { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" };
+    const continued = yield* service.continueTask({
+      initiativeId: created.id,
+      taskId,
+      modelSelection: other,
+      instructions: "Keep the existing scene graph.",
+    });
+    const task = continued.tasks[0]!;
+    assert.equal(task.status, "running");
+    assert.equal(task.execution?.threadId, threadId);
+    assert.isNull(task.execution?.failure);
+    assert.deepEqual(
+      task.execution?.continuations.map(({ modelSelection, handoff }) => ({
+        modelSelection,
+        handoff,
+      })),
+      [{ modelSelection: other, handoff: true }],
+    );
+    const sent = harness.sendCalls[0]!;
+    assert.equal(sent.threadId, threadId);
+    assert.deepEqual(sent.modelSelection, other);
+    assert.include(sent.text, "rate limit");
+    assert.include(sent.text, "Keep the existing scene graph.");
+
+    // The thread now has the continuation running, so a second continue is refused.
+    harness.setProjection(
+      threadId,
+      threadProjection({
+        threadId,
+        runs: [
+          failedRun,
+          projectionRun(threadId, RunId.make("run:continued:1"), 2, "running", null),
+        ],
+        messages: [],
+      }),
+    );
+    const refused = yield* service
+      .continueTask({ initiativeId: created.id, taskId, modelSelection: other })
+      .pipe(Effect.flip);
+    assert.equal(refused._tag, "AtlasTaskNotRunnableError");
   }).pipe(Effect.provide(harness.layer));
 });
 
@@ -2039,6 +2202,7 @@ it.effect("carries the deliverable and reported artifacts from plan to review", 
       "A markdown doc at docs/auth.md.",
     );
     assert.include(harness.launchCalls.at(-1)!.input.initialMessage!.text, "```atlas-artifacts");
+    assert.include(harness.launchCalls.at(-1)!.input.initialMessage!.text, "self-contained");
     assert.deepEqual(executed.tasks.find((t) => t.id === task.id)!.execution?.artifacts, []);
 
     harness.complete(

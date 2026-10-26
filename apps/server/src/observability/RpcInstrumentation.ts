@@ -105,6 +105,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.atlasImportPlan]: "atlas",
   [WS_METHODS.atlasRefreshInitiative]: "atlas",
   [WS_METHODS.atlasExecuteTask]: "atlas",
+  [WS_METHODS.atlasContinueTask]: "atlas",
   [WS_METHODS.atlasApproveTask]: "atlas",
   [WS_METHODS.atlasRequestChanges]: "atlas",
   [WS_METHODS.atlasStartAgentReview]: "atlas",

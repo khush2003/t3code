@@ -4,7 +4,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   blockingTasks,
   bulkCandidates,
+  nextStep,
   runBounded,
+  taskTone,
   taskLane,
   taskReason,
   taskWaves,
@@ -42,6 +44,8 @@ const execution = (status: "running" | "completed") => ({
   finishedAt: status === "completed" ? "2026-01-01T00:10:00.000Z" : null,
   result: null,
   artifacts: [],
+  failure: null,
+  continuations: [],
 });
 
 const review = (outcome: "approved" | "changes_requested") => ({
@@ -191,5 +195,76 @@ describe("runBounded", () => {
       40,
       50,
     ]);
+  });
+});
+
+describe("next step", () => {
+  const limited = (key: string, ordinal: number) =>
+    task({
+      id: id(key),
+      ordinal,
+      status: "failed",
+      execution: {
+        ...execution("completed"),
+        status: "failed",
+        failure: { kind: "rate_limit", message: "Rate limit exceeded.", resetAt: null },
+      },
+    });
+
+  it("unsticks a rate-limited agent before anything else", () => {
+    const step = nextStep([
+      task({ id: id("r"), ordinal: 0, status: "needs_review", execution: execution("completed") }),
+      limited("l", 3),
+    ]);
+    expect(step?.action).toBe("continue");
+    expect(step?.task?.id).toBe(id("l"));
+    expect(taskTone(limited("l", 3))).toBe("waiting");
+  });
+
+  it("then asks for the oldest review, then offers to start ready work", () => {
+    expect(
+      nextStep([
+        task({
+          id: id("b"),
+          ordinal: 4,
+          status: "needs_review",
+          execution: execution("completed"),
+        }),
+        task({
+          id: id("a"),
+          ordinal: 1,
+          status: "needs_review",
+          execution: execution("completed"),
+        }),
+      ])?.task?.id,
+    ).toBe(id("a"));
+    const ready = nextStep([task({ id: id("x") }), task({ id: id("y"), ordinal: 1 })]);
+    expect(ready).toMatchObject({ action: "run_ready", actionLabel: "Run 2", tone: "ready" });
+  });
+
+  it("asks for another pass on change requests before new work", () => {
+    const step = nextStep([
+      task({ id: id("n") }),
+      task({
+        id: id("c"),
+        ordinal: 2,
+        status: "changes_requested",
+        execution: execution("completed"),
+        humanDecision: {
+          outcome: "changes_requested",
+          feedback: "Fix the camera",
+          decidedAt: null,
+        },
+      }),
+    ]);
+    expect(step).toMatchObject({ action: "rerun", detail: "Fix the camera" });
+  });
+
+  it("stays quiet while agents work and celebrates a finished plan", () => {
+    expect(
+      nextStep([task({ id: id("w"), status: "running", execution: execution("running") })]),
+    ).toMatchObject({ tone: "running", action: null });
+    expect(nextStep([task({ id: id("d"), status: "approved" })])?.tone).toBe("done");
+    expect(nextStep([])).toBeNull();
   });
 });

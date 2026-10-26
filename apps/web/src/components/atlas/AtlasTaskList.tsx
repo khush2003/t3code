@@ -1,12 +1,19 @@
 import type { AtlasInitiative, AtlasTaskId, EnvironmentId } from "@t3tools/contracts";
 import {
+  ArrowRightIcon,
   CheckIcon,
+  CheckCheckIcon,
+  EyeIcon,
+  GaugeIcon,
   GitBranchIcon,
-  ChevronRightIcon,
+  ListChecksIcon,
   PlayIcon,
   SearchIcon,
   SendIcon,
   ShieldCheckIcon,
+  SparklesIcon,
+  TriangleAlertIcon,
+  XIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -14,6 +21,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { autoReviewLabel } from "./AtlasAutoReviewDialog";
 import { AtlasBulkActionDialog } from "./AtlasBulkActionDialog";
 import {
@@ -25,16 +33,44 @@ import { AtlasTaskCard } from "./AtlasTaskCard";
 import { AtlasTaskDrawer } from "./AtlasTaskDrawer";
 import {
   ATLAS_TASK_LANES,
+  LANE_TONE,
   blockingTasks,
   bulkCandidates,
   eligibleCount,
+  nextStep,
   taskLane,
   taskMatchesQuery,
   taskReason,
   taskWaves,
   type AtlasBulkAction,
   type AtlasTaskLane,
+  type AtlasTone,
 } from "./atlasTaskListLogic";
+import { TONE_DOT, TONE_RING, TONE_SOFT } from "./atlasTone";
+
+const EMPTY_LANE: Record<AtlasTaskLane, string> = {
+  attention: "Nothing needs you. Reviews, failures, and agent questions land here.",
+  running: "No agents are working right now.",
+  ready: "Nothing is ready to start. Tasks arrive here once their dependencies are approved.",
+  blocked: "Nothing is blocked.",
+  done: "No approved tasks yet.",
+};
+
+function NextStepIcon({ tone }: { readonly tone: AtlasTone }) {
+  const Icon =
+    tone === "waiting"
+      ? GaugeIcon
+      : tone === "attention"
+        ? EyeIcon
+        : tone === "ready"
+          ? PlayIcon
+          : tone === "done"
+            ? CheckCheckIcon
+            : tone === "blocked"
+              ? TriangleAlertIcon
+              : SparklesIcon;
+  return <Icon className="size-5" />;
+}
 
 export function AtlasTaskList({
   environmentId,
@@ -59,7 +95,7 @@ export function AtlasTaskList({
   } | null>(null);
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<AtlasTaskId>>(new Set());
-  const [collapsed, setCollapsed] = useState<ReadonlySet<AtlasTaskLane>>(new Set(["done"]));
+  const [activeLane, setActiveLane] = useState<AtlasTaskLane | null>(null);
   const [bulk, setBulk] = useState<{
     readonly action: AtlasBulkAction;
     readonly selection: ReadonlySet<AtlasTaskId>;
@@ -122,94 +158,185 @@ export function AtlasTaskList({
   };
   const scope = selection.size > 0 ? "selected" : "all";
 
+  const step = nextStep(tasks);
+  const laneCounts = new Map(
+    ATLAS_TASK_LANES.map(({ lane }) => [
+      lane,
+      visible.filter((task) => taskLane(task) === lane).length,
+    ]),
+  );
+  const firstFilled = ATLAS_TASK_LANES.find(({ lane }) => (laneCounts.get(lane) ?? 0) > 0)?.lane;
+  // An explicit tab wins; otherwise land on the most urgent group that has work.
+  const lane = activeLane ?? firstFilled ?? "attention";
+  const laneTasks = lanes.find((candidate) => candidate.lane === lane)?.tasks ?? [];
+  const laneIds = laneTasks.map((task) => task.id);
+  const selectedInLane = laneIds.filter((id) => selection.has(id)).length;
+
+  const runStep = () => {
+    if (!step?.action) return;
+    if (step.action === "run_ready") setBulk({ action: "run", selection: new Set() });
+    else if (step.task && step.action === "continue") onAction(step.task.id, "continue");
+    else if (step.task && step.action === "rerun") onAction(step.task.id, "run");
+    else if (step.task) onOpenTask(step.task.id);
+  };
+
   return (
-    <section className="@container space-y-3" aria-label="Tasks">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="mr-1 font-semibold text-base">
-          Tasks{" "}
-          <span className="font-normal text-muted-foreground tabular-nums">{tasks.length}</span>
-        </h2>
-        <div className="min-w-40 flex-1 @2xl:max-w-64">
-          <InputGroup>
-            <InputGroupAddon>
-              <SearchIcon aria-hidden />
-            </InputGroupAddon>
-            <InputGroupInput
-              size="sm"
-              type="search"
-              aria-label="Filter tasks"
-              placeholder="Filter by title, specialty, or #"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </InputGroup>
-        </div>
-        <Button size="sm" variant="ghost-muted" onClick={onConfigureAutoReview}>
-          <ShieldCheckIcon />
-          {autoReviewLabel(initiative)}
-        </Button>
-      </div>
-
-      <div
-        className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/32 px-2 py-1.5"
-        role="toolbar"
-        aria-label="Bulk actions"
-      >
-        <span className="px-1 text-muted-foreground text-xs" aria-live="polite">
-          {selection.size > 0 ? (
-            <>
-              <span className="font-medium text-foreground tabular-nums">{selection.size}</span>{" "}
-              selected
-            </>
-          ) : (
-            "All tasks"
+    <section className="@container space-y-5" aria-label="Tasks">
+      {step ? (
+        <div
+          className={cn(
+            "flex flex-col gap-4 rounded-3xl p-5 ring-1 sm:flex-row sm:items-center sm:p-6",
+            TONE_SOFT[step.tone],
+            TONE_RING[step.tone],
           )}
-        </span>
-        {selection.size > 0 ? (
-          <Button size="xs" variant="ghost-muted" onClick={() => setSelectedIds(new Set())}>
-            Clear
-          </Button>
-        ) : null}
-        <span className="ml-auto flex flex-wrap items-center gap-1.5">
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={counts.run === 0 || !permissions.execute}
-            onClick={() => setBulk({ action: "run", selection })}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "flex size-11 shrink-0 items-center justify-center rounded-2xl text-atlas-surface shadow-sm/10",
+              TONE_DOT[step.tone],
+            )}
           >
-            <PlayIcon />
-            Run ready
-            <span className="tabular-nums text-muted-foreground">{counts.run}</span>
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={counts.publish === 0 || !permissions.publish}
-            onClick={() => setBulk({ action: "publish", selection })}
-          >
-            <SendIcon />
-            {onlySyncs ? "Update issues" : "Publish issues"}
-            <span className="tabular-nums text-muted-foreground">{counts.publish}</span>
-          </Button>
-          {counts.approve > 0 ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!permissions.decide}
-              onClick={() => setBulk({ action: "approve", selection })}
+            <NextStepIcon tone={step.tone} />
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-pretty font-semibold text-atlas-ink text-lg leading-snug tracking-tight">
+              {step.title}
+            </p>
+            <p className="line-clamp-2 text-atlas-ink/72 text-sm leading-relaxed wrap-anywhere">
+              {step.detail}
+            </p>
+          </div>
+          {step.action && step.actionLabel ? (
+            <button
+              type="button"
+              onClick={runStep}
+              disabled={
+                (step.action === "continue" && !permissions.continue) ||
+                (step.action === "rerun" && !permissions.execute) ||
+                (step.action === "run_ready" && !permissions.execute)
+              }
+              className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-atlas-ink px-5 py-2.5 font-semibold text-atlas-surface text-sm shadow-md/12 outline-none transition-[translate,box-shadow,scale] hover:-translate-y-px hover:shadow-lg/14 focus-visible:ring-2 focus-visible:ring-atlas-brand focus-visible:ring-inset active:translate-y-0 active:scale-97 disabled:pointer-events-none disabled:opacity-50 sm:self-center"
             >
-              <CheckIcon />
-              Approve reviewed
-              <span className="tabular-nums text-muted-foreground">{counts.approve}</span>
-            </Button>
+              {step.actionLabel}
+              <ArrowRightIcon aria-hidden className="size-4" />
+            </button>
           ) : null}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          role="tablist"
+          aria-label="Task groups"
+          className="flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-atlas-surface p-1 shadow-xs/4 ring-1 ring-border/70"
+        >
+          {ATLAS_TASK_LANES.map(({ lane: id, label }) => {
+            const count = laneCounts.get(id) ?? 0;
+            const selected = id === lane;
+            const tone = LANE_TONE[id];
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveLane(id)}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-atlas-brand focus-visible:ring-inset",
+                  selected
+                    ? cn("text-atlas-ink", TONE_SOFT[tone])
+                    : "text-muted-foreground hover:bg-muted/56 hover:text-foreground",
+                  count === 0 && !selected && "opacity-60",
+                )}
+              >
+                <span aria-hidden className={cn("size-2 rounded-full", TONE_DOT[tone])} />
+                {label}
+                <span
+                  className={cn(
+                    "min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums",
+                    selected ? "bg-atlas-surface/80" : "bg-muted/64",
+                  )}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className="w-48 max-w-full">
+            <InputGroup>
+              <InputGroupAddon>
+                <SearchIcon aria-hidden />
+              </InputGroupAddon>
+              <InputGroupInput
+                size="sm"
+                type="search"
+                aria-label="Filter tasks"
+                placeholder="Find a task"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </InputGroup>
+          </div>
+          <Button size="sm" variant="ghost-muted" onClick={onConfigureAutoReview}>
+            <ShieldCheckIcon />
+            <span className="max-sm:sr-only">{autoReviewLabel(initiative)}</span>
+          </Button>
+          <Menu>
+            <MenuTrigger render={<Button size="sm" variant="outline" />}>
+              <ListChecksIcon />
+              {selection.size > 0 ? `${selection.size} selected` : "Bulk actions"}
+            </MenuTrigger>
+            <MenuPopup align="end">
+              <MenuItem
+                disabled={counts.run === 0 || !permissions.execute}
+                onClick={() => setBulk({ action: "run", selection })}
+              >
+                <PlayIcon />
+                Run ready tasks
+                <span className="ml-auto ps-4 text-muted-foreground tabular-nums">
+                  {counts.run}
+                </span>
+              </MenuItem>
+              <MenuItem
+                disabled={counts.approve === 0 || !permissions.decide}
+                onClick={() => setBulk({ action: "approve", selection })}
+              >
+                <CheckIcon />
+                Approve reviewed
+                <span className="ml-auto ps-4 text-muted-foreground tabular-nums">
+                  {counts.approve}
+                </span>
+              </MenuItem>
+              <MenuItem
+                disabled={counts.publish === 0 || !permissions.publish}
+                onClick={() => setBulk({ action: "publish", selection })}
+              >
+                <SendIcon />
+                {onlySyncs ? "Update GitHub issues" : "Publish GitHub issues"}
+                <span className="ml-auto ps-4 text-muted-foreground tabular-nums">
+                  {counts.publish}
+                </span>
+              </MenuItem>
+              {selection.size > 0 ? (
+                <MenuItem onClick={() => setSelectedIds(new Set())}>
+                  <XIcon />
+                  Clear selection
+                </MenuItem>
+              ) : null}
+            </MenuPopup>
+          </Menu>
+        </div>
+        <span className="sr-only" aria-live="polite">
+          Bulk actions apply to {scope} tasks.
         </span>
-        <span className="sr-only">Actions apply to {scope} tasks.</span>
       </div>
 
-      {bottleneck && bottleneck.blocks > 1 ? (
-        <p className="flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-xs">
-          <GitBranchIcon className="size-3.5" />
+      {bottleneck && bottleneck.blocks > 1 && lane === "blocked" ? (
+        <p className="flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-sm">
+          <GitBranchIcon aria-hidden className="size-4" />
           <span>
             <span className="font-medium text-foreground">
               #{bottleneck.task.ordinal + 1} {bottleneck.task.title}
@@ -217,83 +344,46 @@ export function AtlasTaskList({
             holds back {bottleneck.blocks} tasks.
           </span>
           <Button size="xs" variant="link" onClick={() => onAdjust(null)}>
-            Dependencies too strict? Adjust plan
+            Loosen dependencies
           </Button>
         </p>
       ) : null}
 
-      {lanes.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-4 text-muted-foreground text-sm">
-          No tasks match “{query}”.
-        </p>
+      {laneTasks.length === 0 ? (
+        <div className="rounded-3xl border border-dashed px-6 py-10 text-center">
+          <p className="font-medium text-sm">
+            {query.trim().length > 0
+              ? `No ${ATLAS_TASK_LANES.find((entry) => entry.lane === lane)?.label.toLowerCase()} tasks match “${query}”.`
+              : EMPTY_LANE[lane]}
+          </p>
+        </div>
       ) : (
-        <div className="space-y-5">
-          {lanes.map(({ lane, label, tasks: laneTasks }) => {
-            const isCollapsed = collapsed.has(lane) && query.trim().length === 0;
-            const laneIds = laneTasks.map((task) => task.id);
-            const selectedInLane = laneIds.filter((id) => selection.has(id)).length;
-            return (
-              <section key={lane} aria-label={label} className="space-y-2.5">
-                <div className="flex items-center gap-2.5 px-1">
-                  <Checkbox
-                    aria-label={`Select all ${label.toLowerCase()} tasks`}
-                    checked={selectedInLane > 0 && selectedInLane === laneIds.length}
-                    indeterminate={selectedInLane > 0 && selectedInLane < laneIds.length}
-                    onCheckedChange={(next) => setSelected(laneIds, next === true)}
-                  />
-                  <button
-                    type="button"
-                    aria-expanded={!isCollapsed}
-                    onClick={() =>
-                      setCollapsed((previous) => {
-                        const updated = new Set(previous);
-                        if (updated.has(lane)) updated.delete(lane);
-                        else updated.add(lane);
-                        return updated;
-                      })
-                    }
-                    className="flex min-w-0 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                  >
-                    <ChevronRightIcon
-                      aria-hidden
-                      className={cn(
-                        "size-3.5 text-muted-foreground transition-transform",
-                        !isCollapsed && "rotate-90",
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "font-medium text-sm",
-                        lane === "attention" ? "text-warning-foreground" : "text-foreground",
-                      )}
-                    >
-                      {label}
-                    </span>
-                    <span className="text-muted-foreground text-xs tabular-nums">
-                      {laneTasks.length}
-                    </span>
-                  </button>
-                </div>
-                {isCollapsed ? null : (
-                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
-                    {laneTasks.map((task) => (
-                      <AtlasTaskCard
-                        key={task.id}
-                        task={task}
-                        byId={byId}
-                        reason={taskReason(task, byId)}
-                        selected={selection.has(task.id)}
-                        permissions={permissions}
-                        onSelectedChange={onSelectedChange}
-                        onOpen={onOpenTask}
-                        onAction={onAction}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
+        <div className="space-y-2.5">
+          <label className="flex w-fit items-center gap-2 px-1 text-muted-foreground text-xs">
+            <Checkbox
+              aria-label="Select every task in this group"
+              checked={selectedInLane > 0 && selectedInLane === laneIds.length}
+              indeterminate={selectedInLane > 0 && selectedInLane < laneIds.length}
+              onCheckedChange={(next) => setSelected(laneIds, next === true)}
+            />
+            Select all
+          </label>
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3.5">
+            {laneTasks.map((task) => (
+              <AtlasTaskCard
+                key={task.id}
+                task={task}
+                byId={byId}
+                reason={taskReason(task, byId)}
+                selected={selection.has(task.id)}
+                selecting={selection.size > 0}
+                permissions={permissions}
+                onSelectedChange={onSelectedChange}
+                onOpen={onOpenTask}
+                onAction={onAction}
+              />
+            ))}
+          </ul>
         </div>
       )}
 

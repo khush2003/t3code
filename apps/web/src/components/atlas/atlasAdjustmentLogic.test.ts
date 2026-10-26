@@ -84,6 +84,8 @@ const design = task({
     finishedAt: "2026-01-01T00:10:00.000Z",
     result: null,
     artifacts: [],
+    failure: null,
+    continuations: [],
   },
 });
 const scaffold = task({

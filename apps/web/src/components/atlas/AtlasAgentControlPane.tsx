@@ -4,11 +4,16 @@ import { ArrowUpRightIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { useEnvironmentProviders } from "../../state/environments";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { AtlasPendingRequests } from "./AtlasPendingRequests";
-import { atlasAgentPriority, collectAtlasAgentRows } from "./atlasControlLogic";
+import {
+  atlasAgentPriority,
+  collectAtlasAgentRows,
+  describeAtlasAgentRuntime,
+} from "./atlasControlLogic";
 import { reviewLaunchError } from "./atlasLogic";
 import { atlasAgentDetailsAtom } from "./atlasAgentDetails";
 
@@ -20,13 +25,18 @@ export function AtlasAgentControlPane({
   readonly initiative: AtlasInitiative;
 }) {
   const [showHistory, setShowHistory] = useState(false);
+  const providers = useEnvironmentProviders().get(environmentId) ?? [];
   const baseRows = collectAtlasAgentRows(initiative);
   const baseByThread = new Map(baseRows.map((row) => [row.threadId, row]));
   const details = useAtomValue(
     atlasAgentDetailsAtom([environmentId, ...baseRows.map((row) => row.threadId)].join("\n")),
   );
   const rows = details
-    .map(({ row, pending }) => ({ row: baseByThread.get(row.threadId) ?? row, pending }))
+    .map(({ row, pending, runtime }) => ({
+      row: baseByThread.get(row.threadId) ?? row,
+      pending,
+      runtime: describeAtlasAgentRuntime(runtime, providers),
+    }))
     .toSorted(
       (left, right) =>
         atlasAgentPriority(left.row, left.pending) - atlasAgentPriority(right.row, right.pending),
@@ -46,7 +56,7 @@ export function AtlasAgentControlPane({
     <section className="flex min-w-0 flex-col" aria-label="Agents">
       <div className="space-y-1.5 px-4 pt-4 pb-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold text-sm">Agents</h2>
+          <h2 className="font-semibold text-atlas-ink text-base tracking-tight">Agents</h2>
           <span className="text-muted-foreground text-xs tabular-nums">
             {rows.length} thread{rows.length === 1 ? "" : "s"}
           </span>
@@ -62,7 +72,7 @@ export function AtlasAgentControlPane({
               aria-hidden
               className={cn(
                 "size-1.5 rounded-full",
-                needsInput > 0 ? "bg-warning" : "bg-muted-foreground/30",
+                needsInput > 0 ? "bg-atlas-waiting" : "bg-atlas-blocked/50",
               )}
             />
             {needsInput} waiting on you
@@ -77,7 +87,7 @@ export function AtlasAgentControlPane({
               aria-hidden
               className={cn(
                 "size-1.5 rounded-full",
-                running > 0 ? "bg-info" : "bg-muted-foreground/30",
+                running > 0 ? "bg-atlas-running" : "bg-atlas-blocked/50",
               )}
             />
             {running} running
@@ -112,23 +122,25 @@ export function AtlasAgentControlPane({
           </p>
         </div>
       ) : (
-        <ul className="border-t">
-          {visible.map(({ row, pending }) => {
+        <ul className="space-y-2 px-3 pb-3">
+          {visible.map(({ row, pending, runtime }) => {
             const waiting =
               pending !== null && pending.approvals.length + pending.userInputs.length > 0;
             const tone = waiting
-              ? "bg-warning"
+              ? "bg-atlas-waiting"
               : row.failed
-                ? "bg-destructive"
-                : row.running
-                  ? "bg-info"
-                  : "bg-muted-foreground/30";
+                ? "bg-atlas-attention"
+                : row.limited
+                  ? "bg-atlas-waiting"
+                  : row.running
+                    ? "bg-atlas-running"
+                    : "bg-atlas-blocked/50";
             return (
               <li
                 key={row.threadId}
                 className={cn(
-                  "min-w-0 space-y-3 border-b px-4 py-3",
-                  waiting && "border-l-2 border-l-warning bg-warning/6 pl-3.5",
+                  "min-w-0 space-y-3 rounded-2xl bg-atlas-surface p-3 shadow-xs/4 ring-1 ring-border/60",
+                  waiting && "ring-2 ring-atlas-waiting/60",
                 )}
               >
                 <div className="space-y-1">
@@ -142,9 +154,11 @@ export function AtlasAgentControlPane({
                           ? "font-medium text-warning-foreground"
                           : row.failed
                             ? "text-destructive-foreground"
-                            : row.running
-                              ? "text-info-foreground"
-                              : "text-muted-foreground",
+                            : row.limited
+                              ? "text-warning-foreground"
+                              : row.running
+                                ? "text-info-foreground"
+                                : "text-muted-foreground",
                       )}
                     >
                       {waiting ? "Needs you" : row.status}
@@ -171,6 +185,20 @@ export function AtlasAgentControlPane({
                       <ArrowUpRightIcon />
                     </Button>
                   </div>
+                  {runtime ? (
+                    <p className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+                      <span className="truncate">{runtime.model}</span>
+                      {runtime.reasoning ? (
+                        <>
+                          <span aria-hidden>·</span>
+                          <span className="shrink-0">{runtime.reasoning}</span>
+                        </>
+                      ) : null}
+                      {runtime.tokens ? (
+                        <span className="ml-auto shrink-0 tabular-nums">{runtime.tokens}</span>
+                      ) : null}
+                    </p>
+                  ) : null}
                 </div>
                 {waiting ? (
                   <AtlasPendingRequests

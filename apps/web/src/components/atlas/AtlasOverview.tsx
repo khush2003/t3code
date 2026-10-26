@@ -9,9 +9,11 @@ import {
   EyeIcon,
   FileTextIcon,
   FlagIcon,
+  GaugeIcon,
   ListChecksIcon,
   MessageCircleQuestionIcon,
   PlayIcon,
+  RotateCwIcon,
   TriangleAlertIcon,
   WandSparklesIcon,
   type LucideIcon,
@@ -39,6 +41,8 @@ const ATTENTION_ICON: Record<AtlasAttentionKind, { icon: LucideIcon; tone: strin
   review: { icon: EyeIcon, tone: "bg-warning/12 text-warning-foreground" },
   adjustment: { icon: WandSparklesIcon, tone: "bg-info/12 text-info-foreground" },
   plan_ready: { icon: ListChecksIcon, tone: "bg-info/12 text-info-foreground" },
+  rate_limited: { icon: GaugeIcon, tone: "bg-warning/12 text-warning-foreground" },
+  changes: { icon: RotateCwIcon, tone: "bg-warning/12 text-warning-foreground" },
   review_failed: { icon: TriangleAlertIcon, tone: "bg-destructive/10 text-destructive-foreground" },
   failed: { icon: TriangleAlertIcon, tone: "bg-destructive/10 text-destructive-foreground" },
   planner_failed: {
@@ -65,7 +69,7 @@ function StatTile({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 text-card-foreground",
+        "flex min-w-0 flex-col gap-2 rounded-2xl bg-atlas-surface p-5 text-atlas-ink shadow-xs/4 ring-1 ring-border/70",
         highlight && "border-warning/40 bg-warning/6",
       )}
     >
@@ -124,14 +128,14 @@ function AttentionList({
     <section aria-label="Needs your attention" className="space-y-3">
       <SectionHeading title="Needs your attention" count={items.length} />
       {items.length === 0 ? (
-        <div className="flex items-center gap-3 rounded-xl border border-dashed px-4 py-3.5">
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed px-4 py-3.5">
           <CircleCheckIcon aria-hidden className="size-4 shrink-0 text-success-foreground" />
           <p className="text-muted-foreground text-sm">
             You are all caught up. Reviews, questions, and proposed plans show up here.
           </p>
         </div>
       ) : (
-        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+        <ul className="divide-y overflow-hidden rounded-2xl bg-atlas-surface shadow-xs/4 ring-1 ring-border/70">
           {visible.map((item) => {
             const { icon: Icon, tone } = ATTENTION_ICON[item.kind];
             const project = projectsById.get(item.initiative.projectId);
@@ -205,7 +209,7 @@ function ProjectList({
   return (
     <section aria-label="Projects" className="space-y-3">
       <SectionHeading title="Projects" count={projects.length} />
-      <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+      <ul className="divide-y overflow-hidden rounded-2xl bg-atlas-surface shadow-xs/4 ring-1 ring-border/70">
         {visible.map((project) => {
           const summary = summaries.get(project.id);
           const hasWork = summary !== undefined && summary.initiatives.length > 0;
@@ -299,7 +303,7 @@ function AtlasOnboarding({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-5 pt-12 pb-16 sm:px-8 sm:pt-16">
       <header className="space-y-3">
-        <h1 className="text-balance font-semibold text-3xl tracking-tight">
+        <h1 className="text-balance font-semibold text-3xl text-atlas-ink tracking-tight sm:text-4xl">
           Plan large work. Let agents carry it.
         </h1>
         <p className="max-w-[60ch] text-muted-foreground leading-relaxed">
@@ -309,7 +313,10 @@ function AtlasOnboarding({
       </header>
       <ol className="grid gap-3 sm:grid-cols-3">
         {ONBOARDING_STEPS.map((step, index) => (
-          <li key={step.title} className="space-y-2 rounded-xl border bg-card p-4">
+          <li
+            key={step.title}
+            className="space-y-2 rounded-2xl bg-atlas-surface p-5 shadow-xs/4 ring-1 ring-border/70"
+          >
             <span className="flex items-center gap-2 text-muted-foreground text-xs">
               <step.icon aria-hidden className="size-3.5" />
               Step {index + 1}
@@ -322,7 +329,7 @@ function AtlasOnboarding({
       <section aria-label="Choose a project" className="space-y-3">
         <SectionHeading title="Pick a project to start in" />
         {projects.length === 0 ? (
-          <p className="rounded-xl border border-dashed px-4 py-3.5 text-muted-foreground text-sm">
+          <p className="rounded-2xl border border-dashed px-4 py-3.5 text-muted-foreground text-sm">
             Add a project from the sidebar first. Atlas plans work inside a project&apos;s
             workspace.
           </p>
@@ -333,7 +340,7 @@ function AtlasOnboarding({
                 <button
                   type="button"
                   onClick={() => onStart(project.id)}
-                  className="group flex w-full min-w-0 items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left outline-none transition-colors hover:border-foreground/20 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  className="group flex w-full min-w-0 items-center gap-3 rounded-2xl bg-atlas-surface px-4 py-3 text-left shadow-xs/4 outline-none ring-1 ring-border/70 transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-lg/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                 >
                   <ProjectFavicon project={project} className="size-6 shrink-0" />
                   <span className="min-w-0 flex-1">
@@ -401,7 +408,9 @@ export function AtlasOverview({
         {environmentLabel ? (
           <p className="text-muted-foreground text-xs">{environmentLabel}</p>
         ) : null}
-        <h1 className="font-semibold text-2xl tracking-tight">Overview</h1>
+        <h1 className="font-semibold text-3xl text-atlas-ink tracking-tight sm:text-4xl">
+          Overview
+        </h1>
         <p className="text-muted-foreground text-sm" aria-live="polite">
           {overviewHeadline({ waiting: attention.length, running: runningAgents, active })}
         </p>

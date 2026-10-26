@@ -5,7 +5,13 @@ import {
 } from "@t3tools/shared/filePreview";
 import { isAbsolutePath, workspaceRelativeFilePath } from "@t3tools/shared/path";
 
-import { canDecideOnTask, canExecuteTask, taskIsRunning } from "./atlasLogic";
+import {
+  canContinueTask,
+  canDecideOnTask,
+  canExecuteTask,
+  runFailure,
+  taskIsRunning,
+} from "./atlasLogic";
 
 // ── Status pill ─────────────────────────────────────────────────────────────
 
@@ -22,7 +28,9 @@ export function taskStatusPill(task: AtlasTask): AtlasTaskPill {
   if (taskIsRunning(task)) return { label: "Agent working", tone: "info" };
   switch (task.status) {
     case "failed":
-      return { label: "Run failed", tone: "error" };
+      return runFailure(task)?.kind === "rate_limit"
+        ? { label: "Rate limited", tone: "warning" }
+        : { label: "Run failed", tone: "error" };
     case "needs_review":
       return { label: "Needs your review", tone: "warning" };
     case "changes_requested":
@@ -39,7 +47,7 @@ export function taskStatusPill(task: AtlasTask): AtlasTaskPill {
     : { label: "Not started", tone: "neutral" };
 }
 
-export type AtlasTaskPrimaryAction = "review" | "approve" | "run" | "rerun";
+export type AtlasTaskPrimaryAction = "review" | "approve" | "run" | "rerun" | "continue";
 
 /**
  * The single action a card offers. Reviewing opens the task's deliverables;
@@ -49,6 +57,7 @@ export function taskPrimaryAction(task: AtlasTask): AtlasTaskPrimaryAction | nul
   if (task.status === "needs_review" && canDecideOnTask(task)) {
     return task.agentReview?.outcome === "approved" ? "approve" : "review";
   }
+  if (canContinueTask(task)) return "continue";
   if (canExecuteTask(task)) return task.execution ? "rerun" : "run";
   return null;
 }
@@ -206,4 +215,40 @@ export function artifactRelativePath(path: string, cwd: string): string {
   const trimmed = path.trim();
   if (isAbsolutePath(trimmed)) return workspaceRelativeFilePath(trimmed, cwd) ?? trimmed;
   return trimmed.replace(/^(?:\.\/)+/, "");
+}
+
+const REMOTE_OR_INLINE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+
+/**
+ * Scripts and styles an HTML artifact loads from outside its own folder. Atlas
+ * serves a page with its folder only, so a page importing the project's source
+ * or a package by name (`import "three"`) needs the project's dev server.
+ */
+export function htmlArtifactOutsideDependencies(html: string): ReadonlyArray<string> {
+  const found = new Set<string>();
+  const outsideFolder = (value: string) => value.startsWith("/") || value.includes("../");
+  const checkPath = (value: string) => {
+    if (!REMOTE_OR_INLINE.test(value) && outsideFolder(value)) found.add(value);
+  };
+  // In an import, a bare name is a package only a bundler or dev server resolves.
+  const checkImport = (value: string) => {
+    if (REMOTE_OR_INLINE.test(value)) return;
+    if (/^\.{0,2}\//.test(value)) checkPath(value);
+    else found.add(value);
+  };
+  for (const script of html.matchAll(
+    /<script\b[^>]*\btype=["']module["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    const body = script[1] ?? "";
+    for (const match of body.matchAll(/\b(?:import|export)\s[^'"`;]*?\bfrom\s*["']([^"']+)["']/g)) {
+      checkImport(match[1]!);
+    }
+    for (const match of body.matchAll(/\bimport\s*(?:\(\s*)?["']([^"']+)["']/g)) {
+      checkImport(match[1]!);
+    }
+  }
+  for (const tag of html.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)=["']([^"']+)["']/gi)) {
+    checkPath(tag[1]!.trim());
+  }
+  return [...found];
 }

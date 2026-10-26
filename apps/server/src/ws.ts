@@ -1179,6 +1179,7 @@ const layerWsAtlasRpc = () =>
         [WS_METHODS.atlasImportPlan]: (input) => atlas.importPlan(input),
         [WS_METHODS.atlasRefreshInitiative]: (input) => atlas.refreshInitiative(input),
         [WS_METHODS.atlasExecuteTask]: (input) => atlas.executeTask(input),
+        [WS_METHODS.atlasContinueTask]: (input) => atlas.continueTask(input),
         [WS_METHODS.atlasApproveTask]: (input) => atlas.approveTask(input),
         [WS_METHODS.atlasRequestChanges]: (input) => atlas.requestChanges(input),
         [WS_METHODS.atlasStartAgentReview]: (input) => atlas.startAgentReview(input),

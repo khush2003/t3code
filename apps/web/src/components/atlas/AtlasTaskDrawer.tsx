@@ -6,6 +6,7 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  ArrowRightLeftIcon,
   CheckIcon,
   CircleIcon,
   ExternalLinkIcon,
@@ -13,8 +14,11 @@ import {
   PackageIcon,
   PencilIcon,
   PlayIcon,
+  RotateCwIcon,
   SendIcon,
+  ShieldAlertIcon,
   ShieldCheckIcon,
+  ShieldXIcon,
   XIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -34,18 +38,27 @@ import {
 } from "./AtlasTaskActions";
 import { AtlasTaskStatusPill, REASON_TONE } from "./AtlasTaskCard";
 import { taskIsEditable } from "./atlasAdjustmentLogic";
-import { deliverableEntries } from "./atlasArtifactLogic";
+import { deliverableEntries, taskStatusPill } from "./atlasArtifactLogic";
 import {
   agentReviewStatusLabel,
+  canContinueTask,
   canDecideOnTask,
   canExecuteTask,
   canPublishTaskIssue,
   canStartAgentReview,
   reviewLaunchError,
+  runFailure,
 } from "./atlasLogic";
-import type { AtlasTaskReason } from "./atlasTaskListLogic";
+import { taskTone, type AtlasTaskReason } from "./atlasTaskListLogic";
+import { TONE_DOT, TONE_SOFT } from "./atlasTone";
 
-type DrawerTab = "deliverables" | "overview" | "activity";
+type DrawerTab = "deliverables" | "overview" | "review" | "activity";
+
+/** A review tab exists once the reviewer has finished, whatever its verdict. */
+function finishedReview(task: AtlasTask) {
+  const review = task.agentReview;
+  return review && review.status !== "running" ? review : null;
+}
 
 function Section({
   title,
@@ -164,18 +177,140 @@ function verdictBadge(task: AtlasTask) {
   );
 }
 
-function ActivityTab({
+function verdictDot(task: AtlasTask) {
+  const review = task.agentReview;
+  const tone =
+    review?.outcome === "approved"
+      ? "bg-success"
+      : review?.outcome === "changes_requested"
+        ? "bg-warning"
+        : "bg-destructive";
+  return <span aria-hidden className={cn("size-1.5 rounded-full", tone)} />;
+}
+
+function ReviewTab({
   environmentId,
   task,
 }: {
   readonly environmentId: EnvironmentId;
   readonly task: AtlasTask;
 }) {
+  const review = finishedReview(task);
+  if (!review) return null;
+  const decision = task.humanDecision;
+  const verdict =
+    review.status === "failed"
+      ? {
+          tone: "error" as const,
+          Icon: ShieldXIcon,
+          title: "The review failed",
+          detail: "Nothing was accepted. Re-run the agent review or review the work yourself.",
+        }
+      : review.outcome === "approved"
+        ? {
+            tone: "success" as const,
+            Icon: ShieldCheckIcon,
+            title: "The reviewer suggests approving",
+            detail: null,
+          }
+        : review.outcome === "changes_requested"
+          ? {
+              tone: "warning" as const,
+              Icon: ShieldAlertIcon,
+              title: "The reviewer suggests changes",
+              detail: null,
+            }
+          : {
+              tone: "error" as const,
+              Icon: ShieldXIcon,
+              title: "The reviewer's verdict could not be read",
+              detail: "Nothing was applied. Read the output below and decide yourself.",
+            };
+  const decisionNote =
+    decision.outcome === "pending"
+      ? "Your decision is still needed."
+      : decision.decidedBy === "agent"
+        ? `Applied automatically: ${decision.outcome === "approved" ? "approved" : "changes requested"}.`
+        : `You ${decision.outcome === "approved" ? "approved the task" : "requested changes"}.`;
+  const timing = [
+    review.finishedAt ? `Finished ${formatRelativeTimeLabel(review.finishedAt)}` : null,
+    review.finishedAt
+      ? `took ${formatElapsedDurationLabel(review.startedAt, Date.parse(review.finishedAt))}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 px-5 py-5">
+      <div
+        className={cn(
+          "flex gap-3 rounded-xl border p-4",
+          verdict.tone === "success" && "border-success/24 bg-success/6",
+          verdict.tone === "warning" && "border-warning/24 bg-warning/6",
+          verdict.tone === "error" && "border-destructive/24 bg-destructive/6",
+        )}
+      >
+        <verdict.Icon
+          aria-hidden
+          className={cn(
+            "mt-0.5 size-5 shrink-0",
+            verdict.tone === "success" && "text-success",
+            verdict.tone === "warning" && "text-warning",
+            verdict.tone === "error" && "text-destructive",
+          )}
+        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="font-medium text-sm">{verdict.title}</p>
+          {verdict.detail ? (
+            <p className="text-muted-foreground text-xs">{verdict.detail}</p>
+          ) : null}
+          <p className="text-muted-foreground text-xs">
+            {[timing, decisionNote].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <ThreadLinkButton environmentId={environmentId} threadId={review.threadId} />
+      </div>
+
+      {review.feedback ? (
+        <Section title="Reviewer feedback">
+          <Prose text={review.feedback} />
+        </Section>
+      ) : review.result ? (
+        <Section title="Reviewer output">
+          <Prose text={review.result} />
+        </Section>
+      ) : (
+        <p className="text-muted-foreground text-sm">The reviewer left no feedback.</p>
+      )}
+
+      {task.acceptanceCriteria.length > 0 ? (
+        <Section title="Checked against">
+          <ul className="max-w-[72ch] list-disc space-y-1.5 ps-5 text-sm marker:text-muted-foreground">
+            {task.acceptanceCriteria.map((criterion) => (
+              <li key={criterion} className="leading-relaxed">
+                {criterion}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+    </div>
+  );
+}
+
+function ActivityTab({
+  environmentId,
+  task,
+  onShowReview,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly task: AtlasTask;
+  readonly onShowReview: () => void;
+}) {
   const execution = task.execution;
   const review = task.agentReview;
   const launchError = reviewLaunchError(task);
   const decision = task.humanDecision;
-  const reviewText = review ? (review.feedback ?? review.result) : null;
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-5 py-5">
       <Section
@@ -187,29 +322,55 @@ function ActivityTab({
         }
       >
         {execution ? (
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">Status</dt>
-            <dd className="capitalize">{execution.status}</dd>
-            <dt className="text-muted-foreground">Started</dt>
-            <dd>{formatRelativeTimeLabel(execution.startedAt)}</dd>
-            {execution.finishedAt ? (
-              <>
-                <dt className="text-muted-foreground">Took</dt>
-                <dd>
-                  {formatElapsedDurationLabel(
-                    execution.startedAt,
-                    Date.parse(execution.finishedAt),
-                  )}
-                </dd>
-              </>
+          <>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+              <dt className="text-muted-foreground">Status</dt>
+              <dd className="capitalize">{execution.status}</dd>
+              <dt className="text-muted-foreground">Started</dt>
+              <dd>{formatRelativeTimeLabel(execution.startedAt)}</dd>
+              {execution.finishedAt ? (
+                <>
+                  <dt className="text-muted-foreground">Took</dt>
+                  <dd>
+                    {formatElapsedDurationLabel(
+                      execution.startedAt,
+                      Date.parse(execution.finishedAt),
+                    )}
+                  </dd>
+                </>
+              ) : null}
+              <dt className="text-muted-foreground">Workspace</dt>
+              <dd>
+                {execution.workspaceStrategy?.type === "worktree"
+                  ? "Separate worktree"
+                  : "Project checkout"}
+              </dd>
+              {execution.failure ? (
+                <>
+                  <dt className="text-muted-foreground">Stopped</dt>
+                  <dd className="wrap-anywhere">{execution.failure.message}</dd>
+                </>
+              ) : null}
+            </dl>
+            {execution.continuations.length > 0 ? (
+              <ol className="mt-3 space-y-1.5 border-s ps-4 text-sm" aria-label="Continuations">
+                {execution.continuations.map((continuation) => (
+                  <li key={continuation.at} className="flex flex-wrap items-baseline gap-x-2">
+                    <span>
+                      Continued on{" "}
+                      <span className="font-medium">{continuation.modelSelection.model}</span>
+                    </span>
+                    {continuation.handoff ? (
+                      <Badge variant="info">Context handed over</Badge>
+                    ) : null}
+                    <span className="text-muted-foreground text-xs">
+                      {formatRelativeTimeLabel(continuation.at)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             ) : null}
-            <dt className="text-muted-foreground">Workspace</dt>
-            <dd>
-              {execution.workspaceStrategy?.type === "worktree"
-                ? "Separate worktree"
-                : "Project checkout"}
-            </dd>
-          </dl>
+          </>
         ) : (
           <p className="text-muted-foreground text-sm">Not run yet.</p>
         )}
@@ -235,14 +396,12 @@ function ActivityTab({
             </>
           }
         >
-          {reviewText ? (
-            <div className="rounded-lg border bg-muted/24 px-4 py-3">
-              <Prose text={reviewText} />
-            </div>
+          {review.status === "running" ? (
+            <p className="text-muted-foreground text-sm">The reviewer is still working.</p>
           ) : (
-            <p className="text-muted-foreground text-sm">
-              {review.status === "running" ? "The reviewer is still working." : "No feedback."}
-            </p>
+            <Button size="xs" variant="outline" onClick={onShowReview}>
+              Open review
+            </Button>
           )}
         </Section>
       ) : null}
@@ -295,6 +454,54 @@ function ActivityTab({
   );
 }
 
+/** Why the last run stopped and the one-step way back, above every tab. */
+function RunStoppedBanner({
+  task,
+  permissions,
+  onAction,
+}: {
+  readonly task: AtlasTask;
+  readonly permissions: AtlasTaskPermissions;
+  readonly onAction: (kind: AtlasTaskDialogKind) => void;
+}) {
+  if (!canContinueTask(task)) return null;
+  const failure = runFailure(task);
+  const rateLimited = failure?.kind === "rate_limit";
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 py-3",
+        rateLimited ? "bg-warning/8" : "bg-destructive/6",
+      )}
+    >
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p
+          className={cn(
+            "font-medium text-sm",
+            rateLimited ? "text-warning-foreground" : "text-destructive-foreground",
+          )}
+        >
+          {rateLimited ? "The model hit its rate limit" : "The run stopped before finishing"}
+        </p>
+        <p className="line-clamp-2 text-muted-foreground text-xs wrap-anywhere">
+          {failure?.message ?? "Inspect the thread, or continue where it left off."} Continuing
+          keeps the conversation and the workspace.
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant={rateLimited ? "default" : "outline"}
+        disabled={!permissions.continue}
+        onClick={() => onAction("continue")}
+      >
+        {rateLimited ? <ArrowRightLeftIcon /> : <RotateCwIcon />}
+        {rateLimited ? "Switch model" : "Continue"}
+      </Button>
+    </div>
+  );
+}
+
 function ReviewBar({
   environmentId,
   initiativeId,
@@ -341,12 +548,12 @@ function ReviewBar({
       {canExecuteTask(task) ? (
         <Button
           size="sm"
-          variant={decidable ? "outline" : "default"}
+          variant={decidable || canContinueTask(task) ? "outline" : "default"}
           disabled={!permissions.execute}
           onClick={() => onAction("run")}
         >
           <PlayIcon />
-          {task.execution ? "Re-run" : "Run task"}
+          {task.execution ? "Re-run from scratch" : "Run task"}
         </Button>
       ) : null}
       {canStartAgentReview(task) ? (
@@ -408,25 +615,41 @@ function DrawerBody({
   readonly onAction: (kind: AtlasTaskDialogKind) => void;
   readonly onAdjust: () => void;
 }) {
-  const [tab, setTab] = useState<DrawerTab>(task.execution ? "deliverables" : "overview");
+  const [selectedTab, setTab] = useState<DrawerTab>(task.execution ? "deliverables" : "overview");
   const deliverableCount = deliverableEntries(task.execution).length;
+  const hasReview = finishedReview(task) !== null;
+  // A re-run review hides the tab until it finishes again.
+  const tab = selectedTab === "review" && !hasReview ? "deliverables" : selectedTab;
   const tabs: ReadonlyArray<{ id: DrawerTab; label: string; count: number | null }> = [
     { id: "deliverables", label: "Deliverables", count: deliverableCount || null },
     { id: "overview", label: "Overview", count: null },
+    ...(hasReview ? [{ id: "review" as const, label: "Review", count: null }] : []),
     { id: "activity", label: "Activity", count: null },
   ];
   return (
     <>
       {/* The full-width mobile sheet sits under the app's floating sidebar toggle. */}
-      <header className="shrink-0 space-y-2 border-b px-5 pt-4 pb-3 pe-12 max-sm:ps-12">
+      <header className="shrink-0 space-y-2 border-b bg-atlas-surface px-6 pt-5 pb-4 pe-12 max-sm:ps-12">
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted-foreground tabular-nums">#{task.ordinal + 1}</span>
-          <AtlasTaskStatusPill task={task} />
+          <span
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium",
+              TONE_SOFT[taskTone(task)],
+            )}
+          >
+            <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[taskTone(task)])} />
+            {taskStatusPill(task).label}
+          </span>
           <span className="text-muted-foreground">{task.specialty}</span>
+          <span className="text-muted-foreground tabular-nums">#{task.ordinal + 1}</span>
         </div>
         <SheetTitle>{task.title}</SheetTitle>
-        <p className={cn("text-xs", REASON_TONE[reason.tone])}>{reason.text}</p>
+        {canContinueTask(task) ? null : (
+          <p className={cn("text-sm", REASON_TONE[reason.tone])}>{reason.text}</p>
+        )}
       </header>
+
+      <RunStoppedBanner task={task} permissions={permissions} onAction={onAction} />
 
       <div
         role="tablist"
@@ -448,6 +671,7 @@ function DrawerBody({
             )}
           >
             {label}
+            {id === "review" ? verdictDot(task) : null}
             {count !== null ? (
               <span className="text-muted-foreground text-xs tabular-nums">{count}</span>
             ) : null}
@@ -468,8 +692,14 @@ function DrawerBody({
           <AtlasDeliverables environmentId={environmentId} projectId={projectId} task={task} />
         ) : tab === "overview" ? (
           <OverviewTab task={task} byId={byId} onOpenTask={onOpenTask} />
+        ) : tab === "review" ? (
+          <ReviewTab environmentId={environmentId} task={task} />
         ) : (
-          <ActivityTab environmentId={environmentId} task={task} />
+          <ActivityTab
+            environmentId={environmentId}
+            task={task}
+            onShowReview={() => setTab("review")}
+          />
         )}
       </div>
 
@@ -523,7 +753,7 @@ export function AtlasTaskDrawer({
         if (!open) onClose();
       }}
     >
-      <SheetPopup side="right" className="max-w-6xl max-sm:w-full">
+      <SheetPopup data-atlas side="right" className="max-w-6xl max-sm:w-full">
         {task && reason ? (
           <DrawerBody
             key={task.id}

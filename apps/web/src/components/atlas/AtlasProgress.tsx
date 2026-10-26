@@ -1,7 +1,8 @@
 import type { AtlasTask, AtlasTaskStatus } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
-import { taskStatusLabel } from "./atlasLogic";
+import { taskTone, type AtlasTone } from "./atlasTaskListLogic";
+import { TONE_DOT } from "./atlasTone";
 
 const TASK_STATUS_TONE: Record<AtlasTaskStatus, string> = {
   proposed: "bg-muted-foreground/30",
@@ -11,16 +12,6 @@ const TASK_STATUS_TONE: Record<AtlasTaskStatus, string> = {
   approved: "bg-success",
   failed: "bg-destructive",
 };
-
-// Finished work fills from the left so the strip reads as progress.
-const STRIP_ORDER: ReadonlyArray<AtlasTaskStatus> = [
-  "approved",
-  "needs_review",
-  "changes_requested",
-  "running",
-  "proposed",
-  "failed",
-];
 
 export function AtlasStatusDot({
   status,
@@ -41,53 +32,60 @@ export function AtlasStatusDot({
   );
 }
 
+const STRIP_TONES: ReadonlyArray<{ readonly tone: AtlasTone; readonly label: string }> = [
+  { tone: "done", label: "done" },
+  { tone: "attention", label: "need you" },
+  { tone: "waiting", label: "rate limited" },
+  { tone: "running", label: "running" },
+  { tone: "ready", label: "up next" },
+  { tone: "blocked", label: "blocked" },
+];
+
+/** Finished work fills from the left, so the strip reads as progress. */
 export function AtlasProgressStrip({
   tasks,
   size = "default",
   legend = false,
 }: {
   readonly tasks: ReadonlyArray<AtlasTask>;
-  readonly size?: "default" | "sm";
+  readonly size?: "default" | "sm" | "lg";
   readonly legend?: boolean;
 }) {
-  const ordered = STRIP_ORDER.flatMap((status) => tasks.filter((task) => task.status === status));
-  const present = STRIP_ORDER.flatMap((status) => {
-    const count = tasks.filter((task) => task.status === status).length;
-    return count > 0 ? [{ status, count }] : [];
+  const tones = tasks.map((task) => ({ task, tone: taskTone(task) }));
+  const present = STRIP_TONES.flatMap(({ tone, label }) => {
+    const count = tones.filter((entry) => entry.tone === tone).length;
+    return count > 0 ? [{ tone, label, count }] : [];
   });
   const summary =
     present.length === 0
       ? "No tasks"
-      : present.map(({ status, count }) => `${count} ${taskStatusLabel(status)}`).join(", ");
+      : present.map(({ label, count }) => `${count} ${label}`).join(", ");
 
   return (
-    <div className="min-w-0 space-y-2">
+    <div className="min-w-0 space-y-2.5">
       <div
         role="img"
         aria-label={summary}
-        className={cn("flex w-full gap-px", size === "sm" ? "h-1" : "h-2")}
-      >
-        {ordered.length === 0 ? (
-          <span className="h-full flex-1 rounded-full bg-muted-foreground/15" />
-        ) : (
-          ordered.map((task) => (
-            <span
-              key={task.id}
-              className={cn(
-                "h-full min-w-0 flex-1 first:rounded-l-full last:rounded-r-full",
-                TASK_STATUS_TONE[task.status],
-              )}
-            />
-          ))
+        className={cn(
+          "flex w-full overflow-hidden rounded-full bg-muted/64",
+          size === "sm" ? "h-1.5" : size === "lg" ? "h-3" : "h-2",
         )}
+      >
+        {present.map(({ tone, count }) => (
+          <span
+            key={tone}
+            className={cn("h-full border-atlas-surface border-e-2 last:border-e-0", TONE_DOT[tone])}
+            style={{ flexGrow: count, flexBasis: 0 }}
+          />
+        ))}
       </div>
       {legend && present.length > 0 ? (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
-          {present.map(({ status, count }) => (
-            <li key={status} className="flex items-center gap-1.5">
-              <AtlasStatusDot status={status} />
-              <span className="tabular-nums text-foreground">{count}</span>
-              {taskStatusLabel(status).toLowerCase()}
+          {present.map(({ tone, label, count }) => (
+            <li key={tone} className="flex items-center gap-1.5">
+              <span aria-hidden className={cn("size-2 rounded-full", TONE_DOT[tone])} />
+              <span className="font-medium text-atlas-ink tabular-nums">{count}</span>
+              {label}
             </li>
           ))}
         </ul>

@@ -9,7 +9,7 @@ import {
   type OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import type { PendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
-import { createAtlasAgentDetailsAtom } from "./atlasControlState";
+import { type AtlasAgentRuntime, createAtlasAgentDetailsAtom } from "./atlasControlState";
 
 const parent = ThreadId.make("parent");
 const child = ThreadId.make("child");
@@ -27,6 +27,7 @@ const waiting: PendingThreadRequests = {
   userInputs: [],
 };
 const now = DateTime.makeUnsafe("2026-01-01T00:00:00Z");
+const noRuntime = Atom.make<AtlasAgentRuntime | null>(null);
 function subagent(
   threadId: ThreadId,
 ): Pick<
@@ -50,6 +51,7 @@ describe("Atlas live control threads", () => {
     const parentChildren = Atom.make({ subagents: [subagent(child)] });
     const childChildren = Atom.make({ subagents: [subagent(parent)] });
     const family = createAtlasAgentDetailsAtom({
+      runtimeAtom: () => noRuntime,
       pendingRequestsAtom: (ref) => (ref.threadId === child ? childRequests : noRequests),
       turnSubagentsAtom: (ref) => (ref.threadId === parent ? parentChildren : childChildren),
     });
@@ -74,6 +76,7 @@ describe("Atlas live control threads", () => {
     const children = Atom.make<{ subagents: ReturnType<typeof subagent>[] }>({ subagents: [] });
     const leaf = Atom.make({ subagents: [] });
     const family = createAtlasAgentDetailsAtom({
+      runtimeAtom: () => noRuntime,
       pendingRequestsAtom: () => requests,
       turnSubagentsAtom: (ref) => (ref.threadId === parent ? children : leaf),
     });

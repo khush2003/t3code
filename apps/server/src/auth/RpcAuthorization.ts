@@ -128,6 +128,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.atlasApplyPlanAdjustment]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasImportPlan]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasExecuteTask]: AuthOrchestrationOperateScope,
+  [WS_METHODS.atlasContinueTask]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasApproveTask]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasRequestChanges]: AuthOrchestrationOperateScope,
   [WS_METHODS.atlasStartAgentReview]: AuthOrchestrationOperateScope,

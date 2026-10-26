@@ -128,6 +128,70 @@ it.effect("startup reconciliation resumes pending work and skips settled initiat
   ),
 );
 
+it.effect("only the startup pass re-reads failed work a restart continuation may revive", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const base = initiative("initiative:failed", threadId, false);
+      const failed = decodeInitiative({
+        ...base,
+        planner: { ...base.planner, status: "failed", error: "Cancelled by restart" },
+      });
+      const settled = initiative("initiative:settled", "thread:settled", false);
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () => Effect.succeed({ initiatives: [failed, settled] }),
+          refreshInitiative: ({ initiativeId }) =>
+            Effect.sync(() => calls.push(initiativeId)).pipe(Effect.as(failed)),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.empty }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.reconcile();
+        assert.deepEqual(calls, []);
+        yield* worker.reconcile("startup");
+        assert.deepEqual(calls, [failed.id]);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
+it.effect("reconciles a linked thread when a new run such as a restart continuation starts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const refreshed = yield* Deferred.make<void>();
+      const calls: string[] = [];
+      let lists = 0;
+      const linked = initiative("initiative:linked", threadId, false);
+      const created: OrchestrationV2DomainEvent = {
+        ...completedEvent,
+        type: "run.created",
+        payload: { ...completedEvent.payload, ordinal: 2, status: "running", completedAt: null },
+      } as OrchestrationV2DomainEvent;
+      const dependencies = Layer.mergeAll(
+        Layer.mock(AtlasService.AtlasService)({
+          listInitiatives: () =>
+            Effect.sync(() => ({ initiatives: ++lists === 1 ? [] : [linked] })),
+          refreshInitiative: ({ initiativeId }) =>
+            Effect.sync(() => calls.push(initiativeId)).pipe(
+              Effect.andThen(Deferred.succeed(refreshed, undefined)),
+              Effect.as(linked),
+            ),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.make(created) }),
+      );
+      yield* Effect.gen(function* () {
+        const worker = yield* AtlasReconciler.AtlasReconciler;
+        yield* worker.start();
+        yield* Deferred.await(refreshed);
+        yield* worker.drain;
+        assert.deepEqual(calls, [linked.id]);
+      }).pipe(Effect.provide(AtlasReconciler.layer.pipe(Layer.provide(dependencies))));
+    }),
+  ),
+);
+
 it.effect("periodic recovery reconciles a missed completion after the event stream fails", () =>
   Effect.scoped(
     Effect.gen(function* () {

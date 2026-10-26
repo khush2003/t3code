@@ -13,6 +13,7 @@ import {
   artifactViewer,
   defaultDeliverableKey,
   deliverableEntries,
+  htmlArtifactOutsideDependencies,
   isHttpUrl,
   latestCheckpointTurnCount,
   summarizeArtifacts,
@@ -57,6 +58,8 @@ function execution(
     finishedAt: status === "running" ? null : "2026-01-01T00:10:00.000Z",
     result: null,
     artifacts,
+    failure: null,
+    continuations: [],
   };
 }
 
@@ -213,5 +216,51 @@ describe("artifactRelativePath", () => {
     expect(artifactRelativePath("./docs/plan.md", "/repo")).toBe("docs/plan.md");
     expect(artifactRelativePath("/repo/docs/plan.md", "/repo")).toBe("docs/plan.md");
     expect(artifactRelativePath("/elsewhere/plan.md", "/repo")).toBe("/elsewhere/plan.md");
+  });
+});
+
+describe("rate-limited runs", () => {
+  const limited = (): AtlasTask =>
+    task({
+      status: "failed",
+      execution: {
+        ...execution("failed"),
+        failure: { kind: "rate_limit", message: "Rate limit exceeded.", resetAt: null },
+      },
+    });
+
+  it("reads as a recoverable warning that continues on another model", () => {
+    expect(taskStatusPill(limited())).toEqual({ label: "Rate limited", tone: "warning" });
+    expect(taskPrimaryAction(limited())).toBe("continue");
+  });
+
+  it("offers a plain re-run once a person has decided on the task", () => {
+    const decided = task({
+      ...limited(),
+      status: "changes_requested",
+      humanDecision: { outcome: "changes_requested", feedback: "Redo", decidedAt: null },
+    });
+    expect(taskPrimaryAction(decided)).toBe("rerun");
+  });
+});
+
+describe("htmlArtifactOutsideDependencies", () => {
+  it("flags project source and package imports a static page cannot load", () => {
+    const html = `<script type="module">
+import {createEngine} from '../../src/engine/engine.js';
+import * as THREE from 'three';
+import './local.js';
+</script><link rel="stylesheet" href="/src/style.css"><script src="vendor.js"></script>`;
+    expect(htmlArtifactOutsideDependencies(html)).toEqual([
+      "../../src/engine/engine.js",
+      "three",
+      "/src/style.css",
+    ]);
+  });
+
+  it("accepts self-contained pages, CDN modules, and same-folder files", () => {
+    const html = `<script type="module">import x from "https://cdn.jsdelivr.net/npm/three/+esm"; import "./parts/a.js";</script>
+<script src="./bundle.js"></script><style>body{}</style>`;
+    expect(htmlArtifactOutsideDependencies(html)).toEqual([]);
   });
 });
