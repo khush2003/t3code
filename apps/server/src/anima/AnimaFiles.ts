@@ -246,6 +246,20 @@ export function breathFileName(index: number): string {
   return `${String(index).padStart(3, "0")}.breath`;
 }
 
+/**
+ * The CLI joins `--decisions` with commas, which only round-trips for slug lists. Prose decisions
+ * keep their commas, so they split on the `|` or `;` agents use between them instead.
+ */
+function splitDecisions(text: string): ReadonlyArray<string> {
+  const slugs = text.split(",").map((entry) => entry.trim());
+  if (!slugs.some((entry) => /\s/.test(entry))) return slugs.filter(Boolean);
+  // The comma join also dropped the space after each comma inside prose.
+  return text
+    .split(/[|;]/)
+    .map((entry) => entry.replace(/,(?=\S)/g, ", ").trim())
+    .filter(Boolean);
+}
+
 export function parseBreathFile(content: string, fileName: string): ParsedBreathFile | null {
   const fromName = /^(\d+)\.breath$/.exec(fileName);
   const lines = content.split("\n");
@@ -290,10 +304,7 @@ export function parseBreathFile(content: string, fileName: string): ParsedBreath
     decisions:
       narrative === undefined
         ? field("decisions").split(/\s+/).filter(Boolean)
-        : (part(0) ?? "")
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean),
+        : splitDecisions(part(0) ?? ""),
     friction: part(1) ?? nonEmpty(field("friction")),
     narrativeAim: part(2) ?? null,
     self,
