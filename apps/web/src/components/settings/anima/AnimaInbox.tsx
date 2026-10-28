@@ -100,9 +100,13 @@ function MessageBubble({
         {message.body}
       </p>
       {long ? (
-        <Button size="micro" variant="link" onClick={() => setExpanded((value) => !value)}>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? "Show less" : "Show more"}
-        </Button>
+        </button>
       ) : null}
     </div>
   );
@@ -141,7 +145,7 @@ function InboxThread({
     }
   };
   return (
-    <li className="space-y-1.5 px-3 py-3 sm:px-4">
+    <li className="space-y-1.5">
       {thread.answers ? (
         <p className="text-2xs text-muted-foreground">
           In reply to <span className="font-mono">{thread.answers}</span>
@@ -246,7 +250,7 @@ function Composer({
         }}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <div className="w-32">
+        <div className="w-40">
           <Select value={type} onValueChange={(value) => setType(value as AnimaMessageType)}>
             <SelectTrigger size="sm" aria-label="Message type">
               <SelectValue>{type}</SelectValue>
@@ -260,7 +264,7 @@ function Composer({
             </SelectPopup>
           </Select>
         </div>
-        <div className="w-36">
+        <div className="w-40">
           <Select value={from} onValueChange={(value) => setFrom(String(value))}>
             <SelectTrigger size="sm" aria-label="Send as">
               <SelectValue>{from === SELF ? "From you" : `From ${from}`}</SelectValue>
@@ -348,7 +352,7 @@ export function InboxTab({
           </EmptyHeader>
         </Empty>
       ) : (
-        <ul className="divide-y divide-border/50">
+        <ul className="space-y-3 px-3 py-3 sm:px-4">
           {threads.map((thread) => (
             <InboxThread
               key={thread.key}
