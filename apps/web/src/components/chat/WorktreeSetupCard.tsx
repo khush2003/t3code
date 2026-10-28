@@ -3,6 +3,7 @@ import {
   type WorktreeSetupSnapshot,
   type WorktreeSetupStage,
 } from "@t3tools/contracts";
+import { worktreeSetupIsAnimaOnly } from "@t3tools/client-runtime/worktree-setup";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
   CheckIcon,
@@ -110,6 +111,20 @@ function ShimmerOverlay({ children }: { children: ReactNode }) {
 }
 
 function headerLabel(snapshot: WorktreeSetupSnapshot): string {
+  if (worktreeSetupIsAnimaOnly(snapshot)) {
+    switch (snapshot.phase) {
+      case "running":
+        return "Waking anima…";
+      case "done":
+        return snapshot.stages.some((stage) => stage.status === "warning")
+          ? "Anima wake failed, continuing without it"
+          : "Anima awake";
+      case "failed":
+        return "Anima wake failed";
+      case "cancelled":
+        return "Anima wake cancelled";
+    }
+  }
   switch (snapshot.phase) {
     case "running":
       return "Setting up worktree…";

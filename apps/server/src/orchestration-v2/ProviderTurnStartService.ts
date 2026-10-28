@@ -56,6 +56,7 @@ import {
 } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -119,6 +120,8 @@ export interface ProviderTurnStartServiceV2Shape {
     readonly threadId: ThreadId;
     readonly runId: RunId;
     readonly willRetry?: boolean;
+    /** Persists the anima lock once the wake has been delivered in an accepted turn. */
+    readonly recordAnimaWake?: Effect.Effect<void>;
   }) => Effect.Effect<void, ProviderTurnStartError>;
 }
 
@@ -144,6 +147,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | ThreadAnimaWake.ThreadAnimaWake
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -159,6 +163,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const animaWake = yield* ThreadAnimaWake.ThreadAnimaWake;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
@@ -338,6 +343,7 @@ export const layer: Layer.Layer<
       readonly threadId: ThreadId;
       readonly runId: RunId;
       readonly willRetry?: boolean;
+      readonly recordAnimaWake?: Effect.Effect<void>;
     }) {
       const { runId } = input;
       const projection = yield* projectionStore.getTurnStartContext(input.threadId, runId);
@@ -852,6 +858,25 @@ export const layer: Layer.Layer<
         restartCancelledWork.length === 0
           ? ""
           : restartCancelledBackgroundWorkNote(restartCancelledWork);
+      // An anima is woken on the first turn after it is chosen, whatever the thread's history;
+      // `animaWokenAt` then locks it. A failed wake stays unlocked and retries next turn.
+      const animaName = projection.thread.animaName ?? null;
+      const animaLocked = projection.thread.animaWokenAt != null;
+      const wake =
+        animaName !== null && !animaLocked && resolvedRuntimePolicy.cwd !== null
+          ? yield* animaWake.take({
+              threadId: projection.thread.id,
+              name: animaName,
+              cwd: resolvedRuntimePolicy.cwd,
+            })
+          : null;
+      // Locked threads restate the persona every ~15 minutes.
+      const wakeContext =
+        wake?.status === "woke"
+          ? wake.context
+          : animaName !== null && animaLocked
+            ? yield* animaWake.refresh({ threadId: projection.thread.id, name: animaName })
+            : "";
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -997,7 +1022,7 @@ export const layer: Layer.Layer<
             return handoffBudget({
               tokenCap,
               modelContextWindow,
-              userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+              userText: [wakeContext, restartNote, userText].filter((part) => part !== "").join("\n\n"),
               attachments: message.attachments,
               providerThread: budgetProviderThread,
               nativeContextEstimate:
@@ -1560,7 +1585,12 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
+          const context = [
+            compact ? "" : wakeContext,
+            delivery.context,
+            sideChatContext,
+            restartNote,
+          ]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1584,6 +1614,8 @@ export const layer: Layer.Layer<
                 : Effect.void,
             ),
           );
+          if (!compact && wake?.status === "woke" && input.recordAnimaWake !== undefined)
+            yield* input.recordAnimaWake;
           // After provider acceptance, failed delivery bookkeeping must not stop live ingestion.
           const nativeThreadId = runningProviderThread.nativeThreadRef?.nativeId;
           yield* Effect.forEach(
@@ -1628,6 +1660,7 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
+        wakeContext === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

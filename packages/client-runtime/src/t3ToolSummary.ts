@@ -349,6 +349,18 @@ export function summarizeT3ToolCalls(
         quantity(countEntities(entityIds("environmentId")), "linked environment"),
       );
       break;
+    case "anima-list":
+      label = phrase("Listed", "list", `animas ${times}`);
+      break;
+    case "anima-read":
+      label = phrase("Read", "read", `${quantity(countEntities(entityIds("name")), "anima")}`);
+      break;
+    case "anima-policy":
+      label = phrase("Updated", "update", `anima policy ${times}`);
+      break;
+    case "anima-attach":
+      label = phrase("Attached", "attach", `an anima to a project ${times}`);
+      break;
     case "attachment-prepare":
       label = phrase(
         "Prepared",

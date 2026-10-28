@@ -55,6 +55,10 @@ export type T3McpToolSummaryAction =
   | "environment-link"
   | "environment-unlink"
   | "environment-update"
+  | "anima-list"
+  | "anima-read"
+  | "anima-policy"
+  | "anima-attach"
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
@@ -339,6 +343,13 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_environment_preferences_update: tool(
     ["Update", "Updating", "Updated", "environment preferences"],
     "environment-update",
+  ),
+  t3_anima_list: tool(["List", "Listing", "Listed", "animas"], "anima-list"),
+  t3_anima_read: tool(["Read", "Reading", "Read", "an anima"], "anima-read"),
+  t3_anima_policy: tool(["Update", "Updating", "Updated", "an anima policy"], "anima-policy"),
+  t3_anima_attach: tool(
+    ["Attach", "Attaching", "Attached", "an anima to a project"],
+    "anima-attach",
   ),
   t3_thread_launch: tool(["Launch", "Launching", "Launched", "a project thread"], "thread-create"),
   t3_project_list: tool(["List", "Listing", "Listed", "projects"], "project-list"),

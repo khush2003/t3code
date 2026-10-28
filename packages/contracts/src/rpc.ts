@@ -99,6 +99,34 @@ import {
   AgentSessionScanError,
 } from "./agentSessions.ts";
 import {
+  AnimaAttachInput,
+  AnimaBreatheInput,
+  AnimaBreatheResult,
+  AnimaBundle,
+  AnimaCommandRejectedError,
+  AnimaCompareInput,
+  AnimaCompareResult,
+  AnimaCreateInput,
+  AnimaDetail,
+  AnimaError,
+  AnimaExportInput,
+  AnimaGetInput,
+  AnimaImportInput,
+  AnimaListInput,
+  AnimaListResult,
+  AnimaMergeApplyInput,
+  AnimaMergeStartInput,
+  AnimaMergeStartResult,
+  AnimaMergeStatusInput,
+  AnimaMergeStatusResult,
+  AnimaMutationResult,
+  AnimaNotFoundError,
+  AnimaPolicyInput,
+  AnimaSetEnabledInput,
+  AnimaWakePreviewInput,
+  AnimaWakePreviewResult,
+} from "./anima.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -422,6 +450,20 @@ export const WS_METHODS = {
   filesystemGetMetadata: "filesystem.getMetadata",
   agentSessionsScan: "agentSessions.scan",
   agentSessionsImport: "agentSessions.import",
+  animaList: "anima.list",
+  animaGet: "anima.get",
+  animaCreate: "anima.create",
+  animaAttach: "anima.attach",
+  animaSetEnabled: "anima.setEnabled",
+  animaPolicy: "anima.policy",
+  animaBreathe: "anima.breathe",
+  animaWakePreview: "anima.wakePreview",
+  animaExport: "anima.export",
+  animaCompare: "anima.compare",
+  animaImport: "anima.import",
+  animaMergeStart: "anima.mergeStart",
+  animaMergeStatus: "anima.mergeStatus",
+  animaMergeApply: "anima.mergeApply",
   assetsCreateUrl: "assets.createUrl",
   assetsPersistChatAttachments: "assets.persistChatAttachments",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
@@ -1381,6 +1423,160 @@ const WsAgentSessionsImportRpc = Rpc.make(WS_METHODS.agentSessionsImport, {
   ]),
 });
 
+const WsAnimaListRpc = Rpc.make(WS_METHODS.animaList, {
+  payload: AnimaListInput,
+  success: AnimaListResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaGetRpc = Rpc.make(WS_METHODS.animaGet, {
+  payload: AnimaGetInput,
+  success: AnimaDetail,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaCreateRpc = Rpc.make(WS_METHODS.animaCreate, {
+  payload: AnimaCreateInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaAttachRpc = Rpc.make(WS_METHODS.animaAttach, {
+  payload: AnimaAttachInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaSetEnabledRpc = Rpc.make(WS_METHODS.animaSetEnabled, {
+  payload: AnimaSetEnabledInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaPolicyRpc = Rpc.make(WS_METHODS.animaPolicy, {
+  payload: AnimaPolicyInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaBreatheRpc = Rpc.make(WS_METHODS.animaBreathe, {
+  payload: AnimaBreatheInput,
+  success: AnimaBreatheResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
+  payload: AnimaWakePreviewInput,
+  success: AnimaWakePreviewResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaExportRpc = Rpc.make(WS_METHODS.animaExport, {
+  payload: AnimaExportInput,
+  success: AnimaBundle,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaCompareRpc = Rpc.make(WS_METHODS.animaCompare, {
+  payload: AnimaCompareInput,
+  success: AnimaCompareResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaImportRpc = Rpc.make(WS_METHODS.animaImport, {
+  payload: AnimaImportInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaMergeStartRpc = Rpc.make(WS_METHODS.animaMergeStart, {
+  payload: AnimaMergeStartInput,
+  success: AnimaMergeStartResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaMergeStatusRpc = Rpc.make(WS_METHODS.animaMergeStatus, {
+  payload: AnimaMergeStatusInput,
+  success: AnimaMergeStatusResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaMergeApplyRpc = Rpc.make(WS_METHODS.animaMergeApply, {
+  payload: AnimaMergeApplyInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
   success: AssetCreateUrlResult,
@@ -2099,6 +2295,20 @@ export const WsRpcGroup = RpcGroup.make(
   WsFilesystemGetMetadataRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
+  WsAnimaListRpc,
+  WsAnimaGetRpc,
+  WsAnimaCreateRpc,
+  WsAnimaAttachRpc,
+  WsAnimaSetEnabledRpc,
+  WsAnimaPolicyRpc,
+  WsAnimaBreatheRpc,
+  WsAnimaWakePreviewRpc,
+  WsAnimaExportRpc,
+  WsAnimaCompareRpc,
+  WsAnimaImportRpc,
+  WsAnimaMergeStartRpc,
+  WsAnimaMergeStatusRpc,
+  WsAnimaMergeApplyRpc,
   WsAssetsCreateUrlRpc,
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,

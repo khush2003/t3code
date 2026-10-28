@@ -3,6 +3,7 @@ import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
+  type AnimaName,
   CommandId,
   type ChatAttachment,
   type MessageId,
@@ -52,6 +53,7 @@ import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
+import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
@@ -87,6 +89,7 @@ export interface ThreadLaunchInput {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly animaName?: AnimaName | null | undefined;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
   readonly initialMessage?: ThreadLaunchInitialMessage;
   readonly importedNativeThread?: {
@@ -107,7 +110,7 @@ export interface ThreadLaunchInput {
 
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage" | "animaName"
 > & {
   readonly reusedWorktree?: { readonly baseRef: string };
 };
@@ -214,6 +217,7 @@ const make = Effect.gen(function* () {
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const ids = yield* IdAllocator.IdAllocatorV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const animaWake = yield* ThreadAnimaWake.ThreadAnimaWake;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const preparationScope = yield* Scope.make("sequential");
   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
@@ -315,12 +319,14 @@ const make = Effect.gen(function* () {
     let runReleased = false;
     // Stop background renames before forgetting worktrees; completed renames record them again.
     let branchRename: Fiber.Fiber<unknown> | null = null;
+    const animaName = input.animaName ?? null;
+    const animaStages = animaName === null ? [] : (["anima"] as const);
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
         branch: input.workspaceStrategy.branch ?? null,
         baseRef: input.workspaceStrategy.baseRef,
-        stages: ["fetch", "checkout", "setup-script", "agent"],
+        stages: ["fetch", "checkout", "setup-script", ...animaStages, "agent"],
         fiber: yield* Effect.fiber,
       });
     } else if (reused !== undefined) {
@@ -328,7 +334,15 @@ const make = Effect.gen(function* () {
         threadId,
         branch: input.workspaceStrategy.branch ?? null,
         baseRef: reused.baseRef,
-        stages: ["setup-script", "agent"],
+        stages: ["setup-script", ...animaStages, "agent"],
+        fiber: yield* Effect.fiber,
+      });
+    } else if (animaName !== null) {
+      yield* setupTracker.begin({
+        threadId,
+        branch: input.workspaceStrategy.branch ?? null,
+        baseRef: null,
+        stages: ["anima", "agent"],
         fiber: yield* Effect.fiber,
       });
     }
@@ -634,6 +648,22 @@ const make = Effect.gen(function* () {
       } else {
         yield* setupTracker.stageStatus(threadId, "setup-script", "skipped");
       }
+      if (animaName !== null) {
+        yield* setupTracker.stageStatus(threadId, "anima", "running");
+        const outcome = yield* animaWake.prepare({
+          threadId,
+          name: animaName,
+          cwd: worktreePath ?? project.workspaceRoot,
+        });
+        yield* outcome.status === "woke"
+          ? setupTracker.stageStatus(threadId, "anima", "done", outcome.detail)
+          : setupTracker.stageStatus(
+              threadId,
+              "anima",
+              "warning",
+              "Wake failed; starting without it",
+            );
+      }
       yield* setupTracker.markUncancellable(threadId);
       yield* setupTracker.stageStatus(threadId, "agent", "running");
       if (runId !== null) {
@@ -901,6 +931,7 @@ const make = Effect.gen(function* () {
                 commandId: input.commandId,
                 threadId: candidateThreadId,
                 expectedEmpty: true,
+                ...(input.animaName === undefined ? {} : { animaName: input.animaName }),
               })
             : threads.dispatch({
                 type: "thread.create",
@@ -913,6 +944,7 @@ const make = Effect.gen(function* () {
                 interactionMode: input.interactionMode,
                 branch: initialBranch,
                 worktreePath: initialWorktreePath,
+                ...(input.animaName == null ? {} : { animaName: input.animaName }),
                 ...(input.importedNativeThread === undefined
                   ? {}
                   : { importedNativeThread: input.importedNativeThread }),
@@ -1119,6 +1151,7 @@ const make = Effect.gen(function* () {
       {
         commandId: input.commandId,
         projectId: thread.projectId,
+        ...(thread.animaName == null ? {} : { animaName: thread.animaName }),
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined

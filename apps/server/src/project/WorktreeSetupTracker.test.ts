@@ -11,6 +11,21 @@ import * as WorktreeSetupTracker from "./WorktreeSetupTracker.ts";
 const threadId = ThreadId.make("thread-1");
 
 describe("WorktreeSetupTracker", () => {
+  it.effect("orders the anima stage after the setup script and before the agent", () =>
+    Effect.gen(function* () {
+      const tracker = yield* WorktreeSetupTracker.make;
+      yield* tracker.begin({
+        threadId,
+        branch: null,
+        baseRef: null,
+        stages: ["agent", "anima", "setup-script"],
+        fiber: null,
+      });
+      const snapshot = yield* tracker.get(threadId);
+      expect(snapshot?.stages.map((stage) => stage.id)).toEqual(["setup-script", "anima", "agent"]);
+    }),
+  );
+
   it.effect("records stage transitions, checkout progress, and the final phase", () =>
     Effect.gen(function* () {
       const tracker = yield* WorktreeSetupTracker.make;

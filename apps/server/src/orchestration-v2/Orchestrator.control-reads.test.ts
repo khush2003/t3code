@@ -994,6 +994,57 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("locks a thread's anima after its first wake", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:anima-lock");
+    const update = (id: string, fields: { animaName?: string | null; animaWoken?: true }) =>
+      orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(id),
+        threadId,
+        ...fields,
+      } as never);
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-anima-lock"),
+      threadId,
+      projectId: ProjectId.make("project:anima-lock"),
+      title: "Anima lock",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const read = () => projections.getThreadProjection(threadId).pipe(Effect.map((p) => p.thread));
+
+    // Marker without an anima is ignored.
+    yield* update("lock-noop", { animaWoken: true });
+    assert.isNull((yield* read()).animaWokenAt ?? null);
+
+    yield* update("set-ada", { animaName: "ada" });
+    yield* update("set-grace", { animaName: "grace" });
+    assert.equal((yield* read()).animaName, "grace");
+    yield* update("clear-anima", { animaName: null });
+    yield* update("set-ada-again", { animaName: "ada" });
+
+    yield* update("lock-ada", { animaWoken: true });
+    const locked = yield* read();
+    assert.equal(locked.animaName, "ada");
+    assert.isNotNull(locked.animaWokenAt ?? null);
+
+    yield* update("same-name", { animaName: "ada" });
+    const error = yield* Effect.flip(update("switch-locked", { animaName: "grace" }));
+    assert.include(String(error.message), "locked to ada after its first wake");
+    yield* Effect.flip(update("clear-locked", { animaName: null }));
+    assert.equal((yield* read()).animaName, "ada");
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("wakes the parent once when its delegated task asks a question", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

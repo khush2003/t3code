@@ -58,6 +58,7 @@ import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
@@ -173,8 +174,12 @@ function makeHarness(options: HarnessOptions = {}) {
   const generateThreadTitle = vi.fn(
     options.generateTitle ?? (() => Effect.succeed({ title: "Generated title" })),
   );
+  const prepareAnimaWake = vi.fn<ThreadAnimaWake.ThreadAnimaWake["Service"]["prepare"]>(() =>
+    Effect.succeed({ status: "woke", context: "wake", detail: "12 lines of identity context" }),
+  );
   const layerExternalServices = Layer.mergeAll(
     WorktreeSetupTracker.layer,
+    Layer.mock(ThreadAnimaWake.ThreadAnimaWake)({ prepare: prepareAnimaWake }),
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
     Layer.succeed(ProjectService.ProjectService, {
@@ -280,7 +285,23 @@ function makeHarness(options: HarnessOptions = {}) {
     generateThreadTitle,
     runSetup,
     closeTerminal,
+    prepareAnimaWake,
   };
+}
+
+function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.Effect<void, E, R> {
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (yield* predicate()) return;
+      yield* Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            setImmediate(resolve);
+          }),
+      );
+    }
+    assert.fail("Condition was not reached before timeout.");
+  });
 }
 
 function launchInput(input: {
@@ -288,8 +309,10 @@ function launchInput(input: {
   readonly thread: string;
   readonly message?: string;
   readonly workspace?: ThreadLaunch.ThreadLaunchWorkspaceStrategy;
+  readonly animaName?: string;
 }) {
   return {
+    ...(input.animaName === undefined ? {} : { animaName: input.animaName }),
     commandId: CommandId.make(input.command),
     threadId: ThreadId.make(input.thread),
     projectId,
@@ -556,6 +579,193 @@ it.effect("provisions independent launches concurrently instead of behind a glob
       yield* Deferred.succeed(allowSetup, undefined);
     }).pipe(Effect.provide(harness.layer));
   }),
+);
+
+it.effect("wakes the anima on a root launch and shows it in the setup card", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({});
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:anima",
+          thread: "thread:launch:anima",
+          message: "Hello",
+          animaName: "iris",
+        }),
+      );
+      yield* waitUntil(() =>
+        outbox
+          .listByCommandId(CommandId.make("command:launch:anima:release"))
+          .pipe(Effect.map((effects) => effects.length === 1)),
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.thread.animaName, "iris");
+      assert.equal(harness.prepareAnimaWake.mock.calls[0]?.[0].name, "iris");
+      const snapshot = yield* tracker.get(launched.threadId);
+      assert.deepEqual(
+        snapshot?.stages.map((stage) => [stage.id, stage.status]),
+        [
+          ["anima", "done"],
+          ["agent", "done"],
+        ],
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("continues a launch whose anima wake failed and marks the stage as a warning", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({});
+    harness.prepareAnimaWake.mockImplementation(() => Effect.succeed({ status: "failed" }));
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:anima-failed",
+          thread: "thread:launch:anima-failed",
+          message: "Hello",
+          animaName: "iris",
+        }),
+      );
+      yield* waitUntil(() =>
+        outbox
+          .listByCommandId(CommandId.make("command:launch:anima-failed:release"))
+          .pipe(Effect.map((effects) => effects.length === 1)),
+      );
+      const snapshot = yield* tracker.get(launched.threadId);
+      assert.equal(snapshot?.phase, "done");
+      assert.equal(snapshot?.stages[0]?.status, "warning");
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("enqueues provider work only after setup has been initiated", () =>
+  Effect.gen(function* () {
+    const setupEntered = yield* Deferred.make<void>();
+    const allowSetup = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      runSetup: () =>
+        Deferred.succeed(setupEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(allowSetup)),
+          Effect.as({
+            status: "started" as const,
+            async: false,
+            scriptId: "setup",
+            scriptName: "Setup",
+            scriptCommand: "vp install",
+            terminalId: "setup",
+            cwd: "/repo",
+          }),
+        ),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: "command:launch:release",
+        thread: "thread:launch:release",
+        message: "Start after setup",
+        workspace: { type: "worktree", baseRef: "main" },
+      });
+      const launched = yield* launches.launch(input);
+      yield* Deferred.await(setupEntered);
+      assert.isEmpty(
+        yield* outbox.listByCommandId(CommandId.make("command:launch:release:release")),
+      );
+      yield* Deferred.succeed(allowSetup, undefined);
+      yield* waitUntil(() =>
+        outbox
+          .listByCommandId(CommandId.make("command:launch:release:release"))
+          .pipe(Effect.map((effects) => effects.length === 1)),
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.runs[0]?.status, "starting");
+      assert.equal(projection.checkpointScopes[0]?.cwd, "/repo-worktrees/feature");
+      assert.equal(
+        projection.turnItems.find((item) => item.type === "command_execution")?.status,
+        "completed",
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect(
+  "queues follow-up messages behind preparation and checkpoints them in the final workspace",
+  () =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const failSetup = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(
+            Effect.andThen(Deferred.await(failSetup)),
+            Effect.andThen(Effect.fail(new Error("setup failed") as never)),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const launched = yield* launches.launch(
+          launchInput({
+            command: "command:launch:queued-during-preparation",
+            thread: "thread:launch:queued-during-preparation",
+            message: "Prepare the workspace",
+            workspace: { type: "worktree", baseRef: "main" },
+          }),
+        );
+        yield* Deferred.await(setupEntered);
+
+        const followUp = yield* threads.sendToThread({
+          projectId,
+          commandId: CommandId.make("command:launch:queued-follow-up"),
+          threadId: launched.threadId,
+          messageId: MessageId.make("message:launch:queued-follow-up"),
+          text: "Run after preparation",
+          attachments: [],
+          mode: "auto",
+          createdBy: "user",
+          creationSource: "web",
+        });
+        assert.equal(followUp.delivery, "queued");
+        assert.equal(followUp.run.status, "queued");
+        assert.equal(
+          (yield* threads.getThreadRecords(launched.threadId, ["nodes"])).nodes.find(
+            (node) => node.runId === followUp.run.id && node.kind === "root_turn",
+          )?.checkpointScopeId,
+          null,
+        );
+
+        yield* Deferred.succeed(failSetup, undefined);
+        yield* waitUntil(() =>
+          threads
+            .getThreadProjection(launched.threadId)
+            .pipe(
+              Effect.map(
+                (projection) =>
+                  projection.runs.find((run) => run.id === followUp.run.id)?.status === "starting",
+              ),
+            ),
+        );
+
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        const rootNode = projection.nodes.find(
+          (node) => node.runId === followUp.run.id && node.kind === "root_turn",
+        );
+        assert.isNotNull(rootNode?.checkpointScopeId);
+        assert.equal(
+          projection.checkpointScopes.find((scope) => scope.id === rootNode?.checkpointScopeId)
+            ?.cwd,
+          "/repo-worktrees/feature",
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
 );
 
 it.effect.each([" /COMPACT "])(

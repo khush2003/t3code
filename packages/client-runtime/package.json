@@ -71,6 +71,10 @@
       "types": "./src/linkRequest.ts",
       "default": "./src/linkRequest.ts"
     },
+    "./anima-sync": {
+      "types": "./src/animaSync.ts",
+      "default": "./src/animaSync.ts"
+    },
     "./scheduled-task-webhook": {
       "types": "./src/scheduledTaskWebhook.ts",
       "default": "./src/scheduledTaskWebhook.ts"
@@ -142,6 +146,10 @@
     "./relay": {
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
+    },
+    "./state/anima": {
+      "types": "./src/state/anima.ts",
+      "default": "./src/state/anima.ts"
     },
     "./state/auth": {
       "types": "./src/state/auth.ts",

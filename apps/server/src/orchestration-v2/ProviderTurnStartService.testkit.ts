@@ -18,14 +18,20 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 
-export const layer = Layer.merge(
+export const layer = Layer.mergeAll(
   Layer.mock(GitWorkflow.GitWorkflowService)({
     pruneWorktrees: () => Effect.void,
     createWorktree: () => Effect.succeed({} as never),
   }),
   Layer.mock(ProjectService.ProjectService)({
     getById: () => Effect.succeedNone,
+  }),
+  Layer.mock(ThreadAnimaWake.ThreadAnimaWake)({
+    prepare: () => Effect.succeed({ status: "failed" }),
+    take: () => Effect.succeed({ status: "failed" }),
+    refresh: () => Effect.succeed(""),
   }),
 );
 

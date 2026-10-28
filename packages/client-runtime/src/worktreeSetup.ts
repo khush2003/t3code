@@ -21,3 +21,11 @@ export function resolveVisibleWorktreeSetup(input: {
 export function worktreeSetupAgentStarted(snapshot: WorktreeSetupSnapshot): boolean {
   return snapshot.stages.some((stage) => stage.id === "agent" && stage.status === "done");
 }
+
+/** A root-strategy anima thread only wakes its anima; labels must not claim a worktree was set up. */
+export function worktreeSetupIsAnimaOnly(snapshot: WorktreeSetupSnapshot): boolean {
+  return (
+    snapshot.stages.some((stage) => stage.id === "anima") &&
+    !snapshot.stages.some((stage) => stage.id !== "anima" && stage.id !== "agent")
+  );
+}

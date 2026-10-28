@@ -1,4 +1,4 @@
-import { CommandId } from "@t3tools/contracts";
+import { CommandId, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -94,6 +94,24 @@ export const layerExecutor: Layer.Layer<
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const settings = yield* ServerSettings.ServerSettingsService;
+    // One deterministic id per thread: the lock is permanent, so a replayed receipt is a success.
+    const recordAnimaWake = (threadId: ThreadId) =>
+      threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`command:anima-wake:${threadId}`),
+          threadId,
+          animaWoken: true,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to record anima wake; it may be injected once more", {
+              threadId,
+              cause,
+            }),
+          ),
+        );
     return OrchestrationEffectExecutorV2.of({
       execute: Effect.fn("OrchestrationEffectExecutorV2.execute")(function (effect, options) {
         const willRetry = options?.willRetry ?? false;
@@ -140,7 +158,12 @@ export const layerExecutor: Layer.Layer<
               );
           case "provider-turn.start":
             return providerTurnStart
-              .start({ threadId: effect.threadId, runId: effect.request.runId, willRetry })
+              .start({
+                threadId: effect.threadId,
+                runId: effect.request.runId,
+                willRetry,
+                recordAnimaWake: recordAnimaWake(effect.threadId),
+              })
               .pipe(
                 Effect.mapError(
                   (cause) =>
@@ -374,6 +397,7 @@ export const layerExecutor: Layer.Layer<
                     threadId: effect.threadId,
                     runId: effect.request.runId,
                     willRetry,
+                    recordAnimaWake: recordAnimaWake(effect.threadId),
                   }),
                 ),
                 Effect.mapError(
