@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { IdCardIcon, WindIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "../../../lib/utils";
@@ -71,6 +71,7 @@ export function OverviewTab({
   return (
     <div className="space-y-5 px-3 py-3 sm:px-4">
       <AnimaHero summary={summary} breaths={detail.breaths} onSelectBreath={onSelectBreath} />
+      <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs text-muted-foreground">
           {summary.live ? "A session is running with this anima." : "No active session."} Born{" "}
@@ -257,6 +258,137 @@ function scrollIntoCenter(element: HTMLElement | null) {
   element?.scrollIntoView({ block: "center" });
 }
 
+function NarrativeLine({
+  label,
+  tone = "default",
+  children,
+}: {
+  readonly label: string;
+  readonly tone?: "default" | "warning" | "info";
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-xs">
+      <span
+        className={cn(
+          "pt-px text-2xs font-medium uppercase tracking-wide",
+          tone === "warning"
+            ? "text-warning-foreground"
+            : tone === "info"
+              ? "text-info-foreground"
+              : "text-muted-foreground",
+        )}
+      >
+        {label}
+      </span>
+      <div className="min-w-0 text-foreground/90">{children}</div>
+    </div>
+  );
+}
+
+/** What a breath recorded: decisions, friction, aim and the rest of its detail file. */
+function BreathNarrative({ breath }: { readonly breath: AnimaDetail["breaths"][number] }) {
+  return (
+    <div className="space-y-1.5">
+      {breath.decisions.length > 0 ? (
+        <NarrativeLine label="Decided">
+          {breath.decisions.length === 1 ? (
+            <p>{breath.decisions[0]}</p>
+          ) : (
+            <ul className="list-disc space-y-0.5 pl-4">
+              {breath.decisions.map((decision) => (
+                <li key={decision}>{decision}</li>
+              ))}
+            </ul>
+          )}
+        </NarrativeLine>
+      ) : null}
+      {breath.friction ? (
+        <NarrativeLine label="Friction" tone="warning">
+          <p>{breath.friction}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.aim ? (
+        <NarrativeLine label="Aim" tone="info">
+          <p>{breath.aim}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.corrections.length > 0 ? (
+        <NarrativeLine label="Corrected">
+          <ul className="space-y-0.5">
+            {breath.corrections.map((correction) => {
+              const [words, principle] = correction.split("|");
+              return (
+                <li key={correction}>
+                  <span className="italic">{words}</span>
+                  {principle ? <span className="text-muted-foreground"> → {principle}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </NarrativeLine>
+      ) : null}
+      {breath.seeking ? (
+        <NarrativeLine label="Seeking">
+          <p>{breath.seeking}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.resume ? (
+        <NarrativeLine label="Resume">
+          <p className="whitespace-pre-wrap">{breath.resume}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.open.length > 0 ? (
+        <NarrativeLine label="Open" tone="warning">
+          <p>{breath.open.join("; ")}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.closedOpens.length > 0 ? (
+        <NarrativeLine label="Closed">
+          <p className="text-muted-foreground">{breath.closedOpens.join("; ")}</p>
+        </NarrativeLine>
+      ) : null}
+      {breath.self.length > 0 ? (
+        <NarrativeLine label="Self">
+          <div className="flex flex-wrap gap-1">
+            {breath.self.map((trait) => (
+              <Badge key={trait.name} size="sm" variant="outline">
+                {trait.name} {trait.mean.toFixed(2)}
+              </Badge>
+            ))}
+          </div>
+        </NarrativeLine>
+      ) : null}
+    </div>
+  );
+}
+
+export function LatestBreath({
+  breaths,
+  onSelectBreath,
+}: {
+  readonly breaths: AnimaDetail["breaths"];
+  readonly onSelectBreath: (index: number) => void;
+}) {
+  const latest = breaths.reduce<AnimaDetail["breaths"][number] | null>(
+    (best, breath) => (best === null || breath.index > best.index ? breath : best),
+    null,
+  );
+  if (latest === null) return null;
+  return (
+    <AnimaBlock
+      title="Latest breath"
+      action={
+        <Button size="xs" variant="ghost" onClick={() => onSelectBreath(latest.index)}>
+          #{latest.index} · <RelativeTime value={latest.ts} />
+        </Button>
+      }
+    >
+      <BreathNarrative breath={latest} />
+    </AnimaBlock>
+  );
+}
+
 function BreathRow({
   breath,
   focused,
@@ -278,17 +410,7 @@ function BreathRow({
         {breath.project ? <span className="truncate">{breath.project}</span> : null}
       </div>
       {note ? <p className="whitespace-pre-wrap text-sm">{note}</p> : null}
-      {breath.aim ? <p className="text-xs text-muted-foreground">Aim: {breath.aim}</p> : null}
-      {breath.decisions.length > 0 ? (
-        <ul className="list-disc space-y-0.5 pl-4 text-xs">
-          {breath.decisions.map((decision) => (
-            <li key={decision}>{decision}</li>
-          ))}
-        </ul>
-      ) : null}
-      {breath.open.length > 0 ? (
-        <p className="text-xs text-warning-foreground">Open: {breath.open.join("; ")}</p>
-      ) : null}
+      <BreathNarrative breath={breath} />
       {breath.files.length > 0 ? (
         <p className="truncate font-mono text-2xs text-muted-foreground">
           {breath.files.length} {breath.files.length === 1 ? "file" : "files"}:{" "}
