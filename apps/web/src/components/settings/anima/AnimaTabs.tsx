@@ -70,8 +70,8 @@ export function OverviewTab({
   const selected = projects.find((project) => project.id === projectId);
   return (
     <div className="space-y-5 px-3 py-3 sm:px-4">
-      <AnimaHero summary={summary} breaths={detail.breaths} onSelectBreath={onSelectBreath} />
       <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
+      <AnimaHero summary={summary} breaths={detail.breaths} onSelectBreath={onSelectBreath} />
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs text-muted-foreground">
           {summary.live ? "A session is running with this anima." : "No active session."} Born{" "}
