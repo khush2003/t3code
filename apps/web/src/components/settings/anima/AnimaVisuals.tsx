@@ -471,9 +471,7 @@ export function AnimaHero({
   return (
     <div className="grid gap-4 sm:grid-cols-[1fr_16rem] sm:items-center">
       <div className="min-w-0 space-y-2">
-        <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-          Timeline
-        </h3>
+        <h3 className="text-xs font-medium text-foreground/80">Timeline</h3>
         {breaths.length > 0 ? (
           <AnimaTimeline breaths={breaths} accent={summary.accent} onSelect={onSelectBreath} />
         ) : (
