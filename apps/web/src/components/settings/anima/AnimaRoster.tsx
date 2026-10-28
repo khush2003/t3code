@@ -1,8 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
-import { HeartPulseIcon, ListIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { HeartPulseIcon, ListIcon, MailIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
+import { cn } from "../../../lib/utils";
 import { animaEnvironment, useAnimaList } from "../../../state/anima";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
 import { Button } from "../../ui/button";
@@ -12,10 +13,13 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
 import { Toggle as SingleToggle } from "../../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { SettingsGroup } from "../SettingsGroup";
 import {
+  ANIMA_HEALTH_LABELS,
   ANIMA_SORT_LABELS,
+  animaHealthBucket,
   type AnimaSortMode,
   animaNeedsAttention,
   filterAnimas,
@@ -41,7 +45,12 @@ function AnimaRosterRow({
     failureTitle: `Could not update ${anima.name}`,
   });
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30 sm:px-4">
+    <div
+      className={cn(
+        "flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30 sm:px-4",
+        !anima.enabled && "opacity-60",
+      )}
+    >
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -75,10 +84,18 @@ function AnimaRosterRow({
         </span>
         {anima.inboxCount > 0 ? (
           <Badge size="sm" variant="info" aria-label={`${anima.inboxCount} unread`}>
+            <MailIcon />
             {anima.inboxCount}
           </Badge>
         ) : null}
-        <AnimaHealthRing score={anima.health} size={26} />
+        <Tooltip>
+          <TooltipTrigger render={<span />}>
+            <AnimaHealthRing score={anima.health} size={26} />
+          </TooltipTrigger>
+          <TooltipPopup>
+            Health: {ANIMA_HEALTH_LABELS[animaHealthBucket(anima.health)]}
+          </TooltipPopup>
+        </Tooltip>
       </button>
       <Switch
         checked={anima.enabled}
