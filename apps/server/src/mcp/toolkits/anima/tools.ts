@@ -1,8 +1,17 @@
 import {
   AnimaDetail,
+  AnimaHealthResult,
+  AnimaInboxMessage,
+  AnimaInboxReplyAction,
+  AnimaInboxSendAction,
+  AnimaLibraryListResult,
+  AnimaLibraryReadResult,
+  AnimaLibrarySlug,
   AnimaListResult,
   AnimaMutationResult,
   AnimaName,
+  AnimaOpen,
+  AnimaOpensAction,
   AnimaPolicyAction,
   NonNegativeInt,
   OrchestratorMcpFailure,
@@ -57,9 +66,76 @@ const AnimaAttachTool = Tool.make("t3_anima_attach", {
   parameters: Schema.Struct({ name: AnimaName, projectId: Schema.optional(ProjectId) }),
   success: AnimaMutationResult,
 }).annotate(Tool.Destructive, false);
+const AnimaInboxReadTool = Tool.make("t3_anima_inbox_read", {
+  ...shared,
+  description:
+    "Read an anima's inbox: messages other animas or the user sent it, with ids to reply to. name defaults to the calling thread's anima.",
+  parameters: Schema.Struct({ name: Schema.optional(AnimaName) }),
+  success: Schema.Struct({ name: AnimaName, messages: Schema.Array(AnimaInboxMessage) }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const AnimaInboxSendTool = Tool.make("t3_anima_inbox_send", {
+  ...shared,
+  description:
+    "Message an anima. action.type send delivers body to name's inbox; from defaults to the calling thread's anima. action.type reply answers messageId from name's inbox, sending the reply as name to the original sender; name defaults to the calling thread's anima.",
+  parameters: Schema.Struct({
+    name: Schema.optional(AnimaName),
+    action: Schema.Union([AnimaInboxSendAction, AnimaInboxReplyAction]),
+  }),
+  success: AnimaMutationResult,
+}).annotate(Tool.Destructive, false);
+const AnimaOpensListTool = Tool.make("t3_anima_opens_list", {
+  ...shared,
+  description:
+    "List the open questions of an anima's project: each has an id, assignee, status, and what resolves it.",
+  parameters: Schema.Struct({ name: AnimaName }),
+  success: Schema.Struct({ name: AnimaName, opens: Schema.Array(AnimaOpen) }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const AnimaOpensUpdateTool = Tool.make("t3_anima_opens_update", {
+  ...shared,
+  description:
+    "Change the open questions of an anima's project, acting as that anima. add needs question and resolves (what answers it); close removes a resolved open; assign hands it to another anima; update sets status (active, watching, blocked), context, or resolves.",
+  parameters: Schema.Struct({ name: AnimaName, action: AnimaOpensAction }),
+  success: AnimaMutationResult,
+}).annotate(Tool.Destructive, false);
+const AnimaLibraryListTool = Tool.make("t3_anima_library_list", {
+  ...shared,
+  description:
+    "List the shared anima library: notes animas shelved for each other, with slug, title, and size.",
+  success: AnimaLibraryListResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const AnimaLibraryReadTool = Tool.make("t3_anima_library_read", {
+  ...shared,
+  description: "Read one anima library entry by slug, as returned by t3_anima_library_list.",
+  parameters: Schema.Struct({ slug: AnimaLibrarySlug }),
+  success: AnimaLibraryReadResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const AnimaHealthTool = Tool.make("t3_anima_health", {
+  ...shared,
+  description:
+    "Check an anima's health: a 0-1 score where higher needs tending, its components (uncertainty, negative streak, stale tension, drift, silence), warnings, circuit state, and data-integrity findings.",
+  parameters: Schema.Struct({ name: AnimaName }),
+  success: AnimaHealthResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
 export const AnimaToolkit = Toolkit.make(
   AnimaListTool,
   AnimaReadTool,
   AnimaPolicyTool,
   AnimaAttachTool,
+  AnimaInboxReadTool,
+  AnimaInboxSendTool,
+  AnimaOpensListTool,
+  AnimaOpensUpdateTool,
+  AnimaLibraryListTool,
+  AnimaLibraryReadTool,
+  AnimaHealthTool,
 );

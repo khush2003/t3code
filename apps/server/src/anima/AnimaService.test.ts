@@ -179,6 +179,106 @@ describe("AnimaService files", () => {
     ),
   );
 
+  it.effect("reads opens, card, team, lead and fire stats from files", () =>
+    withService({ cli: false }, ({ service, root, home }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const project = NodePath.join(home, "work", "atlas");
+        yield* fs.makeDirectory(project, { recursive: true });
+        yield* fs.writeFileString(
+          NodePath.join(project, "opens.json"),
+          JSON.stringify([
+            {
+              id: "open-001",
+              question: "Q?",
+              assigned: "atlas",
+              resolves_when: "R",
+              status: "active",
+            },
+          ]),
+        );
+        yield* seed(root, "atlas", "id-atlas", 1, {
+          extraHeader: `# project: ${project}\n# offers: review, typing\n`,
+        });
+        yield* seed(root, "boss", "id-boss", 0, { extraHeader: "# team: kite,atlas\n" });
+        yield* fs.writeFileString(
+          NodePath.join(root, "atlas", "card.json"),
+          '{"description":"Quiet.","skills":[{"name":"ts","confidence":0.9}],"interfaces":["inbox"]}',
+        );
+        // `1bxae1c` is hook.ts's hashOf("ALWAYS a"), the seeded operational rule.
+        yield* fs.writeFileString(
+          NodePath.join(root, "atlas", "policy-fires.jsonl"),
+          '{"h":"1bxae1c","ts":"2026-03-02T10:00"}\n',
+        );
+
+        const detail = yield* service.get({ name: "atlas" });
+        expect(detail.opens).toMatchObject([
+          { id: "open-001", project, question: "Q?", assignee: "atlas", resolves: "R" },
+        ]);
+        expect(detail).toMatchObject({
+          projectPath: project,
+          offers: ["review", "typing"],
+          team: [],
+          lead: "boss",
+          card: { description: "Quiet.", skills: [{ name: "ts", confidence: 0.9 }] },
+        });
+        expect(detail.header.map((h) => h.key)).not.toContain("project");
+        expect(detail.policy.operational).toEqual([
+          { index: 1, text: "ALWAYS a", fires: 1, lastFiredAt: "2026-03-02T10:00" },
+        ]);
+        expect(yield* service.opens("atlas")).toEqual(detail.opens);
+        expect((yield* service.get({ name: "boss" })).team).toEqual(["kite", "atlas"]);
+        expect((yield* service.inbox("atlas")).map((message) => message.id)).toEqual(["m1"]);
+      }),
+    ),
+  );
+
+  it.effect("reports health with audit findings and scores every listed anima", () =>
+    withService({ cli: false }, ({ service, root }) =>
+      Effect.gen(function* () {
+        yield* seed(root, "atlas", "id-atlas", 2, {
+          extraHeader: "# circuit: half-open\n# circuit-count: 1\n",
+        });
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.remove(NodePath.join(root, "atlas", "breaths", "001.breath"));
+        const result = yield* service.health("atlas");
+        expect(result).toMatchObject({
+          name: "atlas",
+          circuit: "half-open",
+          circuitCount: 1,
+          audit: [{ level: "warn", message: "breath 1: missing detail file" }],
+        });
+        expect(result.health?.score).toBeGreaterThan(0);
+        const listed = yield* service.list;
+        expect(listed.animas[0]?.health).toBe(result.health?.score);
+      }),
+    ),
+  );
+
+  it.effect("lists and reads library entries without escaping the library", () =>
+    withService({ cli: false }, ({ service, root }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const library = NodePath.join(root, "library");
+        yield* fs.makeDirectory(NodePath.join(library, "nested.md"), { recursive: true });
+        yield* fs.writeFileString(NodePath.join(library, "codec.md"), "# Codec\n\nFrom: x\n");
+        yield* fs.writeFileString(NodePath.join(library, "notes.txt"), "skip");
+        yield* fs.writeFileString(NodePath.join(root, "secret.md"), "outside");
+        const { entries } = yield* service.libraryList;
+        expect(entries).toMatchObject([{ slug: "codec", title: "Codec", bytes: 17 }]);
+        expect(entries[0]?.modifiedAt).not.toBeNull();
+        expect(yield* service.libraryRead("codec")).toEqual({
+          slug: "codec",
+          content: "# Codec\n\nFrom: x\n",
+        });
+        for (const slug of ["../secret", "missing", "nested"]) {
+          const error = yield* Effect.flip(service.libraryRead(slug));
+          expect(error._tag).toBe("AnimaCommandRejectedError");
+        }
+      }),
+    ),
+  );
+
   it.effect("rejects names that are not directory-safe", () =>
     withService({}, ({ service }) =>
       Effect.gen(function* () {
@@ -201,7 +301,7 @@ describe("AnimaService CLI invocation", () => {
           NodePath.join(root, "boss", "agent.anima"),
           AGENT("id-boss", "boss", 0).replace("# role: agent", "# role: architect"),
         );
-        yield* seed(root, "atlas", "id-atlas", 0);
+        yield* seed(root, "atlas", "id-atlas", 0, { extraHeader: "# project: /work/atlas\n" });
 
         yield* service.create({ name: "kid", parent: "atlas" });
         yield* service.policy({
@@ -216,9 +316,43 @@ describe("AnimaService CLI invocation", () => {
         yield* service.policy({ name: "atlas", action: { type: "apply" } });
         yield* service.setEnabled({ name: "atlas", enabled: false });
         yield* service.attach({ name: "atlas", projectId: ProjectId.make("p1") });
+        yield* service.inboxAction({
+          name: "atlas",
+          action: { type: "send", messageType: "query", body: "Ready?" },
+        });
+        yield* service.inboxAction({
+          name: "atlas",
+          action: { type: "send", messageType: "info", body: "hi", from: "boss" },
+        });
+        yield* service.inboxAction({
+          name: "atlas",
+          action: { type: "reply", messageId: "m1", body: "Yes." },
+        });
+        yield* service.inboxAction({ name: "atlas", action: { type: "clear" } });
+        yield* service.opensAction({
+          name: "atlas",
+          action: { type: "add", question: "Q?", resolves: "R", assignee: "boss" },
+        });
+        yield* service.opensAction({ name: "atlas", action: { type: "close", id: "open-001" } });
+        yield* service.opensAction({
+          name: "atlas",
+          action: { type: "assign", id: "open-002", assignee: "boss" },
+        });
+        yield* service.opensAction({
+          name: "atlas",
+          action: { type: "update", id: "open-002", status: "blocked", resolves: "R2" },
+        });
+        yield* service.team({ lead: "boss", action: "add", member: "atlas" });
+        yield* service.libraryShelve({ slug: "codec", author: "atlas", content: "--x" });
+        yield* service.libraryShelve({
+          slug: "codec",
+          author: "atlas",
+          content: "y",
+          forAnima: "boss",
+        });
 
         const cliArgs = calls.map((call) => call.args.slice(1));
-        expect(cliArgs.filter((args) => args[0] !== "opens")).toEqual([
+        expect(cliArgs).toEqual([
           ["birth", "--name", "kid", "--parent", "atlas", "--as", "boss"],
           ["policy", "--agent", "atlas", "--as", "boss", "--add", "WHEN a THEN b", "--auto"],
           ["policy", "--agent", "atlas", "--as", "boss", "--update", "2", "--add", "ALWAYS z"],
@@ -226,6 +360,40 @@ describe("AnimaService CLI invocation", () => {
           ["policy", "--agent", "atlas", "--as", "boss", "--apply"],
           ["deactivate", "atlas", "--as", "boss"],
           ["setup", "--agent", "atlas", "--project", "/work/atlas"],
+          ["message", "--to", "atlas", "--type", "query", "--as", "user", "Ready?"],
+          ["message", "--to", "atlas", "--type", "info", "--as", "boss", "hi"],
+          ["reply", "--to", "m1", "--as", "atlas", "Yes."],
+          ["inbox", "--agent", "atlas", "--clear"],
+          [
+            "opens",
+            "add",
+            "--project",
+            "/work/atlas",
+            "--agent",
+            "atlas",
+            "--question",
+            "Q?",
+            "--resolves",
+            "R",
+            "--assign",
+            "boss",
+          ],
+          ["opens", "close", "open-001", "--project", "/work/atlas"],
+          ["opens", "assign", "open-002", "--to", "boss", "--project", "/work/atlas"],
+          [
+            "opens",
+            "update",
+            "open-002",
+            "--project",
+            "/work/atlas",
+            "--status",
+            "blocked",
+            "--resolves",
+            "R2",
+          ],
+          ["team", "add", "atlas", "boss", "--as", "boss"],
+          ["library", "shelve", "codec", "--author", "atlas", "--content", "--x"],
+          ["library", "shelve", "codec", "--author", "atlas", "--content", "y", "--for", "boss"],
         ]);
         expect(calls.every((call) => call.env?.HOME === home)).toBe(true);
       }),
@@ -272,6 +440,30 @@ describe("AnimaService CLI invocation", () => {
           expect(calls.at(-1)?.args).toContain("--peek");
           expect(calls.at(-1)?.spawnCwd).toBe(root);
         }),
+    ),
+  );
+
+  it.effect("refuses inbox and opens requests the CLI would misread", () =>
+    withService({}, ({ service, root, calls }) =>
+      Effect.gen(function* () {
+        yield* seed(root, "atlas", "id-atlas", 0);
+        const dashed = yield* Effect.flip(
+          service.inboxAction({
+            name: "atlas",
+            action: { type: "send", messageType: "info", body: "--to x" },
+          }),
+        );
+        expect(dashed).toMatchObject({ _tag: "AnimaCommandRejectedError" });
+        const noProject = yield* Effect.flip(
+          service.opensAction({ name: "atlas", action: { type: "close", id: "open-001" } }),
+        );
+        expect(noProject).toMatchObject({ _tag: "AnimaCommandRejectedError" });
+        const missing = yield* Effect.flip(
+          service.libraryShelve({ slug: "x", author: "atlas", content: "y", forAnima: "ghost" }),
+        );
+        expect(missing._tag).toBe("AnimaNotFoundError");
+        expect(calls).toHaveLength(0);
+      }),
     ),
   );
 

@@ -1,6 +1,7 @@
 import {
   AnimaCommandRejectedError,
   AnimaError,
+  AnimaLibrarySlug,
   AnimaName,
   AnimaNotFoundError,
   AnimaSetEnabledInput,
@@ -12,11 +13,20 @@ import {
   type AnimaCreateInput,
   type AnimaDetail,
   type AnimaGetInput,
+  type AnimaHealthResult,
   type AnimaImportInput,
+  type AnimaInboxInput,
+  type AnimaInboxMessage,
+  type AnimaLibraryListResult,
+  type AnimaLibraryReadResult,
+  type AnimaLibraryShelveInput,
   type AnimaListResult,
   type AnimaMutationResult,
+  type AnimaOpen,
+  type AnimaOpensInput,
   type AnimaPolicyInput,
   type AnimaSummary,
+  type AnimaTeamInput,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
@@ -39,6 +49,8 @@ const MAX_WAKE_BYTES = 256 * 1024;
 const MAX_VOICE_BYTES = 16 * 1024;
 /** Stand-in caller for the very first anima: the CLI cannot `init` without an architect to act as. */
 const BOOTSTRAP_CALLER = "bootstrap-caller";
+/** Sender recorded for messages a person sends from T3. */
+const DEFAULT_SENDER = "user";
 const DEFAULT_BREATH_LIMIT = 100;
 const CLI_TIMEOUT = "60 seconds";
 const SUMMARY_CONCURRENCY = 8;
@@ -58,6 +70,9 @@ const DEDICATED_HEADER_KEYS = new Set([
   "hue",
   "schema",
   "user",
+  "project",
+  "team",
+  "offers",
 ]);
 
 type AnimaFailure = AnimaError | AnimaCommandRejectedError | AnimaNotFoundError;
@@ -86,6 +101,22 @@ export class AnimaService extends Context.Service<
       input: typeof AnimaSetEnabledInput.Type,
     ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     readonly policy: (input: AnimaPolicyInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    readonly inbox: (name: string) => Effect.Effect<ReadonlyArray<AnimaInboxMessage>, AnimaFailure>;
+    readonly inboxAction: (
+      input: AnimaInboxInput,
+    ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    /** Opens of the anima's `# project:` directory, read from its opens.json. */
+    readonly opens: (name: string) => Effect.Effect<ReadonlyArray<AnimaOpen>, AnimaFailure>;
+    readonly opensAction: (
+      input: AnimaOpensInput,
+    ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    readonly health: (name: string) => Effect.Effect<AnimaHealthResult, AnimaFailure>;
+    readonly libraryList: Effect.Effect<AnimaLibraryListResult, AnimaError>;
+    readonly libraryRead: (slug: string) => Effect.Effect<AnimaLibraryReadResult, AnimaFailure>;
+    readonly libraryShelve: (
+      input: AnimaLibraryShelveInput,
+    ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    readonly team: (input: AnimaTeamInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     /** The wake payload without clocking in or consuming the inbox. */
     readonly wakePreview: (name: string) => Effect.Effect<string, AnimaFailure>;
     /** Runs a real wake (clock-in, inbox consumption); never cached. */
@@ -110,9 +141,10 @@ export class AnimaService extends Context.Service<
 >()("t3/anima/AnimaService") {}
 
 const isAnimaName = Schema.is(AnimaName);
+const isLibrarySlug = Schema.is(AnimaLibrarySlug);
 
 const stripTerminalControls = (text: string) =>
-  // oxlint-disable-next-line no-control-regex -- the CLI emits OSC title sequences on stderr.
+  // The CLI emits OSC title sequences on stderr.
   text.replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 
 const firstLine = (text: string) =>
@@ -137,6 +169,7 @@ const make = Effect.gen(function* () {
   const home = yield* HostProcess.HomeDirectory;
 
   const root = path.join(home, ".claude", "anima");
+  const libraryDir = path.join(root, "library");
   const cliPath = path.join(home, ".claude", "skills", "anima", "anima.ts");
 
   const failed = (operation: string) => (cause: unknown) => new AnimaError({ operation, cause });
@@ -264,17 +297,28 @@ const make = Effect.gen(function* () {
       readOptional(path.join(dir, "inbox")),
       readOptional(path.join(dir, "session")),
     ]);
+    const agentContent = byPath.get("agent.anima") ?? "";
+    const agent = AnimaFiles.parseAgentFile(agentContent);
+    const assessment = AnimaFiles.assessHealth({
+      agentContent,
+      latestBreathFile: byPath.get(`breaths/${AnimaFiles.breathFileName(agent.breaths)}`) ?? "",
+      nowMs,
+    });
     return {
       summary: AnimaFiles.buildSummary({
         name,
-        agent: AnimaFiles.parseAgentFile(byPath.get("agent.anima") ?? ""),
+        agent,
         identity: byPath.get("identity.md") ?? "",
         policy: AnimaFiles.parsePolicy(byPath.get("policy.md") ?? ""),
         inbox: AnimaFiles.parseInbox(inbox),
         session: AnimaFiles.parseSession(session, nowMs),
         digest: AnimaFiles.digestFiles(files),
+        health: assessment?.score ?? null,
       }),
+      agent,
+      assessment,
       files,
+      byPath,
       dir,
     };
   });
@@ -307,41 +351,6 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed((): AnimaMutationResult => ({ output, summary: null })),
     );
 
-  const get: AnimaService["Service"]["get"] = Effect.fn("AnimaService.get")(function* (input) {
-    const { summary: current, files, dir } = yield* summarize(input.name);
-    const byPath = new Map(files.map((file) => [file.path, file.content]));
-    const agent = AnimaFiles.parseAgentFile(byPath.get("agent.anima") ?? "");
-    const policy = AnimaFiles.parsePolicy(byPath.get("policy.md") ?? "");
-    const limit = input.breathLimit ?? DEFAULT_BREATH_LIMIT;
-    const rows = limit === 0 ? agent.rows : agent.rows.slice(-limit);
-    const wanted = new Set(rows.map((row) => row.index));
-    const details = [...byPath.entries()].flatMap(([filePath, content]) => {
-      const match = /^breaths\/([^/]+\.breath)$/.exec(filePath);
-      const parsed = match === null ? null : AnimaFiles.parseBreathFile(content, match[1]!);
-      return parsed !== null && wanted.has(parsed.index) ? [parsed] : [];
-    });
-    const [inboxRaw, opensOutput] = yield* Effect.all([
-      readOptional(path.join(dir, "inbox")),
-      runCli("opens", ["opens", "list", "--agent", input.name]).pipe(
-        Effect.map((result) => result.stdout),
-        Effect.orElseSucceed(() => ""),
-      ),
-    ]);
-    return {
-      summary: current,
-      identity: byPath.get("identity.md") ?? "",
-      header: agent.header.filter((entry) => !DEDICATED_HEADER_KEYS.has(entry.key)),
-      traits: agent.traits,
-      skills: agent.skills,
-      policy: { ...policy, cap: AnimaFiles.ANIMA_POLICY_CAP },
-      breaths: AnimaFiles.mergeBreaths(rows, details),
-      inbox: AnimaFiles.parseInbox(inboxRaw),
-      opens: AnimaFiles.parseOpensListOutput(opensOutput),
-      // Clients resolve threads from the shell snapshot's `animaName`.
-      threadIds: [],
-    };
-  });
-
   const listAnimaNames = fs.readDirectory(root).pipe(
     Effect.orElseSucceed((): string[] => []),
     Effect.flatMap((names) =>
@@ -352,6 +361,61 @@ const make = Effect.gen(function* () {
       ),
     ),
   );
+
+  const readOpens = (projectPath: string | null) =>
+    projectPath === null || !path.isAbsolute(projectPath)
+      ? Effect.succeed([])
+      : readOptional(path.join(projectPath, "opens.json")).pipe(
+          Effect.map((content) => AnimaFiles.parseOpensFile(content, projectPath)),
+        );
+
+  /** Team membership lives only on the lead's header, so finding the lead scans every anima. */
+  const findLead = Effect.fn("AnimaService.findLead")(function* (name: string) {
+    for (const candidate of yield* listAnimaNames) {
+      if (candidate === name) continue;
+      const header = yield* readOptional(path.join(root, candidate, "agent.anima"));
+      if (AnimaFiles.parseAgentFile(header).team.includes(name)) return candidate;
+    }
+    return null;
+  });
+
+  const get: AnimaService["Service"]["get"] = Effect.fn("AnimaService.get")(function* (input) {
+    const { summary: current, agent, byPath, dir } = yield* summarize(input.name);
+    const [inboxRaw, fireLog, card, opens, lead] = yield* Effect.all([
+      readOptional(path.join(dir, "inbox")),
+      readOptional(path.join(dir, "policy-fires.jsonl")),
+      readOptional(path.join(dir, "card.json")),
+      readOpens(agent.projectPath),
+      findLead(input.name),
+    ]);
+    const policy = AnimaFiles.parsePolicy(byPath.get("policy.md") ?? "", fireLog);
+    const limit = input.breathLimit ?? DEFAULT_BREATH_LIMIT;
+    const rows = limit === 0 ? agent.rows : agent.rows.slice(-limit);
+    const wanted = new Set(rows.map((row) => row.index));
+    const details = [...byPath.entries()].flatMap(([filePath, content]) => {
+      const match = /^breaths\/([^/]+\.breath)$/.exec(filePath);
+      const parsed = match === null ? null : AnimaFiles.parseBreathFile(content, match[1]!);
+      return parsed !== null && wanted.has(parsed.index) ? [parsed] : [];
+    });
+    return {
+      summary: current,
+      identity: byPath.get("identity.md") ?? "",
+      header: agent.header.filter((entry) => !DEDICATED_HEADER_KEYS.has(entry.key)),
+      traits: agent.traits,
+      skills: agent.skills,
+      policy: { ...policy, cap: AnimaFiles.ANIMA_POLICY_CAP },
+      breaths: AnimaFiles.mergeBreaths(rows, details),
+      inbox: AnimaFiles.parseInbox(inboxRaw),
+      opens,
+      projectPath: agent.projectPath,
+      card: AnimaFiles.parseCard(card),
+      offers: agent.offers,
+      team: agent.team,
+      lead,
+      // Clients resolve threads from the shell snapshot's `animaName`.
+      threadIds: [],
+    };
+  });
 
   /** The CLI exits when no agent exists to act as, so the first anima runs `init` as a throwaway architect. */
   const bootstrapFirst = Effect.fn("AnimaService.bootstrapFirst")(function* (name: string) {
@@ -484,6 +548,213 @@ const make = Effect.gen(function* () {
       return yield* mutationResult(input.name, result.stdout);
     },
   );
+
+  const inbox: AnimaService["Service"]["inbox"] = Effect.fn("AnimaService.inbox")(function* (name) {
+    const dir = yield* requireAnima(name);
+    return AnimaFiles.parseInbox(yield* readOptional(path.join(dir, "inbox")));
+  });
+
+  const inboxArgs = (input: AnimaInboxInput): ReadonlyArray<string> => {
+    const { action } = input;
+    switch (action.type) {
+      case "send":
+        return [
+          "message",
+          "--to",
+          input.name,
+          "--type",
+          action.messageType,
+          "--as",
+          action.from ?? DEFAULT_SENDER,
+          action.body,
+        ];
+      case "reply":
+        return ["reply", "--to", action.messageId, "--as", input.name, action.body];
+      case "clear":
+        return ["inbox", "--agent", input.name, "--clear"];
+    }
+  };
+
+  const inboxAction: AnimaService["Service"]["inboxAction"] = Effect.fn("AnimaService.inboxAction")(
+    function* (input) {
+      yield* requireAnima(input.name);
+      // The CLI takes the first argument without a leading `--` as the body.
+      if (input.action.type !== "clear" && input.action.body.startsWith("--"))
+        return yield* rejected("inbox", "A message cannot start with '--'.");
+      const result = yield* runCli("inbox", inboxArgs(input));
+      return yield* mutationResult(input.name, result.stdout);
+    },
+  );
+
+  const projectOf = Effect.fn("AnimaService.projectOf")(function* (name: string) {
+    const dir = yield* requireAnima(name);
+    return AnimaFiles.parseAgentFile(yield* readOptional(path.join(dir, "agent.anima")))
+      .projectPath;
+  });
+
+  const opens: AnimaService["Service"]["opens"] = Effect.fn("AnimaService.opens")(function* (name) {
+    return yield* readOpens(yield* projectOf(name));
+  });
+
+  const opensArgs = (input: AnimaOpensInput, project: string): ReadonlyArray<string> => {
+    const { action } = input;
+    const optional = (flag: string, value: string | undefined) =>
+      value === undefined ? [] : [flag, value];
+    switch (action.type) {
+      case "add":
+        return [
+          "opens",
+          "add",
+          "--project",
+          project,
+          "--agent",
+          input.name,
+          "--question",
+          action.question,
+          "--resolves",
+          action.resolves,
+          ...optional("--assign", action.assignee),
+          ...optional("--context", action.context),
+        ];
+      case "close":
+        return ["opens", "close", action.id, "--project", project];
+      case "assign":
+        return ["opens", "assign", action.id, "--to", action.assignee, "--project", project];
+      case "update":
+        return [
+          "opens",
+          "update",
+          action.id,
+          "--project",
+          project,
+          ...optional("--status", action.status),
+          ...optional("--context", action.context),
+          ...optional("--resolves", action.resolves),
+        ];
+    }
+  };
+
+  const opensAction: AnimaService["Service"]["opensAction"] = Effect.fn("AnimaService.opensAction")(
+    function* (input) {
+      const project = yield* projectOf(input.name);
+      if (project === null || !path.isAbsolute(project))
+        return yield* rejected(
+          "opens",
+          `${input.name} has no '# project:' directory, so it has no opens.`,
+        );
+      const { action } = input;
+      if (
+        action.type === "update" &&
+        action.status === undefined &&
+        action.context === undefined &&
+        action.resolves === undefined
+      )
+        return yield* rejected("opens", "Nothing to update.");
+      const result = yield* runCli("opens", opensArgs(input, project));
+      return yield* mutationResult(input.name, result.stdout);
+    },
+  );
+
+  const health: AnimaService["Service"]["health"] = Effect.fn("AnimaService.health")(
+    function* (name) {
+      const { agent, assessment, byPath } = yield* summarize(name);
+      const breathFiles = new Map(
+        [...byPath].flatMap(([filePath, content]) => {
+          const match = /^breaths\/([^/]+\.breath)$/.exec(filePath);
+          return match === null ? [] : [[match[1]!, content] as const];
+        }),
+      );
+      return {
+        name,
+        health: assessment,
+        circuit: agent.circuit,
+        circuitCount: agent.circuitCount,
+        audit: AnimaFiles.auditAnima({
+          agentContent: byPath.get("agent.anima") ?? "",
+          breathFiles,
+          hasIdentity: byPath.has("identity.md"),
+        }),
+      };
+    },
+  );
+
+  const libraryEntry = Effect.fn("AnimaService.libraryEntry")(function* (file: string) {
+    const target = path.join(libraryDir, file);
+    const info = yield* fs.stat(target);
+    if (info.type !== "File") return Option.none();
+    const bytes = Number(info.size);
+    const content = bytes > MAX_FILE_BYTES ? "" : yield* fs.readFileString(target);
+    return Option.some({
+      slug: file.slice(0, -".md".length),
+      title: AnimaFiles.libraryTitle(content),
+      bytes,
+      modifiedAt: Option.match(info.mtime, {
+        onNone: () => null,
+        onSome: (date) => DateTime.formatIso(DateTime.fromDateUnsafe(date)),
+      }),
+    });
+  });
+
+  const libraryList: AnimaService["Service"]["libraryList"] = Effect.gen(function* () {
+    const files = yield* fs
+      .readDirectory(libraryDir)
+      .pipe(Effect.orElseSucceed((): string[] => []));
+    const entries = yield* Effect.forEach(
+      files.filter((file) => file.endsWith(".md")).toSorted(),
+      (file) => libraryEntry(file).pipe(Effect.orElseSucceed(() => Option.none())),
+      { concurrency: SUMMARY_CONCURRENCY },
+    );
+    return { entries: entries.flatMap((entry) => (Option.isSome(entry) ? [entry.value] : [])) };
+  });
+
+  const libraryRead: AnimaService["Service"]["libraryRead"] = Effect.fn("AnimaService.libraryRead")(
+    function* (slug) {
+      const missing = rejected("libraryRead", `No library entry named '${slug.slice(0, 128)}'.`);
+      if (!isLibrarySlug(slug)) return yield* missing;
+      const target = path.join(libraryDir, `${slug}.md`);
+      const info = yield* fs.stat(target).pipe(Effect.option);
+      if (Option.isNone(info) || info.value.type !== "File") return yield* missing;
+      if (Number(info.value.size) > MAX_FILE_BYTES)
+        return yield* rejected("libraryRead", "The library entry is too large to read here.");
+      const content = yield* fs.readFileString(target).pipe(Effect.mapError(failed("libraryRead")));
+      return { slug, content };
+    },
+  );
+
+  const libraryShelve: AnimaService["Service"]["libraryShelve"] = Effect.fn(
+    "AnimaService.libraryShelve",
+  )(function* (input) {
+    // The CLI silently falls back to the shared library when the target anima is missing.
+    if (input.forAnima !== undefined) yield* requireAnima(input.forAnima);
+    const result = yield* runCli("libraryShelve", [
+      "library",
+      "shelve",
+      input.slug,
+      "--author",
+      input.author,
+      "--content",
+      input.content,
+      ...(input.forAnima === undefined ? [] : ["--for", input.forAnima]),
+    ]);
+    return input.forAnima === undefined
+      ? { output: result.stdout, summary: null }
+      : yield* mutationResult(input.forAnima, result.stdout);
+  });
+
+  const team: AnimaService["Service"]["team"] = Effect.fn("AnimaService.team")(function* (input) {
+    yield* requireAnima(input.lead);
+    yield* requireAnima(input.member);
+    const caller = yield* callerFor(input.lead);
+    const result = yield* runCli("team", [
+      "team",
+      input.action,
+      input.member,
+      input.lead,
+      "--as",
+      caller,
+    ]);
+    return yield* mutationResult(input.lead, result.stdout);
+  });
 
   const wakeWith = Effect.fn("AnimaService.wakeWith")(function* (
     operation: string,
@@ -677,6 +948,15 @@ const make = Effect.gen(function* () {
     attach,
     setEnabled,
     policy,
+    inbox,
+    inboxAction,
+    opens,
+    opensAction,
+    health,
+    libraryList,
+    libraryRead,
+    libraryShelve,
+    team,
     wakePreview,
     wake,
     export: exportBundle,
