@@ -165,7 +165,7 @@ const GENERIC_TOKENS = new Set([
   "inside",
 ]);
 
-export function extractTokens(when: string): {
+function extractTokens(when: string): {
   readonly strong: ReadonlyArray<string>;
   readonly weak: ReadonlyArray<string>;
 } {
@@ -215,7 +215,7 @@ const INTENT_FIELDS = [
 ] as const;
 const CODE_FIELDS = ["old_string", "new_string"] as const;
 
-export function buildHaystacks(call: AnimaToolCall): AnimaPolicyHaystacks {
+function buildHaystacks(call: AnimaToolCall): AnimaPolicyHaystacks {
   const intent = [call.toolName];
   const codeish: Array<string> = [];
   for (const field of INTENT_FIELDS) {
@@ -230,7 +230,7 @@ export function buildHaystacks(call: AnimaToolCall): AnimaPolicyHaystacks {
   return { intent: intentText, full: `${intentText} ${codeish.join(" ").toLowerCase()}` };
 }
 
-export function scoreRule(rule: AnimaPolicyRuleMatcher, haystacks: AnimaPolicyHaystacks): number {
+function scoreRule(rule: AnimaPolicyRuleMatcher, haystacks: AnimaPolicyHaystacks): number {
   const strong = rule.strong.filter((token) => haystacks.full.includes(token)).length * 2;
   const weak = rule.weak
     .filter((token) => haystacks.intent.includes(token))
