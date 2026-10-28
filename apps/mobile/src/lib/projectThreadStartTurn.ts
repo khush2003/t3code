@@ -1,4 +1,5 @@
 import {
+  type AnimaName,
   CommandId,
   MessageId,
   ThreadId,
@@ -40,6 +41,7 @@ export interface ProjectThreadStartTurnSpec {
   /** Tracked repositories a new worktree takes, by path; absent leaves the choice to the server. */
   readonly worktreeRepositories?: ReadonlyArray<string>;
   readonly worktreeBranchName: string;
+  readonly animaName?: AnimaName;
 }
 
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
@@ -72,6 +74,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
         interactionMode: spec.interactionMode,
         branch: spec.branch,
         worktreePath: isWorktree ? null : spec.worktreePath,
+        ...(spec.animaName === undefined ? {} : { animaName: spec.animaName }),
         createdAt: spec.createdAt,
       },
       ...(isWorktree

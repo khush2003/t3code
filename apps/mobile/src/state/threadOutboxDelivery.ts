@@ -1211,6 +1211,7 @@ export function createThreadOutboxDelivery(): {
           ? {}
           : { worktreeRepositories: workspace.repositories }),
         worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
+        ...(creation.animaName === undefined ? {} : { animaName: creation.animaName }),
       }),
     });
     if (AsyncResult.isFailure(deliveryResult) && !hasAccess()) return;

@@ -54,7 +54,6 @@ import {
   PinIcon,
   PinOffIcon,
   ShieldQuestionIcon,
-  SparklesIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -143,6 +142,7 @@ import { useThreadHasUnsentDraft } from "../../composerDraftStore";
 import { ThreadDetailsIssueRows } from "../chat/ThreadDetailsIssueRows";
 import { IssueGlyph, issueStatePresentation } from "../issue/issuePresentation";
 import { useThreadIntentPrefetch } from "./useThreadIntentPrefetch";
+import { SidebarAnimaIndicator } from "./SidebarAnimaIndicator";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -1250,18 +1250,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const showPin =
     props.isPinned && (!sortable?.isDragging || (props.dragOverPinned && props.dropVerb === null));
   const animaIndicator = thread.animaName ? (
-    <SharedTooltipTrigger
-      render={
-        <span
-          role="img"
-          aria-label={`Anima ${thread.animaName}`}
-          className="inline-flex shrink-0 items-center text-muted-foreground/65"
-        />
-      }
-      label={<>Anima: {thread.animaName}</>}
-    >
-      <SparklesIcon aria-hidden className="size-3 shrink-0" />
-    </SharedTooltipTrigger>
+    <SidebarAnimaIndicator environmentId={thread.environmentId} name={thread.animaName} />
   ) : null;
   const pinIndicator = showPin ? (
     props.pinningSupported && canOperateThread && !sortable?.isDragging ? (

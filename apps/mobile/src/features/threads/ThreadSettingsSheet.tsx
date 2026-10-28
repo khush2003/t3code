@@ -12,6 +12,7 @@ import {
   resolveModelPreferences,
 } from "@t3tools/shared/serverSettings";
 import type {
+  AnimaName,
   EnvironmentId,
   ModelSelection,
   ProjectId,
@@ -110,6 +111,13 @@ import { useSearchToolbarInset } from "../../components/ui/useBarInset";
 import type { AppBarSearch } from "../../components/ui/AppBar";
 import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
 import {
+  ThreadAnimaContent,
+  ThreadSettingsAnimaRow,
+  type ThreadSettingsAnima,
+} from "./ThreadAnimaSettings";
+import { describeAnimaError } from "../../state/anima";
+import { threadEnvironment } from "../../state/threads";
+import {
   compatibleRuntimeModeForChoices,
   runtimeModeChoicesForSupportedModes,
   withManagedRuntimeModeLimits,
@@ -126,6 +134,10 @@ import {
 } from "./thread-settings-sheet-state";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
 import type { MessageResolver } from "../../i18n/messages";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 
 const PRIMARY_PROVIDER_DRIVERS: ReadonlySet<string> = new Set([
   "claudeAgent",
@@ -284,7 +296,8 @@ function SwitchRow(props: {
 
 type ThreadSettingsSubmenuPage =
   | { readonly kind: "descriptor"; readonly id: string }
-  | { readonly kind: "runtime" };
+  | { readonly kind: "runtime" }
+  | { readonly kind: "anima" };
 
 type ThreadSettingsSessionProps = {
   readonly environmentId: EnvironmentId | null;
@@ -303,6 +316,7 @@ type ThreadSettingsSessionProps = {
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  readonly anima?: ThreadSettingsAnima;
 };
 
 /** The composer draft the sheet edits: the thread's own, or a queued message being edited. */
@@ -324,6 +338,7 @@ type ThreadSettingsSessionValue = {
   readonly manageHidden: boolean;
   readonly setManageHidden: (value: boolean) => void;
   readonly runtimeMode: RuntimeMode;
+  readonly anima: ThreadSettingsAnima | undefined;
   readonly runtimeModeChoices: ReadonlyArray<RuntimeModeChoice>;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
@@ -659,6 +674,7 @@ function ThreadSettingsSessionProvider(
     toggleHidden,
     pendingHiddenKeys,
     runtimeMode: compatibleRuntimeMode,
+    anima: props.anima,
     runtimeModeChoices,
     onUpdateRuntimeMode: props.onUpdateRuntimeMode,
     displayedDescriptors,
@@ -1040,6 +1056,14 @@ function ThreadSettingsOptionsItem(props: {
             </Animated.View>
           );
         })}
+        {session.anima ? (
+          <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
+            <ThreadSettingsAnimaRow
+              anima={session.anima}
+              onPress={() => props.onOpenSubmenu({ kind: "anima" })}
+            />
+          </Animated.View>
+        ) : null}
         <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
           <DisclosureRow
             isLast
@@ -1288,6 +1312,28 @@ function ThreadSettingsChoiceContent(props: {
           }
         : null;
 
+  if (props.submenu.kind === "anima" && session.anima) {
+    return (
+      <ScrollView
+        className="flex-1 bg-sheet"
+        style={
+          Platform.OS === "android"
+            ? { width: "100%", maxWidth: 720, alignSelf: "center" }
+            : undefined
+        }
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + 12,
+          paddingHorizontal: 16,
+          paddingTop: 16,
+        }}
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+      >
+        <ThreadAnimaContent anima={session.anima} onSelected={props.onSelected} />
+      </ScrollView>
+    );
+  }
+
   if (!submenuContent) {
     return <View className="flex-1 bg-sheet" />;
   }
@@ -1438,9 +1484,11 @@ function ThreadSettingsModelsScreen() {
             const title =
               submenu.kind === "runtime"
                 ? gt("Runtime", { $context: "agent permission mode setting" })
-                : (session.displayedDescriptors.find(
-                    (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
-                  )?.label ?? gt("Option"));
+                : submenu.kind === "anima"
+                  ? "Anima"
+                  : (session.displayedDescriptors.find(
+                      (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
+                    )?.label ?? gt("Option"));
             navigation.navigate("ThreadSettingsChoice", { ...submenu, title });
           }}
         />
@@ -1522,6 +1570,7 @@ export function ExistingThreadSettingsRouteScreen({
   const draftSettings = useComposerDraftSettings(draftKey);
   const threadDraftSettings = useComposerDraftSettings(threadKey);
   const prompt = useComposerDraft(draftKey).text;
+  const updateMetadata = useAtomCommand(threadEnvironment.updateMetadata, { reportFailure: false });
 
   if (!selectedThread) {
     return <View className="flex-1 bg-sheet" />;
@@ -1552,6 +1601,19 @@ export function ExistingThreadSettingsRouteScreen({
     ) ?? null;
   const updateModelSelection = (selection: ModelSelection) =>
     selectThreadModel(route.params, selection);
+  const currentAnima = selectedThread.animaName ?? null;
+  const changeAnima = async (animaName: AnimaName | null) => {
+    const result = await updateMetadata({
+      environmentId: selectedThread.environmentId,
+      input: { threadId: selectedThread.id, animaName },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      Dialog.alert(
+        "Could not change the anima",
+        describeAnimaError(squashAtomCommandFailure(result)),
+      );
+    }
+  };
 
   return (
     <ThreadSettingsPickerScreen
@@ -1584,6 +1646,13 @@ export function ExistingThreadSettingsRouteScreen({
       }}
       runtimeMode={threadDraftSettings.runtimeMode ?? selectedThread.runtimeMode}
       onUpdateRuntimeMode={(runtimeMode) => updateComposerDraftSettings(threadKey, { runtimeMode })}
+      anima={{
+        environmentId: selectedThread.environmentId,
+        current: currentAnima,
+        locked: currentAnima !== null && selectedThread.animaWokenAt != null,
+        threadId: selectedThread.id,
+        onChange: (animaName) => void changeAnima(animaName),
+      }}
       onClose={() => navigation.goBack()}
     />
   );
@@ -1614,6 +1683,17 @@ export function NewTaskThreadSettingsRouteScreen() {
       onUpdateOptionSelections={flow.setSelectedModelOptions}
       runtimeMode={flow.runtimeMode}
       onUpdateRuntimeMode={flow.setRuntimeMode}
+      {...(flow.selectedEnvironmentId
+        ? {
+            anima: {
+              environmentId: flow.selectedEnvironmentId,
+              current: flow.animaName,
+              locked: false,
+              threadId: null,
+              onChange: flow.setAnimaName,
+            },
+          }
+        : {})}
       onClose={() => navigation.goBack()}
     />
   );

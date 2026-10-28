@@ -940,6 +940,7 @@ function ThreadRouteContent(
         worktreePath: null,
         startFromOrigin: false,
         worktreeBranchName: "",
+        ...(selectedThread.animaName ? { animaName: selectedThread.animaName } : {}),
       }),
     });
     localResendBusy.current = false;
