@@ -12,6 +12,7 @@ export const WorktreeSetupStageId = Schema.Literals([
   "checkout",
   "submodules",
   "setup-script",
+  "anima",
   "agent",
 ]);
 export type WorktreeSetupStageId = typeof WorktreeSetupStageId.Type;
@@ -84,6 +85,7 @@ export const WORKTREE_SETUP_STAGE_ORDER: ReadonlyArray<WorktreeSetupStageId> = [
   "checkout",
   "submodules",
   "setup-script",
+  "anima",
   "agent",
 ];
 
@@ -97,6 +99,8 @@ export function worktreeSetupStageLabel(id: WorktreeSetupStageId): string {
       return "Init submodules";
     case "setup-script":
       return "Run setup script";
+    case "anima":
+      return "Wake anima";
     case "agent":
       return "Start agent";
   }

@@ -1,4 +1,4 @@
-import { CommandId, type RunId } from "@t3tools/contracts";
+import { CommandId, type RunId, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -117,12 +117,35 @@ export const layerExecutor: Layer.Layer<
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const settings = yield* ServerSettings.ServerSettingsService;
+    // One deterministic id per thread: the lock is permanent, so a replayed receipt is a success.
+    const recordAnimaWake = (threadId: ThreadId) =>
+      threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`command:anima-wake:${threadId}`),
+          threadId,
+          animaWoken: true,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to record anima wake; it may be injected once more", {
+              threadId,
+              cause,
+            }),
+          ),
+        );
     const startRun = (
       effect: EffectOutbox.OrchestrationEffectV2,
       runId: RunId,
       willRetry: boolean,
     ) =>
-      providerTurnStart.start({ threadId: effect.threadId, runId, willRetry }).pipe(
+      providerTurnStart.start({
+        threadId: effect.threadId,
+        runId,
+        willRetry,
+        recordAnimaWake: recordAnimaWake(effect.threadId),
+      }).pipe(
         Effect.catchCauseIf(
           (cause) => !willRetry && !Cause.hasInterruptsOnly(cause),
           (cause) =>

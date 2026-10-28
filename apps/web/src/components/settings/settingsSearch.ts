@@ -32,6 +32,7 @@ export type SettingsPath =
   | "/settings/browser"
   | "/settings/devices"
   | "/settings/scheduled-tasks"
+  | "/settings/anima"
   | "/settings/source-control"
   | "/settings/worktrees"
   | "/settings/connections"
@@ -107,6 +108,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/browser": msg("Browser"),
   "/settings/devices": msg("Devices"),
   "/settings/scheduled-tasks": msg("Scheduled tasks"),
+  "/settings/anima": msg("Anima"),
   "/settings/source-control": msg("Source control & issues"),
   "/settings/worktrees": msg("Worktrees"),
   "/settings/connections": msg("Environments"),
@@ -1463,6 +1465,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/archived",
     searchTerms: [msg("restore reopen deleted history projects")],
   },
+  {
+    id: "anima-roster",
+    title: "Anima identities",
+    to: "/settings/anima",
+    searchTerms: ["persistent agent identity breath breathe policy sync merge roster"],
+    environmentOnly: true,
+  },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
@@ -1492,6 +1501,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,
+  "/settings/anima": null,
   "/settings/archived": "project-defaults",
 };
 
