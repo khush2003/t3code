@@ -129,6 +129,8 @@ export class AnimaService extends Context.Service<
     readonly summary: (name: string) => Effect.Effect<AnimaSummary, AnimaFailure>;
     readonly rootPath: Effect.Effect<string>;
     readonly cliAvailable: Effect.Effect<boolean>;
+    /** The skill's own breathe.md, or "" when the skill does not ship one. */
+    readonly breatheGuide: Effect.Effect<string>;
     /** The anima's generated output-style text (frontmatter stripped), or "" when absent. */
     readonly voice: (name: string) => Effect.Effect<string>;
     /** Compact identity refresh built from files only: no wake, no clock-in, no inbox. */
@@ -194,6 +196,7 @@ const make = Effect.gen(function* () {
     fs.readFileString(target).pipe(Effect.orElseSucceed(() => ""));
 
   const cliAvailable = exists(cliPath);
+  const breatheGuide = readOptional(path.join(path.dirname(cliPath), "breathe.md"));
 
   interface CliResult {
     readonly stdout: string;
@@ -965,6 +968,7 @@ const make = Effect.gen(function* () {
     summary,
     rootPath: Effect.succeed(root),
     cliAvailable,
+    breatheGuide,
     voice,
     capsule,
     install,
