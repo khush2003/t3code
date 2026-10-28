@@ -93,7 +93,7 @@ function latestWithShape(breaths: ReadonlyArray<AnimaBreath>) {
   return breaths.filter((breath) => breath.shape !== null).toSorted((a, b) => b.index - a.index)[0];
 }
 
-export function AnimaBodyPanel({
+function AnimaBodyPanel({
   breaths,
   accent,
 }: {
@@ -218,7 +218,7 @@ export function AnimaBodyPanel({
   );
 }
 
-export function AnimaTimeline({
+function AnimaTimeline({
   breaths,
   accent,
   onSelect,
