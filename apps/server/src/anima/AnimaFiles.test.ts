@@ -436,6 +436,7 @@ describe("buildSummary", () => {
       breathCount: 2,
       aim: "consolidate types",
       lastBreathAt: "2026-03-12T19:08",
+      lastActiveAt: "2026-03-12T19:08",
       voice: "Speaks slowly. Precise.",
       live: false,
       health: 0.25,
