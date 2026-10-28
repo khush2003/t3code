@@ -1,15 +1,12 @@
-import { ArrowLeftIcon } from "lucide-react";
 import { useState } from "react";
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
 
 import { animaEnvironment } from "../../../state/anima";
 import { useEnvironmentQuery } from "../../../state/query";
-import { Button } from "../../ui/button";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { SettingsGroup } from "../SettingsGroup";
 import { ANIMA_TABS, ANIMA_TAB_LABELS, type AnimaTab, isAnimaTab } from "../animaSettings.logic";
-import { AnimaLiveDot, AnimaRoleBadge } from "./AnimaBits";
-import { AnimaSigil } from "./AnimaVisuals";
+import { AnimaDetailBanner } from "./AnimaDash";
 import { SyncTab } from "./AnimaSyncTab";
 import {
   ActivityTab,
@@ -45,26 +42,12 @@ export function AnimaDetailView({
   const detail = query.data;
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 px-3 sm:px-4">
-        <Button
-          size="icon-xs"
-          variant="ghost-muted"
-          aria-label="Back to all animas"
-          onClick={onBack}
-        >
-          <ArrowLeftIcon />
-        </Button>
-        {detail ? (
-          <>
-            <AnimaSigil anima={detail.summary} size={24} />
-            <h2 className="truncate text-sm font-medium">{detail.summary.name}</h2>
-            <AnimaRoleBadge role={detail.summary.role} />
-            <AnimaLiveDot live={detail.summary.live} />
-          </>
-        ) : (
-          <h2 className="truncate text-sm font-medium">{name}</h2>
-        )}
-      </div>
+      <AnimaDetailBanner
+        environmentId={environmentId}
+        summary={detail?.summary ?? { name }}
+        detail={detail}
+        onBack={onBack}
+      />
       <div className="overflow-x-auto px-3 sm:px-4">
         <ToggleGroup
           aria-label="Anima sections"
