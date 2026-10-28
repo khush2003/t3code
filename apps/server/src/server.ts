@@ -234,6 +234,7 @@ import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ThreadViewers from "./orchestration-v2/ThreadViewers.ts";
 import * as WorkflowForge from "./workflows/WorkflowForge.ts";
+import * as AnimaRuntime from "./anima/AnimaRuntime.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
@@ -812,6 +813,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // One gate for the server, below hydration so the Claude adapter sees it: layers memoize by
   // reference, so the runtime layer shares it.
   Layer.provideMerge(ProviderInstallationGate.layer),
+  // Below hydration so the Claude adapter's pre-tool hook reaches the instance orchestration feeds.
+  Layer.provideMerge(AnimaRuntime.layer),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),

@@ -84,6 +84,7 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
@@ -355,6 +356,7 @@ export const layer: Layer.Layer<
   | TaskFolders.TaskFolders
   | ThreadWorktreeRestore
   | ThreadAnimaWake.ThreadAnimaWake
+  | AnimaRuntime.AnimaRuntime
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -375,6 +377,7 @@ export const layer: Layer.Layer<
     const worktreeRestore = yield* ThreadWorktreeRestore;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
     const animaWake = yield* ThreadAnimaWake.ThreadAnimaWake;
+    const animaRuntime = yield* AnimaRuntime.AnimaRuntime;
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
     const makeRunControls = (input: {
@@ -1286,12 +1289,28 @@ export const layer: Layer.Layer<
             })
           : null;
       // Locked threads restate the persona every ~15 minutes.
-      const wakeContext =
+      const identityContext =
         wake?.status === "woke"
           ? wake.context
           : animaName !== null && animaLocked
             ? yield* animaWake.refresh({ threadId: projection.thread.id, name: animaName })
             : "";
+      const activeAnima =
+        animaName !== null && (animaLocked || wake?.status === "woke") ? animaName : null;
+      if (activeAnima !== null)
+        yield* animaRuntime.attach({
+          threadId: projection.thread.id,
+          name: activeAnima,
+          cwd: resolvedRuntimePolicy.cwd,
+          woke: wake?.status === "woke",
+        });
+      const runtimeNotices =
+        activeAnima === null
+          ? { text: "", ack: Effect.void }
+          : yield* animaRuntime.notices(projection.thread.id);
+      const wakeContext = [identityContext, runtimeNotices.text]
+        .filter((part) => part !== "")
+        .join("\n\n");
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -1441,7 +1460,9 @@ export const layer: Layer.Layer<
             return handoffBudget({
               tokenCap,
               modelContextWindow,
-              userText: [wakeContext, restartNote, userText].filter((part) => part !== "").join("\n\n"),
+              userText: [wakeContext, restartNote, userText]
+                .filter((part) => part !== "")
+                .join("\n\n"),
               attachments: providerMessage.attachments,
               providerThread: budgetProviderThread,
               nativeContextEstimate:
@@ -2413,6 +2434,7 @@ export const layer: Layer.Layer<
               if (promptDroppedOnTerminal) return;
               if (!compact && wake?.status === "woke" && input.recordAnimaWake !== undefined)
                 yield* input.recordAnimaWake;
+              if (!compact) yield* runtimeNotices.ack;
               // After provider acceptance, failed delivery bookkeeping must not stop live ingestion.
               const nativeThreadId = runningProviderThread.nativeThreadRef?.nativeId;
               yield* Effect.forEach(

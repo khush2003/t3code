@@ -1470,6 +1470,125 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "anima-inbox-read": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Read anima inboxes {count} time} other {Read anima inboxes {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to read anima inboxes {count} time} other {Tried to read anima inboxes {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-message": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Messaged animas {count} time} other {Messaged animas {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to message animas {count} time} other {Tried to message animas {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-opens-list": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Listed anima opens {count} time} other {Listed anima opens {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to list anima opens {count} time} other {Tried to list anima opens {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-opens-update": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Updated anima opens {count} time} other {Updated anima opens {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to update anima opens {count} time} other {Tried to update anima opens {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-library-list": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Listed the anima library {count} time} other {Listed the anima library {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to list the anima library {count} time} other {Tried to list the anima library {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-library-read": {
+      const count = countEntities(entityIds("slug"));
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Read {count} anima library entry} other {Read {count} anima library entries}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to read {count} anima library entry} other {Tried to read {count} anima library entries}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-health": {
+      const count = countEntities(entityIds("name"));
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Checked the health of {count} anima} other {Checked the health of {count} animas}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to check the health of {count} anima} other {Tried to check the health of {count} animas}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "attachment-send": {
       const messages = new Map<string, (typeof selected)[number]>();
       selected.forEach((call, index) =>
