@@ -8,6 +8,8 @@ import {
   createEnvironmentRpcQueryAtomFamily,
 } from "./runtime.ts";
 
+/** Runtime status tracks tool calls in a running turn, so it refreshes faster than the roster. */
+const ANIMA_THREAD_STATUS_REFRESH_MS = 5_000;
 /** Live dots go stale after the server's heartbeat window, so list data is refreshed on this cadence while read. */
 const ANIMA_LIVE_REFRESH_MS = 15_000;
 
@@ -49,6 +51,32 @@ export function createAnimaEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 30_000,
     }),
+    health: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:anima:health",
+      tag: WS_METHODS.animaHealth,
+      staleTimeMs: ANIMA_LIVE_REFRESH_MS,
+      refreshIntervalMs: ANIMA_LIVE_REFRESH_MS,
+      idleTtlMs: 60_000,
+    }),
+    libraryList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:anima:library-list",
+      tag: WS_METHODS.animaLibraryList,
+      staleTimeMs: 60_000,
+      idleTtlMs: 60_000,
+    }),
+    libraryRead: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:anima:library-read",
+      tag: WS_METHODS.animaLibraryRead,
+      staleTimeMs: 60_000,
+      idleTtlMs: 60_000,
+    }),
+    threadStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:anima:thread-status",
+      tag: WS_METHODS.animaThreadStatus,
+      staleTimeMs: ANIMA_THREAD_STATUS_REFRESH_MS,
+      refreshIntervalMs: ANIMA_THREAD_STATUS_REFRESH_MS,
+      idleTtlMs: 30_000,
+    }),
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:create",
       tag: WS_METHODS.animaCreate,
@@ -70,6 +98,30 @@ export function createAnimaEnvironmentAtoms<R, E>(
     policy: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:policy",
       tag: WS_METHODS.animaPolicy,
+      scheduler,
+      concurrency,
+    }),
+    inboxAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:inbox",
+      tag: WS_METHODS.animaInbox,
+      scheduler,
+      concurrency,
+    }),
+    opensAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:opens",
+      tag: WS_METHODS.animaOpens,
+      scheduler,
+      concurrency,
+    }),
+    libraryShelve: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:library-shelve",
+      tag: WS_METHODS.animaLibraryShelve,
+      scheduler,
+      concurrency,
+    }),
+    team: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:team",
+      tag: WS_METHODS.animaTeam,
       scheduler,
       concurrency,
     }),
