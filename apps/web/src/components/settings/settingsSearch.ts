@@ -162,6 +162,7 @@ const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<SettingsNavGroup> = [
       "/settings/browser",
       "/settings/devices",
       "/settings/scheduled-tasks",
+      "/settings/anima",
     ],
   },
   {
