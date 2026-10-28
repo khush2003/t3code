@@ -58,6 +58,7 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
@@ -200,6 +201,7 @@ function startWithMissingWorktree(
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
         Layer.mock(ThreadAnimaWake.ThreadAnimaWake)({}),
+        Layer.mock(AnimaRuntime.AnimaRuntime)({}),
       ),
     ),
   );
@@ -295,6 +297,8 @@ function makeLocalCommandHarness(input: {
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
   readonly recoveryReadFailure?: string;
+  /** Runs the thread with a woken anima whose runtime is this mock. */
+  readonly anima?: Partial<AnimaRuntime.AnimaRuntime["Service"]>;
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -386,6 +390,7 @@ function makeLocalCommandHarness(input: {
       branch: input.worktreePath === undefined ? null : "feature/restore",
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      ...(input.anima === undefined ? {} : { animaName: "iris", animaWokenAt: now }),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -1038,7 +1043,10 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
         }),
-        Layer.mock(ThreadAnimaWake.ThreadAnimaWake)({}),
+        Layer.mock(ThreadAnimaWake.ThreadAnimaWake)(
+          input.anima === undefined ? {} : { refresh: () => Effect.succeed("") },
+        ),
+        Layer.mock(AnimaRuntime.AnimaRuntime)(input.anima ?? {}),
       ),
     ),
   );
@@ -1484,6 +1492,51 @@ effectIt.effect("does not resume a continuation stopped while recovery was in fl
     expect(harness.projection().runs.at(-1)?.status).toBe("interrupted");
     expect(harness.open).not.toHaveBeenCalled();
   }),
+);
+
+effectIt.effect(
+  "prepends anima runtime notices and marks them delivered once the turn starts",
+  () =>
+    Effect.gen(function* () {
+      const notice = '<anima-runtime name="iris">\nLOOP BREAKER\n</anima-runtime>';
+      const delivered = vi.fn();
+      const attach = vi.fn<AnimaRuntime.AnimaRuntime["Service"]["attach"]>(() => Effect.void);
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        previousTurn: { runStatus: "completed", turnStatus: "completed" },
+        anima: {
+          attach,
+          notices: () => Effect.succeed({ text: notice, ack: Effect.sync(delivered) }),
+        },
+      });
+      const prompts: Array<string> = [];
+      const open = harness.open.getMockImplementation()!;
+      harness.open.mockImplementation(
+        () =>
+          Effect.map(
+            open() as unknown as Effect.Effect<
+              ProviderAdapter.ProviderAdapterV2SessionRuntime,
+              ProviderSessionManager.ProviderSessionOpenError
+            >,
+            (session) => ({
+              ...session,
+              startTurn: (turn: Parameters<typeof session.startTurn>[0]) =>
+                Effect.sync(() => {
+                  prompts.push(turn.message.text);
+                }),
+            }),
+          ) as never,
+      );
+      harness.startRootRun.mockImplementation(({ session }) =>
+        session.startTurn({ message: { text: "" } } as never).pipe(Effect.orDie),
+      );
+
+      yield* harness.start;
+
+      expect(attach).toHaveBeenCalledWith(expect.objectContaining({ name: "iris", woke: false }));
+      expect(prompts).toEqual([`${notice}\n\nUser message:\nContinue`]);
+      expect(delivered).toHaveBeenCalledOnce();
+    }),
 );
 
 effectIt.effect.each(["cleanup-first", "startup-first"])(
