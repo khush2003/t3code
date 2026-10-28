@@ -1,48 +1,35 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { CheckIcon, PencilIcon, Trash2Icon, WindIcon, XIcon } from "lucide-react";
+import { IdCardIcon, WindIcon } from "lucide-react";
 import { useState } from "react";
-import type { AnimaDetail, AnimaPolicyRule, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "../../../lib/utils";
-import { requestConfirmDialog } from "../../../confirmDialog";
 import { animaEnvironment } from "../../../state/anima";
 import { useProjects, useThreadShell } from "../../../state/entities";
 import { useEnvironmentQuery } from "../../../state/query";
 import ChatMarkdown from "../../ChatMarkdown";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { Switch } from "../../ui/switch";
 import { SettingsGroup } from "../SettingsGroup";
-import { SettingsSection } from "../settingsLayout";
-import { breathNoteText, buildAnimaFeed, keyedLines } from "../animaSettings.logic";
-import { AnimaAccentDot, Field, RelativeTime, TraitBars, useAnimaMutation } from "./AnimaBits";
+import { breathNoteText, buildAnimaFeed } from "../animaSettings.logic";
+import {
+  AnimaAccentDot,
+  AnimaBlock,
+  AnimaEmptyNote,
+  RelativeTime,
+  TraitBars,
+  useAnimaMutation,
+} from "./AnimaBits";
+import { AnimaTeamSection } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 import { AnimaHero, TraitRadar } from "./AnimaVisuals";
 
 interface TabProps {
   readonly environmentId: EnvironmentId;
   readonly detail: AnimaDetail;
-}
-
-function Block({
-  title,
-  children,
-}: {
-  readonly title: string;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
-      {children}
-    </div>
-  );
 }
 
 function WakePreview({
@@ -66,7 +53,11 @@ export function OverviewTab({
   environmentId,
   detail,
   onSelectBreath,
-}: TabProps & { readonly onSelectBreath: (index: number) => void }) {
+  onOpenAnima,
+}: TabProps & {
+  readonly onSelectBreath: (index: number) => void;
+  readonly onOpenAnima: (name: string) => void;
+}) {
   const { summary } = detail;
   const canOperate = useAtomValue(animaEnvironment.attach.permissionAtom(environmentId));
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
@@ -87,34 +78,35 @@ export function OverviewTab({
           <RelativeTime value={summary.lastActiveAt} />.
         </div>
       </div>
+      <AnimaTeamSection environmentId={environmentId} detail={detail} onOpenAnima={onOpenAnima} />
       {summary.voice ? (
-        <Block title="Voice">
+        <AnimaBlock title="Voice">
           <p className="text-sm text-foreground/90">{summary.voice}</p>
-        </Block>
+        </AnimaBlock>
       ) : null}
       {summary.vow ? (
-        <Block title="Vow">
+        <AnimaBlock title="Vow">
           <p className="text-sm text-foreground/90">{summary.vow}</p>
-        </Block>
+        </AnimaBlock>
       ) : null}
       {summary.memo ? (
-        <Block title="Memo">
+        <AnimaBlock title="Memo">
           <p className="whitespace-pre-wrap text-sm text-foreground/90">{summary.memo}</p>
-        </Block>
+        </AnimaBlock>
       ) : null}
-      <div className="grid gap-5 md:grid-cols-2">
-        <Block title="Traits">
+      <div className="grid gap-5 @xl/anima:grid-cols-2">
+        <AnimaBlock title="Traits">
           <TraitRadar traits={detail.traits} />
           <TraitBars traits={detail.traits} empty="No traits recorded yet." />
-        </Block>
-        <Block title="Skills">
+        </AnimaBlock>
+        <AnimaBlock title="Skills">
           <TraitRadar traits={detail.skills} />
           <TraitBars traits={detail.skills} empty="No skills recorded yet." />
-        </Block>
+        </AnimaBlock>
       </div>
       {detail.header.length > 0 ? (
-        <Block title="Header">
-          <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
+        <AnimaBlock title="Header">
+          <dl className="grid grid-cols-[minmax(0,8rem)_1fr] gap-x-3 gap-y-1 text-xs">
             {detail.header.map((entry) => (
               <div key={entry.key} className="contents">
                 <dt className="truncate text-muted-foreground">{entry.key}</dt>
@@ -122,9 +114,9 @@ export function OverviewTab({
               </div>
             ))}
           </dl>
-        </Block>
+        </AnimaBlock>
       ) : null}
-      <Block title="Projects">
+      <AnimaBlock title="Projects">
         <div className="flex flex-wrap gap-1.5">
           {summary.projects.length === 0 ? (
             <span className="text-xs text-muted-foreground">Not attached to any project.</span>
@@ -161,25 +153,102 @@ export function OverviewTab({
             Attach
           </Button>
         </div>
-      </Block>
-      <Block title="Wake payload">
+      </AnimaBlock>
+      <AnimaBlock title="Wake payload">
         <Button size="xs" variant="ghost-muted" onClick={() => setShowWake((value) => !value)}>
           {showWake ? "Hide" : "Preview what a new thread receives"}
         </Button>
         {showWake ? <WakePreview environmentId={environmentId} name={summary.name} /> : null}
-      </Block>
+      </AnimaBlock>
+    </div>
+  );
+}
+
+function AnimaCardPanel({ detail }: { readonly detail: AnimaDetail }) {
+  const { card, offers } = detail;
+  if (card === null && offers.length === 0) {
+    return (
+      <AnimaEmptyNote icon={<IdCardIcon />} title="No card yet">
+        The anima CLI writes a card describing what this anima can do. It appears here once
+        generated.
+      </AnimaEmptyNote>
+    );
+  }
+  return (
+    <div className="space-y-4 rounded-xl border border-border/60 bg-card/60 p-3">
+      {card ? (
+        <>
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
+              <IdCardIcon className="size-3.5" />
+              <span className="font-medium uppercase tracking-wide">Card</span>
+              {card.version ? <span>v{card.version}</span> : null}
+              {card.status ? (
+                <Badge size="sm" variant="secondary">
+                  {card.status}
+                </Badge>
+              ) : null}
+            </div>
+            {card.description ? <p className="text-sm">{card.description}</p> : null}
+            {card.generatedAt ? (
+              <p className="text-2xs text-muted-foreground">
+                generated <RelativeTime value={card.generatedAt} />
+              </p>
+            ) : null}
+          </div>
+          {card.skills.length > 0 ? (
+            <AnimaBlock title="Skills">
+              <TraitBars
+                traits={card.skills.map((skill) => ({
+                  name: skill.name,
+                  mean: skill.confidence,
+                  sigma: null,
+                }))}
+                empty=""
+              />
+            </AnimaBlock>
+          ) : null}
+          {card.interfaces.length > 0 ? (
+            <AnimaBlock title="Interfaces">
+              <div className="flex flex-wrap gap-1">
+                {card.interfaces.map((entry) => (
+                  <Badge key={entry} size="sm" variant="outline">
+                    {entry}
+                  </Badge>
+                ))}
+              </div>
+            </AnimaBlock>
+          ) : null}
+        </>
+      ) : null}
+      {offers.length > 0 ? (
+        <AnimaBlock title="Offers for consults">
+          <div className="flex flex-wrap gap-1">
+            {offers.map((offer) => (
+              <Badge key={offer} size="sm" variant="info">
+                {offer}
+              </Badge>
+            ))}
+          </div>
+        </AnimaBlock>
+      ) : null}
     </div>
   );
 }
 
 export function IdentityTab({ environmentId, detail }: TabProps) {
   return (
-    <div className="px-3 py-3 sm:px-4">
-      {detail.identity.trim() === "" ? (
-        <p className="text-xs text-muted-foreground">This anima has no identity file yet.</p>
-      ) : (
-        <ChatMarkdown text={detail.identity} cwd={undefined} environmentId={environmentId} />
-      )}
+    <div className="grid gap-5 px-3 py-3 sm:px-4 @2xl/anima:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="min-w-0 @2xl/anima:order-first">
+        {detail.identity.trim() === "" ? (
+          <p className="text-xs text-muted-foreground">This anima has no identity file yet.</p>
+        ) : (
+          <ChatMarkdown text={detail.identity} cwd={undefined} environmentId={environmentId} />
+        )}
+      </div>
+      <aside className="order-first min-w-0 @2xl/anima:order-none @2xl/anima:sticky @2xl/anima:top-3 @2xl/anima:self-start">
+        <AnimaCardPanel detail={detail} />
+      </aside>
     </div>
   );
 }
@@ -325,238 +394,6 @@ function ThreadTitle({
 }) {
   const shell = useThreadShell(scopeThreadRef(environmentId, threadId));
   return <span className="truncate">{shell?.title ?? threadId}</span>;
-}
-
-function PolicyRuleRow({
-  rule,
-  pending,
-  environmentId,
-  name,
-  canOperate,
-}: {
-  readonly rule: AnimaPolicyRule;
-  readonly pending: boolean;
-  readonly environmentId: EnvironmentId;
-  readonly name: string;
-  readonly canOperate: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(rule.text);
-  const policy = useAnimaMutation(animaEnvironment.policy, {
-    failureTitle: "Could not change rule",
-  });
-  const save = async () => {
-    const trimmed = text.trim();
-    if (trimmed === "" || trimmed === rule.text) return setEditing(false);
-    const result = await policy({
-      environmentId,
-      input: { name, action: { type: "update", index: rule.index, rule: trimmed } },
-    });
-    if (result) setEditing(false);
-  };
-  const remove = async () => {
-    const confirmed =
-      (await requestConfirmDialog(`Remove this rule?\n${rule.text}`, { variant: "destructive" })) ??
-      window.confirm("Remove this rule?");
-    if (!confirmed) return;
-    await policy({ environmentId, input: { name, action: { type: "remove", index: rule.index } } });
-  };
-  return (
-    <li className="flex items-start gap-2 px-3 py-2 sm:px-4">
-      <span className="mt-0.5 w-5 shrink-0 text-right text-2xs tabular-nums text-muted-foreground">
-        {rule.index}
-      </span>
-      {editing ? (
-        <Input
-          size="sm"
-          autoFocus
-          value={text}
-          aria-label="Rule text"
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void save();
-            if (event.key === "Escape") setEditing(false);
-          }}
-        />
-      ) : (
-        <p className="min-w-0 flex-1 text-sm">{rule.text}</p>
-      )}
-      <div className="flex shrink-0 items-center gap-0.5">
-        {editing ? (
-          <>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Save rule"
-              onClick={() => void save()}
-            >
-              <CheckIcon />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Cancel"
-              onClick={() => setEditing(false)}
-            >
-              <XIcon />
-            </Button>
-          </>
-        ) : (
-          <>
-            {pending ? null : (
-              <Button
-                size="icon-xs"
-                variant="ghost-muted"
-                aria-label="Edit rule"
-                disabled={!canOperate}
-                onClick={() => {
-                  setText(rule.text);
-                  setEditing(true);
-                }}
-              >
-                <PencilIcon />
-              </Button>
-            )}
-            <Button
-              size="icon-xs"
-              variant="ghost-destructive"
-              aria-label="Remove rule"
-              disabled={!canOperate}
-              onClick={() => void remove()}
-            >
-              <Trash2Icon />
-            </Button>
-          </>
-        )}
-      </div>
-    </li>
-  );
-}
-
-export function PolicyTab({ environmentId, detail }: TabProps) {
-  const { policy } = detail;
-  const name = detail.summary.name;
-  const canOperate = useAtomValue(animaEnvironment.policy.permissionAtom(environmentId));
-  const run = useAnimaMutation(animaEnvironment.policy, {
-    failureTitle: "Could not change policy",
-  });
-  const [rule, setRule] = useState("");
-  const [direct, setDirect] = useState(false);
-  const [showAudit, setShowAudit] = useState(false);
-  const atCap = policy.operational.length >= policy.cap;
-  const add = async () => {
-    const text = rule.trim();
-    if (text === "") return;
-    const result = await run({
-      environmentId,
-      input: { name, action: { type: "add", rule: text, direct } },
-    });
-    if (result) setRule("");
-  };
-  return (
-    <div className="space-y-4 py-3">
-      <div className="flex items-center justify-between px-3 sm:px-4">
-        <span className="text-xs text-muted-foreground">Revision {policy.revision}</span>
-        <Badge variant={atCap ? "warning" : "outline"} size="sm">
-          {policy.operational.length} / {policy.cap} rules
-        </Badge>
-      </div>
-      <SettingsSection title="Operational rules" variant="plain">
-        {policy.operational.length === 0 ? (
-          <p className="px-3 py-3 text-xs text-muted-foreground sm:px-4">No operational rules.</p>
-        ) : (
-          <ul className="divide-y divide-border/50">
-            {policy.operational.map((entry) => (
-              <PolicyRuleRow
-                key={entry.index}
-                rule={entry}
-                pending={false}
-                environmentId={environmentId}
-                name={name}
-                canOperate={canOperate}
-              />
-            ))}
-          </ul>
-        )}
-      </SettingsSection>
-      <SettingsSection
-        title="Pending rules"
-        variant="plain"
-        headerAction={
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={!canOperate || policy.pending.length === 0}
-            onClick={() => void run({ environmentId, input: { name, action: { type: "apply" } } })}
-          >
-            Apply pending
-          </Button>
-        }
-      >
-        {policy.pending.length === 0 ? (
-          <p className="px-3 py-3 text-xs text-muted-foreground sm:px-4">
-            Nothing is waiting for approval.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border/50">
-            {policy.pending.map((entry) => (
-              <PolicyRuleRow
-                key={entry.index}
-                rule={entry}
-                pending
-                environmentId={environmentId}
-                name={name}
-                canOperate={canOperate}
-              />
-            ))}
-          </ul>
-        )}
-      </SettingsSection>
-      <div className="space-y-2 px-3 sm:px-4">
-        <Field
-          label="Add a rule"
-          hint={atCap && direct ? "At the cap: remove a rule first" : undefined}
-        >
-          <div className="flex items-center gap-2">
-            <Input
-              size="sm"
-              value={rule}
-              placeholder="Always run the type checker before committing"
-              aria-label="New rule"
-              onChange={(event) => setRule(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void add();
-              }}
-            />
-            <Button
-              size="xs"
-              disabled={!canOperate || rule.trim() === ""}
-              onClick={() => void add()}
-            >
-              Add
-            </Button>
-          </div>
-        </Field>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Switch checked={direct} onCheckedChange={setDirect} />
-          Apply directly instead of waiting for approval
-        </label>
-      </div>
-      <div className="space-y-1 px-3 sm:px-4">
-        <Button size="xs" variant="ghost-muted" onClick={() => setShowAudit((value) => !value)}>
-          {showAudit ? "Hide audit log" : `Show audit log (${policy.audit.length})`}
-        </Button>
-        {showAudit ? (
-          <ul className="max-h-64 space-y-1 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-2xs">
-            {policy.audit.length === 0 ? <li>No entries.</li> : null}
-            {keyedLines(policy.audit).map(({ key, line }) => (
-              <li key={key}>{line}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 export function ActivityTab({ detail }: TabProps) {

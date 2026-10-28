@@ -333,6 +333,13 @@ export function CommandPalette(props: {
         run: () => openSettings(navigation, "SettingsScheduledTasks"),
       },
       {
+        key: "animas",
+        kind: "action",
+        title: "Animas",
+        searchTerms: ["anima", "identity", "breath", "roster"],
+        run: () => openSettings(navigation, "SettingsAnimas"),
+      },
+      {
         key: "usage",
         kind: "action",
         title: "Usage",

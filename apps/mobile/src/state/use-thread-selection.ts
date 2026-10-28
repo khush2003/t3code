@@ -105,6 +105,7 @@ function threadDetailToShell(
     activeOrderKey: thread.activeOrderKey,
     autoSettleDisabledAt: thread.autoSettleDisabledAt,
     animaName: thread.animaName,
+    animaWokenAt: thread.animaWokenAt,
     pinnedAt: thread.pinnedAt,
     pinOrderKey: thread.pinOrderKey,
     snoozedUntil: thread.snoozedUntil ?? null,

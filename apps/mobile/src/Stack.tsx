@@ -108,6 +108,10 @@ import {
   SettingsScheduledTaskEditRouteScreen,
 } from "./features/settings/SettingsScheduledTasksRouteScreen";
 import {
+  SettingsAnimaDetailRouteScreen,
+  SettingsAnimasRouteScreen,
+} from "./features/settings/SettingsAnimasRouteScreen";
+import {
   ScheduledTaskModelPickerRouteScreen,
   ScheduledTaskBranchPickerRouteScreen,
 } from "./features/settings/ScheduledTaskPickerScreens";
@@ -364,6 +368,15 @@ const SETTINGS_SCREENS = {
       title: "Scheduled tasks",
       headerTitleStyle: { fontSize: 16, fontWeight: "800" },
     },
+  }),
+  SettingsAnimas: createNativeStackScreen({
+    screen: SettingsAnimasRouteScreen,
+    linking: "settings/animas",
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Animas" },
+  }),
+  SettingsAnimaDetail: createNativeStackScreen({
+    screen: SettingsAnimaDetailRouteScreen,
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Anima" },
   }),
   SettingsScheduledTaskNew: createNativeStackScreen({
     screen: SettingsScheduledTaskNewRouteScreen,
