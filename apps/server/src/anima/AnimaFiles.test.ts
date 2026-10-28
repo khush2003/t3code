@@ -95,9 +95,39 @@ describe("identity, breath, policy, inbox, session", () => {
       parent: "7",
       files: ["a.ts", "b.ts"],
       decisions: ["one", "two", "three"],
+      friction: null,
+      narrativeAim: null,
+      self: [],
+      corrections: [],
+      seeking: null,
+      resume: null,
       open: ["first open thing"],
+      closedOpens: [],
     });
     expect(AnimaFiles.parseBreathFile(breath(0, "x"), "000.breath")?.parent).toBeNull();
+    const current = [
+      "# breath:9 ts:2026-07-30T09:38 parent:8 hash:51c1182d5505",
+      "# chose a over b, kept c | the build hid a type error | ship the importer until tests pass",
+      "# self: rigor=0.94,autonomy=bad,directness=0.9",
+      "# closed-opens: first | second",
+      '# corrections: "stop guessing"|verify first; "smaller"|yagni',
+    ].join("\n");
+    expect(AnimaFiles.parseBreathFile(current, "009.breath")).toMatchObject({
+      decisions: ["chose a over b", "kept c"],
+      friction: "the build hid a type error",
+      narrativeAim: "ship the importer until tests pass",
+      self: [
+        { name: "rigor", mean: 0.94, sigma: null },
+        { name: "directness", mean: 0.9, sigma: null },
+      ],
+      corrections: ['"stop guessing"|verify first', '"smaller"|yagni'],
+      closedOpens: ["first", "second"],
+    });
+    expect(AnimaFiles.parseBreathFile("# breath:3\n# - | - | -\n", "003.breath")).toMatchObject({
+      decisions: [],
+      friction: null,
+      narrativeAim: null,
+    });
   });
 
   it("parses policy sections with numbered rules and hook fire stats", () => {

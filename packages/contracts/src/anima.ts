@@ -72,7 +72,15 @@ export const AnimaBreath = Schema.Struct({
   aim: Schema.NullOr(Schema.String),
   project: Schema.NullOr(Schema.String),
   decisions: Schema.Array(Schema.String),
+  friction: Schema.NullOr(Schema.String),
+  /** Raw `--self` scores of this breath, before the Kalman merge; sigma is always null. */
+  self: Schema.Array(AnimaTrait),
+  /** "the user's words|principle" entries. */
+  corrections: Schema.Array(Schema.String),
+  seeking: Schema.NullOr(Schema.String),
+  resume: Schema.NullOr(Schema.String),
   open: Schema.Array(Schema.String),
+  closedOpens: Schema.Array(Schema.String),
   files: Schema.Array(Schema.String),
   hash: Schema.NullOr(Schema.String),
   parent: Schema.NullOr(Schema.String),
