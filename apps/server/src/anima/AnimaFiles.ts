@@ -238,7 +238,9 @@ export function buildIdentityCapsule(name: string, agentContent: string, identit
 export interface ParsedBreathFile extends Omit<
   AnimaBreath,
   "note" | "hsl" | "shape" | "drift" | "graph" | "aim" | "project"
-> {}
+> {
+  readonly narrativeAim: string | null;
+}
 
 export function breathFileName(index: number): string {
   return `${String(index).padStart(3, "0")}.breath`;
@@ -257,14 +259,49 @@ export function parseBreathFile(content: string, fileName: string): ParsedBreath
   };
   const parent = pick(/parent:(\S+)/);
   const open = field("open");
+  const list = (key: string, separator: string) =>
+    field(key)
+      .split(separator)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== "" && entry !== "-");
+  // breathe.ts writes "# decisions | friction | aim" on line 2; older breaths use "# decisions:".
+  const narrative = lines
+    .find(
+      (line) => line.startsWith("# ") && !line.startsWith("# breath:") && / \| .* \| /.test(line),
+    )
+    ?.slice(2)
+    .split(" | ");
+  const part = (index: number) => nonEmpty(narrative?.[index]?.trim().replace(/^-$/, ""));
+  const self = field("self")
+    .split(",")
+    .flatMap((entry) => {
+      const [name, value] = entry.split("=");
+      const mean = Number(value);
+      return name?.trim() && Number.isFinite(mean)
+        ? [{ name: name.trim(), mean, sigma: null }]
+        : [];
+    });
   return {
     index: Number.parseInt(indexRaw, 10),
     ts: pick(/ts:(\S+)/) ?? "",
     hash: nonEmpty(pick(/hash:(\S+)/)),
     parent: parent === undefined || parent === "-" ? null : parent,
     files: field("files").split(/\s+/).filter(Boolean),
-    decisions: field("decisions").split(/\s+/).filter(Boolean),
+    decisions:
+      narrative === undefined
+        ? field("decisions").split(/\s+/).filter(Boolean)
+        : (part(0) ?? "")
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean),
+    friction: part(1) ?? nonEmpty(field("friction")),
+    narrativeAim: part(2) ?? null,
+    self,
+    corrections: list("corrections", ";"),
+    seeking: nonEmpty(field("seeking")),
+    resume: nonEmpty(field("resume")),
     open: open === "" ? [] : [open],
+    closedOpens: list("closed-opens", " | "),
   };
 }
 
@@ -287,10 +324,16 @@ export function mergeBreaths(
       shape: row.shape,
       drift: row.drift,
       graph: row.graph,
-      aim: row.aim,
+      aim: row.aim ?? detail?.narrativeAim ?? null,
       project: row.project,
       decisions: detail?.decisions ?? [],
+      friction: detail?.friction ?? null,
+      self: detail?.self ?? [],
+      corrections: detail?.corrections ?? [],
+      seeking: detail?.seeking ?? null,
+      resume: detail?.resume ?? null,
       open: detail?.open ?? [],
+      closedOpens: detail?.closedOpens ?? [],
       files: detail?.files ?? [],
       hash: detail?.hash ?? null,
       parent: detail?.parent ?? null,
@@ -298,14 +341,15 @@ export function mergeBreaths(
   }
   for (const detail of details) {
     if (seen.has(detail.index)) continue;
+    const { narrativeAim, ...rest } = detail;
     out.push({
-      ...detail,
+      ...rest,
       note: "",
       hsl: null,
       shape: null,
       drift: null,
       graph: null,
-      aim: null,
+      aim: narrativeAim,
       project: null,
     });
   }
