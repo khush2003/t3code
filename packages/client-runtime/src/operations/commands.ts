@@ -1,5 +1,6 @@
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
+  type AnimaName,
   type ThreadLinkedPullRequest,
   CommandId,
   CheckpointId,
@@ -89,6 +90,7 @@ export interface CreateThreadInput extends CommandMetadata {
   readonly interactionMode: ProviderInteractionMode;
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly animaName?: AnimaName | null;
 }
 
 export interface ThreadCommandInput extends CommandMetadata {
@@ -145,6 +147,8 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly worktreePath?: string | null;
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
+  /** Set or clear (null) the active anima. */
+  readonly animaName?: AnimaName | null;
   readonly expectedEmpty?: boolean;
 }
 
@@ -165,6 +169,7 @@ interface StartThreadBootstrap {
     readonly interactionMode: ProviderInteractionMode;
     readonly branch: string | null;
     readonly worktreePath: string | null;
+    readonly animaName?: AnimaName | null;
     readonly createdAt: string;
   };
   readonly prepareWorktree?: {
@@ -480,6 +485,7 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     interactionMode: input.interactionMode,
     branch: input.branch,
     worktreePath: input.worktreePath,
+    ...(input.animaName == null ? {} : { animaName: input.animaName }),
   });
 });
 
@@ -687,6 +693,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
+      input.animaName !== undefined ||
       input.limitRecovery !== undefined
     ) {
       result = yield* dispatch({
@@ -697,6 +704,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.branch === undefined ? {} : { branch: input.branch }),
         ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
+        ...(input.animaName === undefined ? {} : { animaName: input.animaName }),
         ...(input.expectedEmpty === true ? { expectedEmpty: true } : {}),
         ...(input.regenerateTitle === undefined ? {} : { regenerateTitle: input.regenerateTitle }),
         ...(input.linkedPullRequest === undefined
@@ -758,6 +766,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     const existingProjection =
       bootstrap === undefined ? yield* getProjection(input.threadId) : null;
     const thread = bootstrap ?? existingProjection!.thread;
+    const animaName = thread.animaName;
     const workspaceStrategy =
       prepareWorktree !== undefined
         ? {
@@ -791,6 +800,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       modelSelection: input.modelSelection ?? thread.modelSelection,
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
+      ...(animaName == null ? {} : { animaName }),
       workspaceStrategy,
       initialMessage: {
         messageId: input.message.messageId,

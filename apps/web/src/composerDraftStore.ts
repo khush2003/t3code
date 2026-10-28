@@ -6,6 +6,7 @@ import {
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
   ResponseContextRecord,
+  AnimaName,
   ElementContextDetails,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -418,6 +419,7 @@ const PersistedDraftThreadState = Schema.Struct({
   checkoutPullRequest: Schema.optionalKey(
     Schema.Struct({ url: Schema.String, branch: Schema.String }),
   ),
+  animaName: Schema.optionalKey(Schema.NullOr(AnimaName)),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -516,6 +518,7 @@ export interface DraftSessionState {
   startFromOrigin: boolean;
   /** Linked to the thread when the draft is sent on this branch. */
   checkoutPullRequest?: DraftCheckoutPullRequest;
+  animaName?: AnimaName | null;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -608,6 +611,8 @@ interface ComposerDraftStoreState {
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
     },
   ) => void;
+  /** Chooses (or clears with null) the anima the thread is created with. */
+  setDraftThreadAnima: (threadRef: ComposerThreadTarget, animaName: AnimaName | null) => void;
   setDraftThreadContext: (
     threadRef: ComposerThreadTarget,
     options: {
@@ -1679,6 +1684,7 @@ function createDraftThreadState(
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
     ...(checkoutPullRequest ? { checkoutPullRequest } : {}),
+    ...(existingThread?.animaName ? { animaName: existingThread.animaName } : {}),
     promotedTo: null,
   };
 }
@@ -1731,6 +1737,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
     checkoutPullRequestsEqual(left.checkoutPullRequest, right.checkoutPullRequest) &&
+    (left.animaName ?? null) === (right.animaName ?? null) &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -1893,6 +1900,10 @@ function normalizePersistedDraftThreads(
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
+        ...(typeof candidateDraftThread.animaName === "string" &&
+        candidateDraftThread.animaName.length > 0
+          ? { animaName: candidateDraftThread.animaName as AnimaName }
+          : {}),
         ...(candidateDraftThread.environmentSelection === "manual" ||
         candidateDraftThread.environmentSelection === "auto"
           ? { environmentSelection: candidateDraftThread.environmentSelection }
@@ -2667,6 +2678,7 @@ function toHydratedDraftThreadState(
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
+    ...(persistedDraftThread.animaName ? { animaName: persistedDraftThread.animaName } : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -2894,6 +2906,25 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             options,
           );
         },
+        setDraftThreadAnima: (threadRef, animaName) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftThreadsByThreadKey[threadKey];
+            if (!existing || (existing.animaName ?? null) === animaName) {
+              return state;
+            }
+            const { animaName: _previous, ...rest } = existing;
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [threadKey]: animaName === null ? rest : { ...rest, animaName },
+              },
+            };
+          });
+        },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -2967,6 +2998,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
               ...(checkoutPullRequest ? { checkoutPullRequest } : {}),
+              ...(existing.animaName ? { animaName: existing.animaName } : {}),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =

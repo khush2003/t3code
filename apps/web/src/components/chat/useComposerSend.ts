@@ -1121,6 +1121,7 @@ export function useComposerSend(input: ComposerSendInput) {
         targets: multipleTargets,
         sendSnapshot,
         createdAt: messageCreatedAt,
+        animaName: draftThread?.animaName ?? null,
         attachmentsPromise: turnAttachmentsPromise,
         usesAttachmentUploads: turnUsesAttachmentUploads,
         readFileBlockReason: () => readLiveAttachmentCapabilities().fileBlockReason,
@@ -1261,6 +1262,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       interactionMode: DEFAULT_INTERACTION_MODE,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
+                      ...(draftThread?.animaName ? { animaName: draftThread.animaName } : {}),
                       createdAt: activeThread.createdAt,
                     },
                   }
