@@ -20,7 +20,7 @@ import {
 
 /** Everything here is static SVG/HTML: repainting animations are off limits, only hover transitions. */
 
-function animaColor(summary: Pick<AnimaSummary, "hsl" | "accent">): string | null {
+export function animaColor(summary: Pick<AnimaSummary, "hsl" | "accent">): string | null {
   const hsl = parseHsl(summary.hsl);
   return hsl ? hslToCss(hsl) : safeAnimaAccent(summary.accent);
 }
