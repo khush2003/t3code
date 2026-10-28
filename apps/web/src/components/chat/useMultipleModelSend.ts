@@ -3,6 +3,7 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import {
   type EnvironmentId,
+  type AnimaName,
   type ModelSelection,
   type RuntimeMode,
   type ThreadId,
@@ -97,6 +98,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     targets,
     sendSnapshot,
     createdAt,
+    animaName,
     attachmentsPromise,
     usesAttachmentUploads,
     readFileBlockReason,
@@ -111,6 +113,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly targets: ReadonlyArray<MultipleModelTarget>;
     readonly sendSnapshot: ComposerSendSnapshot;
     readonly createdAt: string;
+    readonly animaName?: AnimaName | null;
     readonly attachmentsPromise: ReturnType<typeof prepareTurnAttachments>;
     readonly usesAttachmentUploads: boolean;
     readonly readFileBlockReason: () => string | null;
@@ -195,6 +198,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       interactionMode: DEFAULT_INTERACTION_MODE,
                       branch,
                       worktreePath: null,
+                      ...(animaName ? { animaName } : {}),
                       createdAt: createdAt,
                     },
                     prepareWorktree: {

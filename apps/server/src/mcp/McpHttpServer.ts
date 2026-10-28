@@ -68,6 +68,10 @@ import * as PreviewControlsHandlers from "./toolkits/previewControls/handlers.ts
 import * as FeedbackHandlers from "./toolkits/feedback/handlers.ts";
 import { FeedbackToolkit } from "./toolkits/feedback/tools.ts";
 import * as Feedback from "../feedback/FeedbackService.ts";
+import * as AnimaService from "../anima/AnimaService.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import { AnimaToolkit } from "./toolkits/anima/tools.ts";
+import * as AnimaHandlers from "./toolkits/anima/handlers.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
@@ -1474,6 +1478,11 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
   Layer.provide(ThreadCommandExecutor.layer),
 );
 
+const layerAnimaToolkit = toolkitRegistration(AnimaToolkit, AnimaHandlers.layer).pipe(
+  Layer.provide(AnimaService.layer),
+  Layer.provide(ProcessRunner.layer),
+);
+
 export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
 // Reports may name any tool this server advertises, read when a report arrives.
@@ -1554,6 +1563,7 @@ export const layerTools = Layer.mergeAll(
   layerFeedbackToolkit,
   layerEnvironmentToolkit,
   layerThemeToolkit,
+  layerAnimaToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

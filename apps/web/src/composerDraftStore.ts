@@ -6,6 +6,7 @@ import {
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
   ResponseContextRecord,
+  AnimaName,
   ElementContextDetails,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -422,6 +423,7 @@ const PersistedDraftThreadState = Schema.Struct({
     Schema.Struct({ url: Schema.String, branch: Schema.String }),
   ),
   worktreeRepositories: Schema.optionalKey(Schema.Array(Schema.String)),
+  animaName: Schema.optionalKey(Schema.NullOr(AnimaName)),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -527,6 +529,7 @@ export interface DraftSessionState {
    * until the user chooses, which leaves the choice to the server's default.
    */
   worktreeRepositories?: ReadonlyArray<string>;
+  animaName?: AnimaName | null;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -621,6 +624,8 @@ interface ComposerDraftStoreState {
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
     },
   ) => void;
+  /** Chooses (or clears with null) the anima the thread is created with. */
+  setDraftThreadAnima: (threadRef: ComposerThreadTarget, animaName: AnimaName | null) => void;
   setDraftThreadContext: (
     threadRef: ComposerThreadTarget,
     options: {
@@ -1801,6 +1806,7 @@ function createDraftThreadState(
     ...(!projectChanged && existingThread?.worktreeRepositories !== undefined
       ? { worktreeRepositories: existingThread.worktreeRepositories }
       : {}),
+    ...(existingThread?.animaName ? { animaName: existingThread.animaName } : {}),
     promotedTo: null,
   };
 }
@@ -1864,6 +1870,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.workspaceExplicit === right.workspaceExplicit &&
     checkoutPullRequestsEqual(left.checkoutPullRequest, right.checkoutPullRequest) &&
     worktreeRepositoriesEqual(left.worktreeRepositories, right.worktreeRepositories) &&
+    (left.animaName ?? null) === (right.animaName ?? null) &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -2027,6 +2034,10 @@ function normalizePersistedDraftThreads(
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
         ...(candidateDraftThread.workspaceExplicit === true ? { workspaceExplicit: true } : {}),
+        ...(typeof candidateDraftThread.animaName === "string" &&
+        candidateDraftThread.animaName.length > 0
+          ? { animaName: candidateDraftThread.animaName as AnimaName }
+          : {}),
         ...(candidateDraftThread.environmentSelection === "manual" ||
         candidateDraftThread.environmentSelection === "auto"
           ? { environmentSelection: candidateDraftThread.environmentSelection }
@@ -2817,6 +2828,7 @@ function toHydratedDraftThreadState(
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
     ...(persistedDraftThread.workspaceExplicit ? { workspaceExplicit: true } : {}),
+    ...(persistedDraftThread.animaName ? { animaName: persistedDraftThread.animaName } : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -3047,6 +3059,25 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             options,
           );
         },
+        setDraftThreadAnima: (threadRef, animaName) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftThreadsByThreadKey[threadKey];
+            if (!existing || (existing.animaName ?? null) === animaName) {
+              return state;
+            }
+            const { animaName: _previous, ...rest } = existing;
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [threadKey]: animaName === null ? rest : { ...rest, animaName },
+              },
+            };
+          });
+        },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -3130,6 +3161,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 : {}),
               ...(checkoutPullRequest ? { checkoutPullRequest } : {}),
               ...(worktreeRepositories ? { worktreeRepositories } : {}),
+              ...(existing.animaName ? { animaName: existing.animaName } : {}),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =

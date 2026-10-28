@@ -1403,6 +1403,73 @@ export function summarizeT3ToolCalls(
       }
       break;
     }
+    case "anima-list": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Listed animas {count} time} other {Listed animas {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to list animas {count} time} other {Tried to list animas {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-read": {
+      const count = countEntities(entityIds("name"));
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Read {count} anima} other {Read {count} animas}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to read {count} anima} other {Tried to read {count} animas}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-policy": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Updated anima policy {count} time} other {Updated anima policy {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to update anima policy {count} time} other {Tried to update anima policy {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "anima-attach": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Attached an anima to a project {count} time} other {Attached an anima to a project {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to attach an anima to a project {count} time} other {Tried to attach an anima to a project {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "attachment-send": {
       const messages = new Map<string, (typeof selected)[number]>();
       selected.forEach((call, index) =>
