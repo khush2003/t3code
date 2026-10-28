@@ -468,22 +468,19 @@ export function AnimaHero({
   readonly breaths: ReadonlyArray<AnimaBreath>;
   readonly onSelectBreath: (index: number) => void;
 }) {
-  const color = animaColor(summary);
   return (
-    <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
-      <div className="flex flex-col items-center gap-2">
-        <AnimaSigil anima={summary} size={112} />
-        {color ? null : <span className="text-2xs text-muted-foreground">No breaths yet</span>}
-      </div>
-      <div className="grid gap-4 sm:grid-cols-[1fr_16rem] sm:items-center">
-        <div className="min-w-0 space-y-2">
-          <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-            Timeline
-          </h3>
+    <div className="grid gap-4 sm:grid-cols-[1fr_16rem] sm:items-center">
+      <div className="min-w-0 space-y-2">
+        <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+          Timeline
+        </h3>
+        {breaths.length > 0 ? (
           <AnimaTimeline breaths={breaths} accent={summary.accent} onSelect={onSelectBreath} />
-        </div>
-        <AnimaBodyPanel breaths={breaths} accent={summary.accent} />
+        ) : (
+          <p className="text-xs text-muted-foreground">No breaths yet.</p>
+        )}
       </div>
+      <AnimaBodyPanel breaths={breaths} accent={summary.accent} />
     </div>
   );
 }

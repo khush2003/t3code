@@ -52,6 +52,7 @@ export function AnimaDetailBanner({
   detail,
   onBack,
   onHealth,
+  onBreathe,
   onOpenAnima,
 }: {
   readonly environmentId: EnvironmentId;
@@ -59,6 +60,7 @@ export function AnimaDetailBanner({
   readonly detail: AnimaDetail | null | undefined;
   readonly onBack: () => void;
   readonly onHealth: () => void;
+  readonly onBreathe: () => void;
   readonly onOpenAnima: (name: string) => void;
 }) {
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
@@ -74,20 +76,15 @@ export function AnimaDetailBanner({
       }
     : undefined;
   return (
-    <div className="px-3 sm:px-4">
+    <div className="space-y-2 px-3 sm:px-4">
+      <Button size="xs" variant="ghost-muted" onClick={onBack}>
+        <ArrowLeftIcon />
+        All animas
+      </Button>
       <div
         className="relative overflow-hidden rounded-2xl border bg-card p-4 shadow-xs"
         style={style}
       >
-        <Button
-          size="icon-xs"
-          variant="ghost-muted"
-          aria-label="Back to all animas"
-          className="absolute right-3 top-3"
-          onClick={onBack}
-        >
-          <ArrowLeftIcon />
-        </Button>
         <div className="flex items-center gap-4">
           {full ? (
             <AnimaSigil anima={full} size={88} />
@@ -117,9 +114,11 @@ export function AnimaDetailBanner({
                 <span>
                   active <RelativeTime value={full.lastActiveAt} />
                 </span>
-                <span>
-                  {full.projects.length} {full.projects.length === 1 ? "project" : "projects"}
-                </span>
+                {full.projects.length > 0 ? (
+                  <span>
+                    {full.projects.length} {full.projects.length === 1 ? "project" : "projects"}
+                  </span>
+                ) : null}
                 {full.inboxCount > 0 ? <span>{full.inboxCount} unread</span> : null}
                 {detail ? <AnimaTeamChip detail={detail} onOpenAnima={onOpenAnima} /> : null}
               </div>
@@ -130,7 +129,7 @@ export function AnimaDetailBanner({
           {full ? (
             <button
               type="button"
-              className="me-8 flex shrink-0 flex-col items-center gap-1 rounded-lg p-1 outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="flex shrink-0 flex-col items-center gap-1 rounded-lg p-1 outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               aria-label={`Health: ${ANIMA_HEALTH_LABELS[animaHealthBucket(full.health)]}. Open health details`}
               onClick={onHealth}
             >
@@ -149,10 +148,17 @@ export function AnimaDetailBanner({
               label="Start a thread"
               variant="outline"
             />
-            <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
-              <WindIcon className="size-3" />
-              Breathe from a thread's details menu
-            </span>
+            {detail && detail.threadIds.length > 0 ? (
+              <Button size="sm" variant="outline" onClick={onBreathe}>
+                <WindIcon />
+                Breathe
+              </Button>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
+                <WindIcon className="size-3" />
+                Start a thread to breathe
+              </span>
+            )}
             <label className="ml-auto flex items-center gap-2 text-xs">
               Enabled
               <Switch

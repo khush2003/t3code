@@ -103,6 +103,7 @@ export function AnimaDetailView({
         detail={detail}
         onBack={onBack}
         onHealth={() => onTab("health")}
+        onBreathe={() => onTab("breaths")}
         onOpenAnima={onOpenAnima}
       />
       <div className="overflow-x-auto px-3 sm:px-4">
