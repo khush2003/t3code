@@ -107,13 +107,13 @@ describe("identity, breath, policy, inbox, session", () => {
     expect(AnimaFiles.parseBreathFile(breath(0, "x"), "000.breath")?.parent).toBeNull();
     const current = [
       "# breath:9 ts:2026-07-30T09:38 parent:8 hash:51c1182d5505",
-      "# chose a over b, kept c | the build hid a type error | ship the importer until tests pass",
+      "# chose a over b,then kept c|dropped d; kept e | the build hid a type error | ship the importer until tests pass",
       "# self: rigor=0.94,autonomy=bad,directness=0.9",
       "# closed-opens: first | second",
       '# corrections: "stop guessing"|verify first; "smaller"|yagni',
     ].join("\n");
     expect(AnimaFiles.parseBreathFile(current, "009.breath")).toMatchObject({
-      decisions: ["chose a over b", "kept c"],
+      decisions: ["chose a over b, then kept c", "dropped d", "kept e"],
       friction: "the build hid a type error",
       narrativeAim: "ship the importer until tests pass",
       self: [
@@ -128,6 +128,9 @@ describe("identity, breath, policy, inbox, session", () => {
       friction: null,
       narrativeAim: null,
     });
+    expect(
+      AnimaFiles.parseBreathFile("# breath:4\n# slug-a,slug-b | - | -\n", "004.breath")?.decisions,
+    ).toEqual(["slug-a", "slug-b"]);
   });
 
   it("parses policy sections with numbered rules and hook fire stats", () => {
