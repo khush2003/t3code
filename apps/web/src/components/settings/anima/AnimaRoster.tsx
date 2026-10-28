@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
-import { HeartPulseIcon, ListIcon, MailIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
-import { useState } from "react";
+import { ListIcon, MailIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
 import { cn } from "../../../lib/utils";
@@ -12,7 +12,6 @@ import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
-import { Toggle as SingleToggle } from "../../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { SettingsGroup } from "../SettingsGroup";
@@ -26,9 +25,8 @@ import {
   sortAnimas,
 } from "../animaSettings.logic";
 import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
-import { AnimaPoolStats } from "./AnimaDash";
 import { AnimaHealthRing } from "./AnimaHealth";
-import { AnimaConstellation, AnimaSigil } from "./AnimaVisuals";
+import { AnimaConstellation, AnimaSigil, animaColor } from "./AnimaVisuals";
 
 function AnimaRosterRow({
   environmentId,
@@ -44,13 +42,19 @@ function AnimaRosterRow({
   const setEnabled = useAnimaMutation(animaEnvironment.setEnabled, {
     failureTitle: `Could not update ${anima.name}`,
   });
+  const color = animaColor(anima);
   return (
     <div
       className={cn(
-        "flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30 sm:px-4",
+        "relative flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30 sm:px-4",
         !anima.enabled && "opacity-60",
       )}
     >
+      <span
+        aria-hidden
+        className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-border"
+        style={color ? { backgroundColor: color } : undefined}
+      />
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -109,6 +113,104 @@ function AnimaRosterRow({
   );
 }
 
+/** A live anima gets the room to show its colour and what it is doing right now. */
+function LiveAnimaCard({
+  anima,
+  onOpen,
+}: {
+  readonly anima: AnimaSummary;
+  readonly onOpen: (name: string) => void;
+}) {
+  const color = animaColor(anima);
+  const style: CSSProperties | undefined = color
+    ? {
+        backgroundImage: `linear-gradient(135deg, color-mix(in srgb, ${color} 16%, transparent), transparent 70%)`,
+        borderColor: `color-mix(in srgb, ${color} 40%, var(--border))`,
+      }
+    : undefined;
+  return (
+    <button
+      type="button"
+      className="flex min-w-0 items-start gap-3 rounded-xl border bg-card p-3 text-left outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      style={style}
+      onClick={() => onOpen(anima.name)}
+    >
+      <AnimaSigil anima={anima} size={52} />
+      <span className="min-w-0 flex-1 space-y-1">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-base font-semibold tracking-tight">{anima.name}</span>
+          <AnimaLiveDot live />
+        </span>
+        <span className="line-clamp-2 text-xs text-foreground/80">
+          {anima.aim ?? "No aim recorded yet."}
+        </span>
+        <span className="block text-2xs text-muted-foreground">
+          {anima.breathCount} {anima.breathCount === 1 ? "breath" : "breaths"}, active{" "}
+          <RelativeTime value={anima.lastActiveAt} />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function RosterSection({
+  title,
+  count,
+  children,
+}: {
+  readonly title: string;
+  readonly count: number;
+  readonly children: ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <h3 className="flex items-baseline gap-2 px-3 text-sm font-medium sm:px-4">
+        {title}
+        <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function RosterSummary({
+  animas,
+  attentionOnly,
+  onAttention,
+}: {
+  readonly animas: ReadonlyArray<AnimaSummary>;
+  readonly attentionOnly: boolean;
+  readonly onAttention: (next: boolean) => void;
+}) {
+  const live = animas.filter((anima) => anima.live).length;
+  const attention = animas.filter(animaNeedsAttention).length;
+  const unread = animas.reduce((sum, anima) => sum + anima.inboxCount, 0);
+  const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
+  return (
+    <p className="px-3 text-sm text-muted-foreground sm:px-4">
+      <span className="font-medium text-foreground">{animas.length} animas</span> have taken{" "}
+      {breaths.toLocaleString()} breaths.{" "}
+      {live > 0 ? (
+        <span className="text-success-foreground">{live} live now. </span>
+      ) : (
+        "None are live right now. "
+      )}
+      {attention > 0 ? (
+        <button
+          type="button"
+          className="text-warning-foreground underline-offset-2 hover:underline"
+          onClick={() => onAttention(!attentionOnly)}
+        >
+          {attentionOnly ? "Show everyone" : `${attention} need tending`}
+        </button>
+      ) : (
+        "Every anima is steady"
+      )}
+      {unread > 0 ? `, ${unread} unread ${unread === 1 ? "message" : "messages"}.` : "."}
+    </p>
+  );
+}
+
 function RosterSkeleton() {
   return (
     <div className="space-y-3">
@@ -150,7 +252,34 @@ export function AnimaRoster({
   const { animas, cliAvailable, rootPath, error, isPending, data } = useAnimaList(environmentId);
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
   const visible = filterAnimas(sortAnimas(animas, sort), query, attentionOnly);
-  const attentionCount = animas.filter(animaNeedsAttention).length;
+  // Sections read as "who is here"; a search or the attention filter wants one flat result list.
+  const sectioned = view === "list" && query.trim() === "" && !attentionOnly;
+  const liveAnimas = visible.filter((anima) => anima.live);
+  const tending = visible.filter((anima) => !anima.live && animaNeedsAttention(anima));
+  const resting = visible.filter((anima) => !anima.live && !animaNeedsAttention(anima));
+  const renderRow = (anima: AnimaSummary) => (
+    <AnimaRosterRow
+      key={anima.name}
+      environmentId={environmentId}
+      anima={anima}
+      canOperate={canOperate}
+      onOpen={onOpen}
+    />
+  );
+  const createRow = (
+    <button
+      type="button"
+      disabled={createDisabledReason !== null}
+      aria-description={createDisabledReason ?? undefined}
+      className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-muted-foreground outline-none hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 sm:px-4"
+      onClick={onCreate}
+    >
+      <span className="flex size-11 items-center justify-center rounded-full border border-dashed border-border">
+        <PlusIcon className="size-4" />
+      </span>
+      New anima
+    </button>
+  );
 
   if (data === null) {
     return error || !isPending ? (
@@ -201,7 +330,7 @@ export function AnimaRoster({
   }
   return (
     <div className="@container/roster space-y-3">
-      <AnimaPoolStats animas={animas} />
+      <RosterSummary animas={animas} attentionOnly={attentionOnly} onAttention={setAttentionOnly} />
       <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4">
         <div className="min-w-40 flex-1">
           <Input
@@ -213,18 +342,6 @@ export function AnimaRoster({
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
-        <SingleToggle
-          size="xs"
-          variant="outline"
-          pressed={attentionOnly}
-          disabled={attentionCount === 0 && !attentionOnly}
-          aria-label="Show only animas that need attention"
-          onPressedChange={setAttentionOnly}
-        >
-          <HeartPulseIcon />
-          Needs attention
-          <span className="tabular-nums text-muted-foreground">{attentionCount}</span>
-        </SingleToggle>
         <div className="w-36">
           <Select value={sort} onValueChange={(value) => setSort(value as AnimaSortMode)}>
             <SelectTrigger size="sm" aria-label="Sort animas">
@@ -256,39 +373,45 @@ export function AnimaRoster({
           </Toggle>
         </ToggleGroup>
       </div>
-      <SettingsGroup>
-        {view === "constellation" && visible.length > 0 ? (
-          <AnimaConstellation animas={visible} onOpen={onOpen} />
-        ) : visible.length === 0 ? (
-          <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
-            {attentionOnly && query.trim() === ""
-              ? "Every anima is steady."
-              : `No animas match "${query.trim()}"${attentionOnly ? " among those needing attention" : ""}.`}
-          </p>
-        ) : (
-          visible.map((anima) => (
-            <AnimaRosterRow
-              key={anima.name}
-              environmentId={environmentId}
-              anima={anima}
-              canOperate={canOperate}
-              onOpen={onOpen}
-            />
-          ))
-        )}
-        <button
-          type="button"
-          disabled={createDisabledReason !== null}
-          aria-description={createDisabledReason ?? undefined}
-          className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-muted-foreground outline-none hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 sm:px-4"
-          onClick={onCreate}
-        >
-          <span className="flex size-11 items-center justify-center rounded-full border border-dashed border-border">
-            <PlusIcon className="size-4" />
-          </span>
-          New anima
-        </button>
-      </SettingsGroup>
+      {sectioned && liveAnimas.length > 0 ? (
+        <RosterSection title="Live now" count={liveAnimas.length}>
+          <div className="grid gap-2 px-3 sm:px-4 @xl/roster:grid-cols-2">
+            {liveAnimas.map((anima) => (
+              <LiveAnimaCard key={anima.name} anima={anima} onOpen={onOpen} />
+            ))}
+          </div>
+        </RosterSection>
+      ) : null}
+      {sectioned ? (
+        <>
+          {tending.length > 0 ? (
+            <RosterSection title="Needs tending" count={tending.length}>
+              <SettingsGroup>{tending.map(renderRow)}</SettingsGroup>
+            </RosterSection>
+          ) : null}
+          <RosterSection title="Resting" count={resting.length}>
+            <SettingsGroup>
+              {resting.map(renderRow)}
+              {createRow}
+            </SettingsGroup>
+          </RosterSection>
+        </>
+      ) : (
+        <SettingsGroup>
+          {view === "constellation" && visible.length > 0 ? (
+            <AnimaConstellation animas={visible} onOpen={onOpen} />
+          ) : visible.length === 0 ? (
+            <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
+              {attentionOnly && query.trim() === ""
+                ? "Every anima is steady."
+                : `No animas match "${query.trim()}"${attentionOnly ? " among those needing attention" : ""}.`}
+            </p>
+          ) : (
+            visible.map(renderRow)
+          )}
+          {createRow}
+        </SettingsGroup>
+      )}
     </div>
   );
 }
