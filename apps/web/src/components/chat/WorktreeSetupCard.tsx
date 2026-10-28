@@ -2,6 +2,7 @@ import { T, msg, useGT, useMessages } from "gt-react";
 import { type MessageResolver } from "~/i18n/messages";
 import { type WorktreeSetupSnapshot, type WorktreeSetupStage } from "@t3tools/contracts";
 import { worktreeSetupStageLabel } from "@t3tools/client-runtime/contract-labels";
+import { worktreeSetupIsAnimaOnly } from "@t3tools/client-runtime/worktree-setup";
 import { formatDuration } from "@t3tools/shared/orchestrationTimingCopy";
 import {
   CheckIcon,
@@ -111,6 +112,20 @@ function ShimmerOverlay({ children }: { children: ReactNode }) {
 }
 
 function headerLabel(snapshot: WorktreeSetupSnapshot, resolve: MessageResolver): string {
+  if (worktreeSetupIsAnimaOnly(snapshot)) {
+    switch (snapshot.phase) {
+      case "running":
+        return resolve(msg("Waking anima…"));
+      case "done":
+        return snapshot.stages.some((stage) => stage.status === "warning")
+          ? resolve(msg("Anima wake failed, continuing without it"))
+          : resolve(msg("Anima awake"));
+      case "failed":
+        return resolve(msg("Anima wake failed"));
+      case "cancelled":
+        return resolve(msg("Anima wake cancelled"));
+    }
+  }
   switch (snapshot.phase) {
     case "running":
       return resolve(msg("Setting up worktree…"));

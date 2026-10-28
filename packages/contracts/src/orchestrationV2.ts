@@ -1,3 +1,4 @@
+import { AnimaName } from "./anima.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
 import * as DateTime from "effect/DateTime";
@@ -516,6 +517,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  /** Active anima identity; its wake payload is injected as context on the next provider turn until `animaWokenAt` is set. */
+  animaName: Schema.optional(Schema.NullOr(AnimaName)),
+  /** Set when the first wake was delivered; from then on `animaName` is locked and cannot change or clear. */
+  animaWokenAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
@@ -2272,6 +2277,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  animaName: Schema.optional(Schema.NullOr(AnimaName)),
+  animaWokenAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
@@ -2445,6 +2452,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  animaWokenAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2900,6 +2908,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  animaWokenAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
@@ -3116,6 +3125,7 @@ export const OrchestrationV2Command = Schema.Union([
     linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
     /** Only the server sets this, with `linkOrigin`, for a linked environment's delegated task. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
+    animaName: Schema.optional(Schema.NullOr(AnimaName)),
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({
@@ -3274,6 +3284,10 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    /** Set (name) or clear (null) the active anima; absent leaves it unchanged. */
+    animaName: Schema.optional(Schema.NullOr(AnimaName)),
+    /** Server-internal: record that the first wake was delivered, locking `animaName`. Rejected from clients. */
+    animaWoken: Schema.optional(Schema.Literal(true)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3933,6 +3947,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  animaName: Schema.optional(Schema.NullOr(AnimaName)),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   initialMessage: Schema.optional(
     Schema.Struct({

@@ -8,7 +8,10 @@ import {
   type WorktreeSetupSnapshot,
   type WorktreeSetupStage,
 } from "@t3tools/contracts";
-import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
+import {
+  worktreeSetupAgentStarted,
+  worktreeSetupIsAnimaOnly,
+} from "@t3tools/client-runtime/worktree-setup";
 import { formatDuration } from "@t3tools/shared/orchestrationTimingCopy";
 import { Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -80,15 +83,20 @@ function WorktreeSetupHeaderCard(props: WorktreeSetupCardProps & SetupDetailsCon
   const now = useVisibleSecondClock(running);
   const failed =
     snapshot.phase === "failed" || snapshot.stages.some((stage) => stage.status === "failed");
+  const animaOnly = worktreeSetupIsAnimaOnly(snapshot);
   const label = running
-    ? gt("Setting up worktree…")
+    ? animaOnly
+      ? gt("Waking anima…")
+      : gt("Setting up worktree…")
     : snapshot.phase === "cancelled"
       ? gt("Worktree setup cancelled")
       : snapshot.phase === "failed"
         ? gt("Worktree setup failed")
         : failed
           ? gt("Setup script failed")
-          : gt("Worktree ready");
+          : animaOnly
+            ? gt("Anima awake")
+            : gt("Worktree ready");
 
   return (
     <View accessibilityLabel={gt("Worktree setup")} className="py-1">

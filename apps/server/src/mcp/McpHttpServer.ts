@@ -55,6 +55,10 @@ import { MCP_TOOL_EXPOSURE_HEADER } from "@t3tools/provider-core/server/mcpSessi
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import * as PreviewControlsHandlers from "./toolkits/previewControls/handlers.ts";
+import * as AnimaService from "../anima/AnimaService.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import { AnimaToolkit } from "./toolkits/anima/tools.ts";
+import * as AnimaHandlers from "./toolkits/anima/handlers.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
@@ -1342,6 +1346,11 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
   Layer.provide(ThreadCommandExecutor.layer),
 );
 
+const layerAnimaToolkit = toolkitRegistration(AnimaToolkit, AnimaHandlers.layer).pipe(
+  Layer.provide(AnimaService.layer),
+  Layer.provide(ProcessRunner.layer),
+);
+
 export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
 export const layerAttachmentToolkit = toolkitRegistration(
@@ -1409,6 +1418,7 @@ export const layerTools = Layer.mergeAll(
   layerProjectRegistration,
   layerEnvironmentToolkit,
   layerThemeToolkit,
+  layerAnimaToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
