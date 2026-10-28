@@ -11,7 +11,12 @@ import * as AnimaThreadService from "./AnimaThreadService.ts";
 const run = (
   animaName: string | null | undefined,
   sent: Array<{ text: string; mode: string }>,
-  options: { readonly archived?: boolean; readonly cli?: boolean; readonly delivery?: string } = {},
+  options: {
+    readonly archived?: boolean;
+    readonly cli?: boolean;
+    readonly guide?: string;
+    readonly delivery?: string;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const threads = Layer.mock(ThreadManagementService.ThreadManagementService)({
@@ -34,6 +39,9 @@ const run = (
     const animas = Layer.mock(AnimaService.AnimaService)({
       summary: () => Effect.succeed({ breathCount: 7 } as never),
       cliAvailable: Effect.succeed(options.cli !== false),
+      breatheGuide: Effect.succeed(
+        options.guide ?? "### Step 2: Run\nbun anima.ts breathe --agent <name>\n",
+      ),
     });
     const layer = AnimaThreadService.layer.pipe(
       Layer.provide(Layer.mergeAll(threads, animas, NodeCrypto.layer)),
@@ -43,7 +51,7 @@ const run = (
   });
 
 describe("AnimaThreadService.breathe", () => {
-  it.effect("sends a self-contained breathe request and reports the count before", () =>
+  it.effect("sends the skill's breathe guide and reports the count before", () =>
     Effect.gen(function* () {
       const sent: Array<{ text: string; mode: string }> = [];
       const service = yield* run("atlas", sent);
@@ -57,13 +65,9 @@ describe("AnimaThreadService.breathe", () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]!.mode).toBe("queue");
       const text = sent[0]!.text;
-      expect(text).toContain("explicit request from the user");
-      expect(text).toContain("breathe --agent atlas --self");
-      expect(text).toContain("--aim");
-      expect(text).toContain("do not run the wake step");
-      expect(text).toContain("never redirect or suppress stderr");
-      expect(text).toContain("nothing at all is fine");
-      expect(text).toContain("names the new breath number and the aim");
+      expect(text).toContain("bun anima.ts breathe --agent atlas\n");
+      expect(text).not.toContain("<name>");
+      expect(text).toContain("Skip the bare template run");
     }),
   );
 
@@ -75,7 +79,7 @@ describe("AnimaThreadService.breathe", () => {
     }),
   );
 
-  it.effect("rejects archived threads and a missing CLI without sending", () =>
+  it.effect("rejects archived threads, a missing CLI and a missing guide without sending", () =>
     Effect.gen(function* () {
       const sent: Array<{ text: string; mode: string }> = [];
       const archived = yield* run("atlas", sent, { archived: true });
@@ -84,6 +88,9 @@ describe("AnimaThreadService.breathe", () => {
       const noCli = yield* run("atlas", sent, { cli: false });
       const second = yield* Effect.flip(noCli.breathe({ threadId: ThreadId.make("t1") }));
       expect(second).toMatchObject({ _tag: "AnimaCommandRejectedError" });
+      const noGuide = yield* run("atlas", sent, { guide: "" });
+      const third = yield* Effect.flip(noGuide.breathe({ threadId: ThreadId.make("t1") }));
+      expect(third).toMatchObject({ _tag: "AnimaCommandRejectedError" });
       expect(sent).toEqual([]);
     }),
   );
