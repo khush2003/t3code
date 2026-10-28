@@ -2,6 +2,7 @@ import { stripInlineContextReferences } from "./lib/composerContextReferences";
 import { composerFileAttachmentMimeType } from "./components/chat/composerAttachmentFiles";
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
+  AnimaName,
   ElementContextDetails,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -319,6 +320,7 @@ const PersistedDraftThreadState = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  animaName: Schema.optionalKey(Schema.NullOr(AnimaName)),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -412,6 +414,7 @@ export interface DraftSessionState {
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
+  animaName?: AnimaName | null;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -484,6 +487,8 @@ interface ComposerDraftStoreState {
       loadBalancedEnvironmentId?: EnvironmentId | null;
     },
   ) => void;
+  /** Chooses (or clears with null) the anima the thread is created with. */
+  setDraftThreadAnima: (threadRef: ComposerThreadTarget, animaName: AnimaName | null) => void;
   setDraftThreadContext: (
     threadRef: ComposerThreadTarget,
     options: {
@@ -1529,6 +1534,7 @@ function createDraftThreadState(
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
+    ...(existingThread?.animaName ? { animaName: existingThread.animaName } : {}),
     promotedTo: null,
   };
 }
@@ -1563,6 +1569,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    (left.animaName ?? null) === (right.animaName ?? null) &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -1711,6 +1718,10 @@ function normalizePersistedDraftThreads(
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
+        ...(typeof candidateDraftThread.animaName === "string" &&
+        candidateDraftThread.animaName.length > 0
+          ? { animaName: candidateDraftThread.animaName as AnimaName }
+          : {}),
         ...(candidateDraftThread.environmentSelection === "manual" ||
         candidateDraftThread.environmentSelection === "auto"
           ? { environmentSelection: candidateDraftThread.environmentSelection }
@@ -2475,6 +2486,7 @@ function toHydratedDraftThreadState(
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
+    ...(persistedDraftThread.animaName ? { animaName: persistedDraftThread.animaName } : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -2699,6 +2711,25 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             options,
           );
         },
+        setDraftThreadAnima: (threadRef, animaName) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftThreadsByThreadKey[threadKey];
+            if (!existing || (existing.animaName ?? null) === animaName) {
+              return state;
+            }
+            const { animaName: _previous, ...rest } = existing;
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [threadKey]: animaName === null ? rest : { ...rest, animaName },
+              },
+            };
+          });
+        },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -2766,6 +2797,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
+              ...(existing.animaName ? { animaName: existing.animaName } : {}),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =

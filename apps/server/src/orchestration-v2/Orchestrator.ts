@@ -316,6 +316,15 @@ export class OrchestratorRuntimeModeAboveCeilingError extends Schema.TaggedError
   }
 }
 
+export class OrchestratorThreadAnimaLockedError extends Schema.TaggedError<OrchestratorThreadAnimaLockedError>()(
+  "OrchestratorThreadAnimaLockedError",
+  { commandId: CommandId, threadId: ThreadId, animaName: Schema.String },
+) {
+  override get message(): string {
+    return `This thread is locked to ${this.animaName} after its first wake.`;
+  }
+}
+
 export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedError<OrchestratorCommandPreviouslyRejectedError>()(
   "OrchestratorCommandPreviouslyRejectedError",
   {
@@ -355,6 +364,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorSubagentThreadReadOnlyError,
   OrchestratorThreadAboveModeLimitError,
   OrchestratorRuntimeModeAboveCeilingError,
+  OrchestratorThreadAnimaLockedError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -2956,6 +2966,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(command.animaName == null ? {} : { animaName: command.animaName }),
       activeProviderThreadId: null,
       pullRequests: [],
       ...(command.linkOrigin === undefined ? {} : { linkOrigin: command.linkOrigin }),
@@ -3350,6 +3361,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandId: command.commandId,
         commandType: command.type,
         cause: `Thread ${command.threadId} branch changed before the metadata update could be applied.`,
+      });
+    }
+    if (
+      command.type === "thread.metadata.update" &&
+      command.animaName !== undefined &&
+      thread.animaWokenAt != null &&
+      thread.animaName != null &&
+      command.animaName !== thread.animaName
+    ) {
+      return yield* new OrchestratorThreadAnimaLockedError({
+        commandId: command.commandId,
+        threadId: command.threadId,
+        animaName: thread.animaName,
       });
     }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
@@ -3861,6 +3885,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.animaName === undefined || thread.animaWokenAt != null
+              ? {}
+              : { animaName: command.animaName }),
+            ...(command.animaWoken === true &&
+            thread.animaName != null &&
+            thread.animaWokenAt == null
+              ? { animaWokenAt: now }
+              : {}),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {

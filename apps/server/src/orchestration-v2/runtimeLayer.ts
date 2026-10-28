@@ -50,6 +50,9 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as AnimaService from "../anima/AnimaService.ts";
+import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
@@ -162,6 +165,13 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   ),
 );
 
+// One instance shared by launch preparation and turn start; layer memoization keys on this reference.
+const layerThreadAnimaWake = ThreadAnimaWake.layer.pipe(
+  Layer.provide(AnimaService.layer),
+  Layer.provide(ProjectStore.layer),
+  Layer.provide(ProcessRunner.layer),
+);
+
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -173,6 +183,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      layerThreadAnimaWake,
     ),
   ),
 );
@@ -275,6 +286,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
       IdAllocator.layer,
+      layerThreadAnimaWake,
     ),
   ),
 );
