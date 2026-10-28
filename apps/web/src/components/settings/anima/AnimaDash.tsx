@@ -7,43 +7,12 @@ import { animaEnvironment } from "../../../state/anima";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
-import {
-  ANIMA_HEALTH_LABELS,
-  animaHealthBucket,
-  animaNeedsAttention,
-} from "../animaSettings.logic";
-import {
-  AnimaLiveDot,
-  AnimaRoleBadge,
-  AnimaStat,
-  RelativeTime,
-  useAnimaMutation,
-} from "./AnimaBits";
+import { ANIMA_HEALTH_LABELS, animaHealthBucket } from "../animaSettings.logic";
+import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
 import { AnimaHealthRing } from "./AnimaHealth";
 import { AnimaTeamChip } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 import { AnimaSigil, animaColor } from "./AnimaVisuals";
-
-/** Pool-level numbers above the roster. */
-export function AnimaPoolStats({ animas }: { readonly animas: ReadonlyArray<AnimaSummary> }) {
-  const live = animas.filter((anima) => anima.live).length;
-  const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
-  const unread = animas.reduce((sum, anima) => sum + anima.inboxCount, 0);
-  const attention = animas.filter(animaNeedsAttention).length;
-  return (
-    <div className="grid grid-cols-3 gap-2 px-3 @lg/roster:grid-cols-5 sm:px-4">
-      <AnimaStat label="Animas" value={animas.length} />
-      <AnimaStat label="Live now" value={live} tone={live > 0 ? "success" : "default"} />
-      <AnimaStat
-        label="Need attention"
-        value={attention}
-        tone={attention > 0 ? "warning" : "default"}
-      />
-      <AnimaStat label="Breaths" value={breaths} />
-      <AnimaStat label="Unread" value={unread} />
-    </div>
-  );
-}
 
 /** Colour-tinted identity banner with the anima's own actions, above the detail tabs. */
 export function AnimaDetailBanner({
@@ -93,12 +62,12 @@ export function AnimaDetailBanner({
           )}
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="truncate text-xl font-semibold tracking-tight">{summary.name}</h2>
+              <h2 className="truncate text-2xl font-semibold tracking-tight">{summary.name}</h2>
               {full ? <AnimaRoleBadge role={full.role} /> : null}
               {full ? <AnimaLiveDot live={full.live} /> : null}
             </div>
             {full?.aim ? (
-              <p className="line-clamp-2 text-sm text-muted-foreground">{full.aim}</p>
+              <p className="line-clamp-2 text-base leading-snug text-foreground/85">{full.aim}</p>
             ) : null}
             {full ? (
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">

@@ -182,7 +182,7 @@ function AnimaCardPanel({ detail }: { readonly detail: AnimaDetail }) {
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
               <IdCardIcon className="size-3.5" />
-              <span className="font-medium uppercase tracking-wide">Card</span>
+              <span className="font-medium">Card</span>
               {card.version ? <span>v{card.version}</span> : null}
               {card.status ? (
                 <Badge size="sm" variant="secondary">
@@ -271,7 +271,7 @@ function NarrativeLine({
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-xs">
       <span
         className={cn(
-          "pt-px text-2xs font-medium uppercase tracking-wide",
+          "text-xs font-medium",
           tone === "warning"
             ? "text-warning-foreground"
             : tone === "info"

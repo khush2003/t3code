@@ -109,7 +109,7 @@ export function AnimaBlock({
   return (
     <section className={cn("space-y-2", className)}>
       <div className="flex min-h-6 items-center justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+        <h3 className="flex items-center gap-1.5 text-xs font-medium text-foreground/80">
           {title}
           {count !== undefined ? (
             <span className="tabular-nums text-muted-foreground/70">{count}</span>
@@ -148,7 +148,7 @@ export function AnimaStat({
       >
         {value}
       </div>
-      <div className="truncate text-2xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }
