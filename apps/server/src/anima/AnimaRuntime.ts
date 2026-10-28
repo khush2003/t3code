@@ -88,7 +88,7 @@ interface CachedFile<A> {
 }
 
 /** The CLI's `localTs`: local wall-clock minutes without an offset. */
-export function localStamp(ms: number): string {
+function localStamp(ms: number): string {
   // @effect-diagnostics-next-line globalDate:off
   const date = new Date(ms);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -113,7 +113,7 @@ const encodeInboxLine = Schema.encodeSync(
 
 const isoOf = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
-export function breathDue(input: {
+function breathDue(input: {
   readonly toolEvents: number;
   readonly breathsAtWake: number | null;
   readonly breathCount: number;
