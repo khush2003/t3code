@@ -3343,6 +3343,10 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
+              {...(draftId ? { draftId } : {})}
+              threadPanelPresentation={threadPanelPresentation}
+              threadPanelPopoverHandle={threadPanelPopoverHandle}
+              onToggleThreadPanel={toggleThreadPanelStable}
               activeThreadTitle={activeThread.title}
               activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
               activeProject={activeProject ?? null}

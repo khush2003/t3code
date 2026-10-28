@@ -24,6 +24,8 @@ export type ChoiceRowProps = {
   readonly selected: boolean;
   readonly onPress: () => void;
   readonly isLast: boolean;
+  /** Sits between the selection indicator and the label, e.g. a colour swatch. */
+  readonly icon?: ReactNode;
 };
 
 type RowSelectionProps = {
@@ -149,6 +151,7 @@ export function ChoiceRowContent(props: ChoiceRowProps & RowSelectionProps) {
       )}
     >
       {props.leadingSelection}
+      {props.icon}
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
         {props.description ? (

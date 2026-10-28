@@ -179,6 +179,7 @@ export function pendingThreadCreationShell(
     pinnedAt: null,
     pinOrderKey: null,
     activeOrderKey: null,
+    animaName: creation.animaName ?? null,
     deletedAt: null,
   });
 }

@@ -67,12 +67,14 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
+  SparklesIcon,
   MonitorIcon,
   PinIcon,
   PinOffIcon,
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  WindIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
@@ -230,6 +232,7 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
+import { useAnimaBreathe } from "./chat/useAnimaBreathe";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -460,6 +463,17 @@ function OpenCommandPaletteDialog(props: {
   );
   const canShareActiveThreadWithGuest = useAtomValue(
     canShareWithGuestAtom(activeThread?.environmentId ?? ("" as EnvironmentId)),
+  );
+  const activeAnima = activeThread?.animaName
+    ? {
+        environmentId: activeThread.environmentId,
+        threadId: activeThread.id,
+        name: activeThread.animaName,
+      }
+    : null;
+  const activeAnimaBreath = useAnimaBreathe(
+    activeThread?.environmentId ?? ("" as EnvironmentId),
+    activeAnima?.threadId ?? null,
   );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
@@ -1393,6 +1407,36 @@ function OpenCommandPaletteDialog(props: {
       icon: <UserPlusIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         openGuestShareDialog(threadRef);
+      },
+    });
+  }
+
+  if (activeAnima !== null) {
+    const { environmentId, name } = activeAnima;
+    actionItems.push({
+      kind: "action",
+      value: "action:anima-breathe",
+      searchTerms: ["anima", "breathe", "breath", "identity", name],
+      title: "Breathe now",
+      description: activeAnimaBreath.isPending
+        ? `${name} is already breathing`
+        : `Ask ${name} to record a breath`,
+      disabled: !activeAnimaBreath.canBreathe || activeAnimaBreath.isPending,
+      icon: <WindIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        // The breath is followed by toasts; the palette should not wait for it to land.
+        void activeAnimaBreath.breathe();
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:anima-open",
+      searchTerms: ["anima", "open", "identity", "settings", name],
+      title: "Open anima",
+      description: name,
+      icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/settings/anima", search: { environmentId, anima: name } });
       },
     });
   }

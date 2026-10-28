@@ -1,4 +1,5 @@
 import {
+  type AnimaName,
   CommandId,
   MessageId,
   ThreadId,
@@ -35,6 +36,7 @@ export interface ProjectThreadStartTurnSpec {
   readonly worktreePath: string | null;
   readonly startFromOrigin: boolean;
   readonly worktreeBranchName: string;
+  readonly animaName?: AnimaName;
 }
 
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
@@ -67,6 +69,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
         interactionMode: spec.interactionMode,
         branch: spec.branch,
         worktreePath: isWorktree ? null : spec.worktreePath,
+        ...(spec.animaName === undefined ? {} : { animaName: spec.animaName }),
         createdAt: spec.createdAt,
       },
       ...(isWorktree

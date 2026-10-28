@@ -42,6 +42,10 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
+import type { DraftId } from "../../composerDraftStore";
+import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import type { PopoverCreateHandle } from "../ui/popover";
+import { ThreadAnimaChip } from "./ThreadAnimaChip";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -49,6 +53,10 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeThreadLinkOrigin?: string | null | undefined;
   isServerThread: boolean;
+  draftId?: DraftId | undefined;
+  threadPanelPresentation: ThreadPanelPresentation;
+  threadPanelPopoverHandle: ReturnType<typeof PopoverCreateHandle>;
+  onToggleThreadPanel: () => void;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
@@ -76,6 +84,10 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeThreadLinkOrigin,
   isServerThread,
+  draftId,
+  threadPanelPresentation,
+  threadPanelPopoverHandle,
+  onToggleThreadPanel,
   activeProject,
   parentThreadLink,
   onOpenThread,
@@ -427,6 +439,15 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      <ThreadAnimaChip
+        environmentId={activeThreadEnvironmentId}
+        threadId={activeThreadId}
+        draftId={draftId}
+        isServerThread={isServerThread}
+        threadPanelPresentation={threadPanelPresentation}
+        threadPanelPopoverHandle={threadPanelPopoverHandle}
+        onToggleThreadPanel={onToggleThreadPanel}
+      />
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );

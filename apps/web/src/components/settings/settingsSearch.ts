@@ -1179,7 +1179,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "anima-roster",
     title: "Anima identities",
     to: "/settings/anima",
-    searchTerms: ["persistent agent identity breath breathe policy sync merge roster"],
+    searchTerms: [
+      "persistent agent identity breath breathe policy sync merge roster health inbox messages opens questions team lead library shelve card skills",
+    ],
     environmentOnly: true,
   },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
