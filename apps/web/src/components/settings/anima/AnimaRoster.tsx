@@ -1,18 +1,29 @@
 import { useAtomValue } from "@effect/atom-react";
-import { ListIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { HeartPulseIcon, ListIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
 import { animaEnvironment, useAnimaList } from "../../../state/anima";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
 import { Button } from "../../ui/button";
+import { Badge } from "../../ui/badge";
 import { Input } from "../../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
+import { Toggle as SingleToggle } from "../../ui/toggle";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { SettingsGroup } from "../SettingsGroup";
-import { filterAnimas, sortAnimas } from "../animaSettings.logic";
+import {
+  ANIMA_SORT_LABELS,
+  type AnimaSortMode,
+  animaNeedsAttention,
+  filterAnimas,
+  sortAnimas,
+} from "../animaSettings.logic";
 import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
 import { AnimaPoolStats } from "./AnimaDash";
+import { AnimaHealthRing } from "./AnimaHealth";
 import { AnimaConstellation, AnimaSigil } from "./AnimaVisuals";
 
 function AnimaRosterRow({
@@ -30,10 +41,10 @@ function AnimaRosterRow({
     failureTitle: `Could not update ${anima.name}`,
   });
   return (
-    <div className="flex items-start gap-3 px-3 py-2.5 sm:px-4">
+    <div className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30 sm:px-4">
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-start gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onOpen(anima.name)}
       >
         <AnimaSigil anima={anima} size={44} />
@@ -60,9 +71,14 @@ function AnimaRosterRow({
                   : `${anima.projects.length} projects`}
               </span>
             ) : null}
-            {anima.inboxCount > 0 ? <span>{anima.inboxCount} unread</span> : null}
           </span>
         </span>
+        {anima.inboxCount > 0 ? (
+          <Badge size="sm" variant="info" aria-label={`${anima.inboxCount} unread`}>
+            {anima.inboxCount}
+          </Badge>
+        ) : null}
+        <AnimaHealthRing score={anima.health} size={26} />
       </button>
       <Switch
         checked={anima.enabled}
@@ -72,6 +88,29 @@ function AnimaRosterRow({
           void setEnabled({ environmentId, input: { name: anima.name, enabled } })
         }
       />
+    </div>
+  );
+}
+
+function RosterSkeleton() {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2 px-3 sm:px-4">
+        {[0, 1, 2].map((key) => (
+          <Skeleton key={key} shape="card" className="h-14" />
+        ))}
+      </div>
+      <SettingsGroup>
+        {[0, 1, 2].map((key) => (
+          <div key={key} className="flex items-center gap-3 px-3 py-2.5 sm:px-4">
+            <Skeleton shape="pill" className="size-11 shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-3 w-56 max-w-full" />
+            </div>
+          </div>
+        ))}
+      </SettingsGroup>
     </div>
   );
 }
@@ -89,15 +128,20 @@ export function AnimaRoster({
 }) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"list" | "constellation">("list");
+  const [sort, setSort] = useState<AnimaSortMode>("activity");
+  const [attentionOnly, setAttentionOnly] = useState(false);
   const { animas, cliAvailable, rootPath, error, isPending, data } = useAnimaList(environmentId);
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
-  const visible = filterAnimas(sortAnimas(animas), query);
+  const visible = filterAnimas(sortAnimas(animas, sort), query, attentionOnly);
+  const attentionCount = animas.filter(animaNeedsAttention).length;
 
   if (data === null) {
-    return (
+    return error || !isPending ? (
       <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
-        {error ?? (isPending ? "Loading animas..." : "Waiting for the environment.")}
+        {error ?? "Waiting for the environment."}
       </p>
+    ) : (
+      <RosterSkeleton />
     );
   }
   if (!cliAvailable) {
@@ -139,17 +183,45 @@ export function AnimaRoster({
     );
   }
   return (
-    <div className="space-y-3">
+    <div className="@container/roster space-y-3">
       <AnimaPoolStats animas={animas} />
-      <div className="flex items-center gap-2 px-3 sm:px-4">
-        <Input
-          type="search"
-          size="sm"
-          value={query}
-          placeholder="Filter by name, role, aim, or project"
-          aria-label="Filter animas"
-          onChange={(event) => setQuery(event.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4">
+        <div className="min-w-40 flex-1">
+          <Input
+            type="search"
+            size="sm"
+            value={query}
+            placeholder="Filter by name, role, aim, or project"
+            aria-label="Filter animas"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <SingleToggle
+          size="xs"
+          variant="outline"
+          pressed={attentionOnly}
+          disabled={attentionCount === 0 && !attentionOnly}
+          aria-label="Show only animas that need attention"
+          onPressedChange={setAttentionOnly}
+        >
+          <HeartPulseIcon />
+          Needs attention
+          <span className="tabular-nums text-muted-foreground">{attentionCount}</span>
+        </SingleToggle>
+        <div className="w-36">
+          <Select value={sort} onValueChange={(value) => setSort(value as AnimaSortMode)}>
+            <SelectTrigger size="sm" aria-label="Sort animas">
+              <SelectValue>{ANIMA_SORT_LABELS[sort]}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {(Object.keys(ANIMA_SORT_LABELS) as AnimaSortMode[]).map((mode) => (
+                <SelectItem key={mode} value={mode} label={ANIMA_SORT_LABELS[mode]}>
+                  {ANIMA_SORT_LABELS[mode]}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
         <ToggleGroup
           aria-label="Roster view"
           variant="segmented"
@@ -172,7 +244,9 @@ export function AnimaRoster({
           <AnimaConstellation animas={visible} onOpen={onOpen} />
         ) : visible.length === 0 ? (
           <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
-            No animas match "{query.trim()}".
+            {attentionOnly && query.trim() === ""
+              ? "Every anima is steady."
+              : `No animas match "${query.trim()}"${attentionOnly ? " among those needing attention" : ""}.`}
           </p>
         ) : (
           visible.map((anima) => (

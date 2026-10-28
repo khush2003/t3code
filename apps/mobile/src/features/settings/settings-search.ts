@@ -80,6 +80,7 @@ const SETTINGS_SEARCH_TERMS = {
     msg("recurring", { $context: "settings search keyword" }),
     msg("webhook", { $context: "settings search keyword" }),
   ],
+  SettingsAnimas: ["anima", "identity", "persona", "breath", "roster"],
   SettingsProjectOverview: [
     msg("project", { $context: "settings search keyword" }),
     msg("overview", { $context: "settings search keyword" }),

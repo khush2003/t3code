@@ -5,43 +5,42 @@ import type { AnimaDetail, AnimaSummary, EnvironmentId } from "@t3tools/contract
 
 import { animaEnvironment } from "../../../state/anima";
 import { Button } from "../../ui/button";
+import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
-import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
+import {
+  ANIMA_HEALTH_LABELS,
+  animaHealthBucket,
+  animaNeedsAttention,
+} from "../animaSettings.logic";
+import {
+  AnimaLiveDot,
+  AnimaRoleBadge,
+  AnimaStat,
+  RelativeTime,
+  useAnimaMutation,
+} from "./AnimaBits";
+import { AnimaHealthRing } from "./AnimaHealth";
+import { AnimaTeamChip } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 import { AnimaSigil, animaColor } from "./AnimaVisuals";
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  readonly label: string;
-  readonly value: string | number;
-  readonly accent?: boolean;
-}) {
-  return (
-    <div className="min-w-0 rounded-xl border border-border/60 bg-card/60 px-3 py-2">
-      <div
-        className={`truncate text-lg font-semibold tabular-nums leading-tight ${accent ? "text-success-foreground" : "text-foreground"}`}
-      >
-        {value}
-      </div>
-      <div className="truncate text-2xs uppercase tracking-wide text-muted-foreground">{label}</div>
-    </div>
-  );
-}
 
 /** Pool-level numbers above the roster. */
 export function AnimaPoolStats({ animas }: { readonly animas: ReadonlyArray<AnimaSummary> }) {
   const live = animas.filter((anima) => anima.live).length;
   const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
   const unread = animas.reduce((sum, anima) => sum + anima.inboxCount, 0);
+  const attention = animas.filter(animaNeedsAttention).length;
   return (
-    <div className="grid grid-cols-2 gap-2 px-3 sm:grid-cols-4 sm:px-4">
-      <Stat label="Animas" value={animas.length} />
-      <Stat label="Live now" value={live} accent={live > 0} />
-      <Stat label="Breaths" value={breaths} />
-      <Stat label="Unread" value={unread} />
+    <div className="grid grid-cols-3 gap-2 px-3 @lg/roster:grid-cols-5 sm:px-4">
+      <AnimaStat label="Animas" value={animas.length} />
+      <AnimaStat label="Live now" value={live} tone={live > 0 ? "success" : "default"} />
+      <AnimaStat
+        label="Need attention"
+        value={attention}
+        tone={attention > 0 ? "warning" : "default"}
+      />
+      <AnimaStat label="Breaths" value={breaths} />
+      <AnimaStat label="Unread" value={unread} />
     </div>
   );
 }
@@ -52,11 +51,15 @@ export function AnimaDetailBanner({
   summary,
   detail,
   onBack,
+  onHealth,
+  onOpenAnima,
 }: {
   readonly environmentId: EnvironmentId;
   readonly summary: Pick<AnimaSummary, "name"> & Partial<AnimaSummary>;
   readonly detail: AnimaDetail | null | undefined;
   readonly onBack: () => void;
+  readonly onHealth: () => void;
+  readonly onOpenAnima: (name: string) => void;
 }) {
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
   const setEnabled = useAnimaMutation(animaEnvironment.setEnabled, {
@@ -86,7 +89,11 @@ export function AnimaDetailBanner({
           <ArrowLeftIcon />
         </Button>
         <div className="flex items-center gap-4">
-          {full ? <AnimaSigil anima={full} size={88} /> : <div className="size-[88px]" />}
+          {full ? (
+            <AnimaSigil anima={full} size={88} />
+          ) : (
+            <Skeleton shape="pill" className="size-[88px] shrink-0" />
+          )}
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="truncate text-xl font-semibold tracking-tight">{summary.name}</h2>
@@ -114,9 +121,25 @@ export function AnimaDetailBanner({
                   {full.projects.length} {full.projects.length === 1 ? "project" : "projects"}
                 </span>
                 {full.inboxCount > 0 ? <span>{full.inboxCount} unread</span> : null}
+                {detail ? <AnimaTeamChip detail={detail} onOpenAnima={onOpenAnima} /> : null}
               </div>
-            ) : null}
+            ) : (
+              <Skeleton className="h-3 w-48" />
+            )}
           </div>
+          {full ? (
+            <button
+              type="button"
+              className="me-8 flex shrink-0 flex-col items-center gap-1 rounded-lg p-1 outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              aria-label={`Health: ${ANIMA_HEALTH_LABELS[animaHealthBucket(full.health)]}. Open health details`}
+              onClick={onHealth}
+            >
+              <AnimaHealthRing score={full.health} size={48} showValue />
+              <span className="text-2xs text-muted-foreground">
+                {ANIMA_HEALTH_LABELS[animaHealthBucket(full.health)]}
+              </span>
+            </button>
+          ) : null}
         </div>
         {full ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
