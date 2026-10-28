@@ -1,6 +1,6 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentShellStatus } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { AnimaName, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
@@ -30,6 +30,8 @@ export interface NewTaskFlowState {
   readonly draftKey: string | null;
   readonly submitting: boolean;
   readonly expandedProvider: string | null;
+  /** Animas belong to one environment, so the choice only applies while that environment is selected. */
+  readonly anima: { readonly environmentId: EnvironmentId; readonly name: AnimaName } | null;
 }
 
 export const INITIAL_NEW_TASK_FLOW_STATE: NewTaskFlowState = {
@@ -38,6 +40,7 @@ export const INITIAL_NEW_TASK_FLOW_STATE: NewTaskFlowState = {
   draftKey: null,
   submitting: false,
   expandedProvider: null,
+  anima: null,
 };
 
 // Every draft route on the stack keeps its flow, not just the one the provider

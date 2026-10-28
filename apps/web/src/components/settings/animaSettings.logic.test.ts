@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { AnimaBreath, AnimaSummary } from "@t3tools/contracts";
+import type {
+  AnimaBreath,
+  AnimaInboxMessage,
+  AnimaPolicyRule,
+  AnimaSummary,
+} from "@t3tools/contracts";
 
 import {
+  animaHealthBucket,
+  animaWellness,
   breathNoteText,
   buildAnimaFeed,
   filterAnimas,
+  groupOpens,
   isAnimaNameValid,
   keyedLines,
+  policyFireRows,
   safeAnimaAccent,
   sortAnimas,
+  threadInbox,
   traitPercent,
   validateAnimaSearch,
 } from "./animaSettings.logic";
@@ -34,6 +44,12 @@ describe("anima settings logic", () => {
     });
     expect(validateAnimaSearch({ tab: "overview" })).toEqual({});
     expect(validateAnimaSearch({ tab: "bogus", anima: "" })).toEqual({});
+    expect(validateAnimaSearch({ view: "library", entry: "notes.md" })).toEqual({
+      view: "library",
+      entry: "notes.md",
+    });
+    expect(validateAnimaSearch({ view: "roster", entry: "x" })).toEqual({});
+    expect(validateAnimaSearch({ view: "library", entry: "../etc" })).toEqual({ view: "library" });
   });
 
   it("only lets plain color syntaxes through", () => {
@@ -50,6 +66,82 @@ describe("anima settings logic", () => {
       summary({ name: "new", lastActiveAt: "2026-02-01" }),
     ]);
     expect(sorted.map((a) => a.name)).toEqual(["live", "new", "old"]);
+  });
+
+  it("sorts by need with unread health last", () => {
+    const sorted = sortAnimas(
+      [
+        summary({ name: "none", health: null }),
+        summary({ name: "calm", health: 0.1 }),
+        summary({ name: "hurt", health: 0.7 }),
+      ],
+      "health",
+    );
+    expect(sorted.map((a) => a.name)).toEqual(["hurt", "calm", "none"]);
+  });
+
+  it("buckets health at the CLI's tending thresholds", () => {
+    expect(animaHealthBucket(null)).toBe("unknown");
+    expect(animaHealthBucket(0.35)).toBe("steady");
+    expect(animaHealthBucket(0.36)).toBe("watch");
+    expect(animaHealthBucket(0.61)).toBe("tend");
+    expect(animaWellness(0.25)).toBe(75);
+    expect(animaWellness(3)).toBe(0);
+    expect(animaWellness(null)).toBeNull();
+  });
+
+  it("filters to animas that need attention", () => {
+    const list = [
+      summary({ name: "ok", health: 0.2 }),
+      summary({ name: "watch", health: 0.5, aim: "sync" }),
+      summary({ name: "unread", health: null }),
+    ];
+    expect(filterAnimas(list, "", true).map((a) => a.name)).toEqual(["watch"]);
+    expect(filterAnimas(list, "nothing", true)).toEqual([]);
+  });
+
+  it("threads inbox messages by reply chain and shared context", () => {
+    const message = (over: Partial<AnimaInboxMessage> & { id: string; ts: string }) =>
+      ({ type: "info", from: "x", body: "", ...over }) as AnimaInboxMessage;
+    const threads = threadInbox([
+      message({ id: "a", ts: "2026-01-01" }),
+      message({ id: "b", ts: "2026-01-03", replyTo: "a", status: "done" }),
+      message({ id: "c", ts: "2026-01-02", replyTo: "elsewhere", contextId: "ctx" }),
+      message({ id: "d", ts: "2026-01-04", replyTo: "gone", contextId: "ctx" }),
+      message({ id: "loop1", ts: "2026-01-05", replyTo: "loop2" }),
+      message({ id: "loop2", ts: "2026-01-06", replyTo: "loop1" }),
+    ]);
+    expect(threads.map((thread) => thread.messages.map((m) => m.id))).toEqual([
+      ["loop1", "loop2"],
+      ["c", "d"],
+      ["a", "b"],
+    ]);
+    expect(threads[1]?.answers).toBe("elsewhere");
+    expect(threads[2]?.unsettled).toBe(1);
+  });
+
+  it("normalises policy fires against the busiest rule", () => {
+    const rule = (index: number, fires: number) => ({ index, fires }) as AnimaPolicyRule;
+    const rows = policyFireRows([rule(1, 0), rule(2, 4), rule(3, 2)], "fires");
+    expect(rows.map((row) => [row.rule.index, row.share, row.neverFired])).toEqual([
+      [2, 1, false],
+      [3, 0.5, false],
+      [1, 0, true],
+    ]);
+    expect(policyFireRows([rule(1, 0)], "order")[0]?.share).toBe(0);
+  });
+
+  it("orders live opens blocked first and splits off closed ones", () => {
+    const open = (id: string, status: string) =>
+      ({ id, project: "p", question: "q", status, assignee: null }) as const;
+    const { live, closed } = groupOpens([
+      open("open-1", "watching"),
+      open("open-2", "closed"),
+      open("open-3", "blocked"),
+      open("open-4", "active"),
+    ]);
+    expect(live.map((entry) => entry.id)).toEqual(["open-3", "open-4", "open-1"]);
+    expect(closed.map((entry) => entry.id)).toEqual(["open-2"]);
   });
 
   it("filters across name, role, aim, and projects", () => {
