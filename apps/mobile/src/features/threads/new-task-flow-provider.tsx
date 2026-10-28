@@ -5,6 +5,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import React, { useEffect, useRef, useState } from "react";
 
 import type {
+  AnimaName,
   EnvironmentId,
   ModelSelection,
   ProviderOptionSelection,
@@ -155,6 +156,7 @@ type NewTaskFlowContextValue = {
   readonly availableBranches: ReadonlyArray<VcsRef>;
   readonly currentCheckoutBranchName: string | null;
   readonly runtimeMode: RuntimeMode;
+  readonly animaName: AnimaName | null;
   readonly expandedProvider: string | null;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -209,6 +211,7 @@ type NewTaskFlowContextValue = {
   readonly setSubmitting: (value: boolean) => void;
   readonly loadBranches: () => void;
   readonly setRuntimeMode: (value: RuntimeMode) => void;
+  readonly setAnimaName: (value: AnimaName | null) => void;
   readonly setSelectedModelOptions: (
     value: ReadonlyArray<ProviderOptionSelection> | undefined,
   ) => void;
@@ -287,6 +290,7 @@ export function NewTaskFlowProvider(
     draftKey: activeDraftKey,
     submitting,
     expandedProvider,
+    anima,
   } = flowState;
   // Continuations read the flow at use time, with the route's draft applied.
   const readFlow = (): NewTaskFlowState => {
@@ -722,6 +726,16 @@ export function NewTaskFlowProvider(
     }
   };
 
+  const animaName =
+    anima !== null && anima.environmentId === selectedEnvironmentId ? anima.name : null;
+  const setAnimaName = (name: AnimaName | null) =>
+    updateFlow({
+      anima:
+        name === null || selectedEnvironmentId === null
+          ? null
+          : { environmentId: selectedEnvironmentId, name },
+    });
+
   const buildPendingTaskMessage = (
     metadata: TurnCommandMetadata,
     options?: { readonly currentCheckoutBranch?: string | null },
@@ -785,6 +799,7 @@ export function NewTaskFlowProvider(
         ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
           ? { startFromOrigin: true }
           : {}),
+        ...(animaName === null ? {} : { animaName }),
       },
       createdAt: metadata.createdAt,
     };
@@ -875,6 +890,7 @@ export function NewTaskFlowProvider(
     availableBranches,
     currentCheckoutBranchName,
     runtimeMode,
+    animaName,
     expandedProvider,
     environments,
     selectedProject,
@@ -915,6 +931,7 @@ export function NewTaskFlowProvider(
     },
     loadBranches,
     setRuntimeMode,
+    setAnimaName,
     setSelectedModelOptions,
     setExpandedProvider: (value: string | null) => updateFlow({ expandedProvider: value }),
   } satisfies NewTaskFlowContextValue;

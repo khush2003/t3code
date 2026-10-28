@@ -1,15 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { PlusIcon, UsersIcon } from "lucide-react";
+import { LibraryBigIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
 
 import { animaEnvironment, useAnimaList } from "../../state/anima";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { AnimaDetailView } from "./anima/AnimaDetailView";
+import { AnimaLibrary } from "./anima/AnimaLibrary";
 import { AnimaRoster } from "./anima/AnimaRoster";
 import { NewAnimaDialog } from "./anima/NewAnimaDialog";
 import type { AnimaTab } from "./animaSettings.logic";
@@ -19,6 +21,8 @@ export function AnimaSettings(target: {
   readonly environmentId?: EnvironmentId;
   readonly anima?: string;
   readonly tab?: AnimaTab;
+  readonly view?: "library";
+  readonly entry?: string;
 }) {
   const { environment, connectedEnvironments } = useSettingsScope();
   const navigate = useNavigate();
@@ -46,6 +50,16 @@ export function AnimaSettings(target: {
         ...(tab && tab !== "overview" ? { tab } : {}),
       },
     });
+  const openLibrary = (entry: string | undefined) =>
+    void navigate({
+      to: "/settings/anima",
+      search: {
+        ...(environmentId ? { environmentId } : {}),
+        view: "library",
+        ...(entry ? { entry } : {}),
+      },
+    });
+  const library = !target.anima && target.view === "library";
 
   return (
     <SettingsPageContainer>
@@ -53,23 +67,44 @@ export function AnimaSettings(target: {
         title={selected ? `Anima on ${selected.label}` : "Anima"}
         variant="plain"
         headerAction={
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span>
-                  <Button
-                    size="sm"
-                    disabled={environmentId === null || createDisabledReason !== null}
-                    onClick={() => setCreating(true)}
-                  >
-                    <PlusIcon />
-                    New anima
-                  </Button>
-                </span>
-              }
-            />
-            {createDisabledReason ? <TooltipPopup>{createDisabledReason}</TooltipPopup> : null}
-          </Tooltip>
+          <div className="flex items-center gap-2">
+            {target.anima ? null : (
+              <ToggleGroup
+                aria-label="Anima view"
+                value={[library ? "library" : "roster"]}
+                onValueChange={(next) => {
+                  if (next[0] === "library") openLibrary(undefined);
+                  else if (next[0] === "roster") open(undefined);
+                }}
+              >
+                <Toggle value="roster">
+                  <UsersIcon />
+                  Roster
+                </Toggle>
+                <Toggle value="library">
+                  <LibraryBigIcon />
+                  Library
+                </Toggle>
+              </ToggleGroup>
+            )}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span>
+                    <Button
+                      size="sm"
+                      disabled={environmentId === null || createDisabledReason !== null}
+                      onClick={() => setCreating(true)}
+                    >
+                      <PlusIcon />
+                      New anima
+                    </Button>
+                  </span>
+                }
+              />
+              {createDisabledReason ? <TooltipPopup>{createDisabledReason}</TooltipPopup> : null}
+            </Tooltip>
+          </div>
         }
       >
         {environmentId === null ? (
@@ -90,7 +125,10 @@ export function AnimaSettings(target: {
             tab={target.tab ?? "overview"}
             onTab={(tab) => open(target.anima, tab)}
             onBack={() => open(undefined)}
+            onOpenAnima={(name) => open(name)}
           />
+        ) : library ? (
+          <AnimaLibrary environmentId={environmentId} entry={target.entry} onEntry={openLibrary} />
         ) : (
           <AnimaRoster
             environmentId={environmentId}
