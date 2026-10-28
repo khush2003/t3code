@@ -925,7 +925,8 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     breathCount: agent.breaths,
     enabled: agent.enabled,
     live: input.session?.live ?? false,
-    lastActiveAt: input.session?.lastActive ?? null,
+    // The CLI deletes stale session files, so the last breath is the durable fallback.
+    lastActiveAt: input.session?.lastActive ?? (breathed ? (lastRow?.ts ?? null) : null),
     lastBreathAt: breathed ? (lastRow?.ts ?? null) : null,
     aim: lastRow?.aim ?? null,
     hsl: breathed ? (lastRow?.hsl ?? null) : null,
