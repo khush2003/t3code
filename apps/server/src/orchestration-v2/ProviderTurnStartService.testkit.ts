@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
+import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 
@@ -32,6 +33,10 @@ export const layer = Layer.mergeAll(
     prepare: () => Effect.succeed({ status: "failed" }),
     take: () => Effect.succeed({ status: "failed" }),
     refresh: () => Effect.succeed(""),
+  }),
+  Layer.mock(AnimaRuntime.AnimaRuntime)({
+    attach: () => Effect.void,
+    notices: () => Effect.succeed({ text: "", ack: Effect.void }),
   }),
 );
 

@@ -270,6 +270,7 @@ import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as ProcessRunner from "./processRunner.ts";
 import * as AnimaMergeService from "./anima/AnimaMergeService.ts";
+import * as AnimaRuntime from "./anima/AnimaRuntime.ts";
 import * as AnimaService from "./anima/AnimaService.ts";
 import * as AnimaThreadService from "./anima/AnimaThreadService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
@@ -1321,6 +1322,7 @@ export const layerWsRpc = (
       const anima = yield* AnimaService.AnimaService;
       const animaMerge = yield* AnimaMergeService.AnimaMergeService;
       const animaThreads = yield* AnimaThreadService.AnimaThreadService;
+      const animaRuntime = yield* AnimaRuntime.AnimaRuntime;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
@@ -2889,6 +2891,14 @@ export const layerWsRpc = (
         [WS_METHODS.animaMergeStart]: (input) => animaMerge.start(input),
         [WS_METHODS.animaMergeStatus]: (input) => animaMerge.status(input),
         [WS_METHODS.animaMergeApply]: (input) => animaMerge.apply(input),
+        [WS_METHODS.animaInbox]: (input) => anima.inboxAction(input),
+        [WS_METHODS.animaOpens]: (input) => anima.opensAction(input),
+        [WS_METHODS.animaHealth]: (input) => anima.health(input.name),
+        [WS_METHODS.animaLibraryList]: () => anima.libraryList,
+        [WS_METHODS.animaLibraryRead]: (input) => anima.libraryRead(input.slug),
+        [WS_METHODS.animaLibraryShelve]: (input) => anima.libraryShelve(input),
+        [WS_METHODS.animaTeam]: (input) => anima.team(input),
+        [WS_METHODS.animaThreadStatus]: (input) => animaRuntime.threadStatus(input.threadId),
         [WS_METHODS.assetsCreateUrl]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {

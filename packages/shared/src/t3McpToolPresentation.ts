@@ -59,6 +59,13 @@ export type T3McpToolSummaryAction =
   | "anima-read"
   | "anima-policy"
   | "anima-attach"
+  | "anima-inbox-read"
+  | "anima-message"
+  | "anima-opens-list"
+  | "anima-opens-update"
+  | "anima-library-list"
+  | "anima-library-read"
+  | "anima-health"
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
@@ -351,6 +358,22 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["Attach", "Attaching", "Attached", "an anima to a project"],
     "anima-attach",
   ),
+  t3_anima_inbox_read: tool(["Read", "Reading", "Read", "an anima inbox"], "anima-inbox-read"),
+  t3_anima_inbox_send: tool(["Message", "Messaging", "Messaged", "an anima"], "anima-message"),
+  t3_anima_opens_list: tool(["List", "Listing", "Listed", "anima opens"], "anima-opens-list"),
+  t3_anima_opens_update: tool(
+    ["Update", "Updating", "Updated", "anima opens"],
+    "anima-opens-update",
+  ),
+  t3_anima_library_list: tool(
+    ["List", "Listing", "Listed", "the anima library"],
+    "anima-library-list",
+  ),
+  t3_anima_library_read: tool(
+    ["Read", "Reading", "Read", "an anima library entry"],
+    "anima-library-read",
+  ),
+  t3_anima_health: tool(["Check", "Checking", "Checked", "anima health"], "anima-health"),
   t3_thread_launch: tool(["Launch", "Launching", "Launched", "a project thread"], "thread-create"),
   t3_project_list: tool(["List", "Listing", "Listed", "projects"], "project-list"),
   t3_project_read: tool(["Read", "Reading", "Read", "a project"], "project-read"),

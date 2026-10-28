@@ -37,6 +37,7 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AnimaMergeService from "./anima/AnimaMergeService.ts";
+import * as AnimaRuntime from "./anima/AnimaRuntime.ts";
 import * as AnimaService from "./anima/AnimaService.ts";
 import * as AnimaThreadService from "./anima/AnimaThreadService.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -495,6 +496,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(AgentSessionScanner.AgentSessionScanner)({}),
   Layer.mock(AnalyticsService.AnalyticsService)({}),
   Layer.mock(AnimaMergeService.AnimaMergeService)({}),
+  Layer.mock(AnimaRuntime.AnimaRuntime)({}),
   Layer.mock(AnimaService.AnimaService)({}),
   Layer.mock(AnimaThreadService.AnimaThreadService)({}),
   Layer.mock(AntigravityInstallation.AntigravityInstallation)({ managedDirectory: "/unused" }),

@@ -1,9 +1,13 @@
 // @effect-diagnostics nodeBuiltinImport:off -- synchronous sha256 over many small files; no Effect API fits a pure digest
 import * as NodeCrypto from "node:crypto";
 import type {
+  AnimaAuditFinding,
   AnimaBreath,
   AnimaBundleFile,
+  AnimaCard,
   AnimaCompareResult,
+  AnimaHealthAssessment,
+  AnimaHealthResult,
   AnimaInboxMessage,
   AnimaOpen,
   AnimaPolicy,
@@ -12,6 +16,8 @@ import type {
   AnimaSyncRelation,
   AnimaTrait,
 } from "@t3tools/contracts";
+
+import { hashOf } from "./AnimaPolicyMatch.ts";
 
 /** The CLI treats a session heartbeat older than this as stale. */
 const ANIMA_SESSION_STALE_MS = 90 * 60 * 1000;
@@ -51,7 +57,19 @@ export interface ParsedAgentFile {
   readonly projects: ReadonlyArray<string>;
   readonly traits: ReadonlyArray<AnimaTrait>;
   readonly skills: ReadonlyArray<AnimaTrait>;
+  /** `# project:`, the directory whose opens.json the anima works from. */
+  readonly projectPath: string | null;
+  readonly team: ReadonlyArray<string>;
+  readonly offers: ReadonlyArray<string>;
+  readonly circuit: AnimaHealthResult["circuit"];
+  readonly circuitCount: number;
 }
+
+const splitList = (value: string | null) =>
+  (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
 
 const nonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim() ?? "";
@@ -130,6 +148,7 @@ export function parseAgentFile(content: string): ParsedAgentFile {
   const valueOf = (key: string) => nonEmpty(header.find((entry) => entry.key === key)?.value);
   const projectsRaw = valueOf("projects") ?? "";
   const parent = valueOf("parent");
+  const circuit = valueOf("circuit")?.split(/\s+/)[0];
   return {
     header,
     rows,
@@ -149,6 +168,11 @@ export function parseAgentFile(content: string): ParsedAgentFile {
       .filter((entry) => entry !== ""),
     traits: parseTraits(valueOf("self") ?? ""),
     skills: parseTraits(valueOf("skills") ?? ""),
+    projectPath: valueOf("project"),
+    team: splitList(valueOf("team")),
+    offers: splitList(valueOf("offers")),
+    circuit: circuit === "open" || circuit === "half-open" ? circuit : "closed",
+    circuitCount: Number.parseInt(valueOf("circuit-count") ?? "0", 10) || 0,
   };
 }
 
@@ -290,7 +314,25 @@ export function mergeBreaths(
 
 export interface ParsedPolicy extends Omit<AnimaPolicy, "cap"> {}
 
-export function parsePolicy(content: string): ParsedPolicy {
+/** Aggregates policy-fires.jsonl (`{h, ts}` per fire) like the CLI's `loadFireStats`. */
+function parseFireLog(
+  content: string,
+): ReadonlyMap<string, { readonly count: number; readonly last: string }> {
+  const stats = new Map<string, { count: number; last: string }>();
+  for (const line of content.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const { h, ts } = JSON.parse(line) as { h?: unknown; ts?: unknown };
+      if (typeof h !== "string") continue;
+      stats.set(h, { count: (stats.get(h)?.count ?? 0) + 1, last: String(ts ?? "") });
+    } catch {
+      continue;
+    }
+  }
+  return stats;
+}
+
+export function parsePolicy(content: string, fireLog = ""): ParsedPolicy {
   let revision = 0;
   let section: "none" | "operational" | "pending" | "audit" = "none";
   const operational: Array<string> = [];
@@ -311,12 +353,21 @@ export function parsePolicy(content: string): ParsedPolicy {
     else if (section === "pending") pending.push(line);
     else if (section === "audit") audit.push(line);
   }
-  const numbered = (rules: ReadonlyArray<string>) =>
-    rules.map((text, position) => ({ index: position + 1, text }));
+  const fires = parseFireLog(fireLog);
+  const numbered = (rules: ReadonlyArray<string>, withFires: boolean) =>
+    rules.map((text, position) => {
+      const stat = withFires ? fires.get(hashOf(text)) : undefined;
+      return {
+        index: position + 1,
+        text,
+        fires: stat?.count ?? 0,
+        lastFiredAt: nonEmpty(stat?.last),
+      };
+    });
   return {
     revision,
-    operational: numbered(operational),
-    pending: numbered(pending),
+    operational: numbered(operational, true),
+    pending: numbered(pending, false),
     audit,
   };
 }
@@ -329,12 +380,18 @@ export function parseInbox(content: string): ReadonlyArray<AnimaInboxMessage> {
     try {
       if (line.startsWith("{")) {
         const value = JSON.parse(line) as Record<string, unknown>;
+        const optional = (key: string) =>
+          typeof value[key] === "string" ? nonEmpty(value[key]) : null;
         out.push({
           id: String(value.id ?? ""),
           type: String(value.type ?? "info"),
           from: String(value.from ?? ""),
           ts: String(value.ts ?? ""),
           body: String(value.body ?? ""),
+          to: optional("to"),
+          replyTo: optional("replyTo"),
+          contextId: optional("contextId"),
+          status: optional("status"),
         });
         continue;
       }
@@ -373,27 +430,307 @@ export function parseSession(content: string, nowMs: number): ParsedSession | nu
   };
 }
 
-/** Parses `opens list` output: `name (path):` blocks followed by `  open-001 [assignee] [status]: question`. */
-export function parseOpensListOutput(output: string): ReadonlyArray<AnimaOpen> {
-  const opens: Array<AnimaOpen> = [];
-  let project = "";
-  for (const line of output.split("\n")) {
-    const block = /^(\S.*?)\s+\((.+)\):\s*$/.exec(line);
-    if (block !== null) {
-      project = block[2]!;
+const stringOrNull = (value: unknown) => (typeof value === "string" ? nonEmpty(value) : null);
+
+/** Parses `<project>/opens.json`, the CLI's open-question store for that project. */
+export function parseOpensFile(content: string, project: string): ReadonlyArray<AnimaOpen> {
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): ReadonlyArray<AnimaOpen> => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const open = entry as Record<string, unknown>;
+    const id = stringOrNull(open.id);
+    const question = stringOrNull(open.question);
+    if (id === null || question === null) return [];
+    return [
+      {
+        id,
+        project,
+        question,
+        status: stringOrNull(open.status) ?? "active",
+        assignee: stringOrNull(open.assigned),
+        resolves: stringOrNull(open.resolves_when),
+        context: stringOrNull(open.context),
+        openedBy: stringOrNull(open.opened_by),
+        openedAt: stringOrNull(open.opened),
+        related: Array.isArray(open.related)
+          ? open.related.filter((item): item is string => typeof item === "string")
+          : [],
+      },
+    ];
+  });
+}
+
+/** Reads `card.json` defensively; it is CLI-generated and has no schema version. */
+export function parseCard(content: string): AnimaCard | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const card = value as Record<string, unknown>;
+  const skills = Array.isArray(card.skills) ? card.skills : [];
+  return {
+    description: typeof card.description === "string" ? card.description : "",
+    version: stringOrNull(card.version),
+    generatedAt: stringOrNull(card.generatedAt),
+    skills: skills.flatMap((skill) => {
+      const { name, confidence } = (skill ?? {}) as Record<string, unknown>;
+      return typeof name === "string" &&
+        typeof confidence === "number" &&
+        Number.isFinite(confidence)
+        ? [{ name, confidence }]
+        : [];
+    }),
+    interfaces: Array.isArray(card.interfaces)
+      ? card.interfaces.filter((item): item is string => typeof item === "string")
+      : [],
+    status: stringOrNull(card.status),
+  };
+}
+
+/** First `# ` heading of a library entry, as `library list` shows it. */
+export function libraryTitle(content: string): string | null {
+  const heading = content.split("\n").find((line) => line.startsWith("# "));
+  return heading === undefined ? null : nonEmpty(heading.slice(2));
+}
+
+// Health weights, thresholds and caps from the CLI's state.ts.
+const HEALTH_WEIGHTS = { u: 0.3, n: 0.25, t: 0.15, d: 0.15, s: 0.15 } as const;
+const HEALTH_PROACTIVE = 0.6;
+const HEALTH_INTERNAL = 0.35;
+const TENSION_AGE_MAX = 20;
+const DRIFT_MAX = 0.3;
+const SILENCE_HOURS_MAX = 48;
+/** Kalman variance the CLI assumes for a trait written without `±sigma`. */
+const DEFAULT_SIGMA = 0.2;
+
+interface KalmanEntry {
+  readonly sigma: number;
+  readonly negStreak: number;
+  readonly recognized: boolean;
+}
+
+/** `name=.5±.2~2!`: `~n` is the negative streak, `!` marks external recognition (kalman.ts). */
+function parseKalmanProfile(value: string): ReadonlyArray<KalmanEntry> {
+  const profile = new Map<string, KalmanEntry>();
+  for (const pair of value.split(",")) {
+    const trimmed = pair.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const rest = trimmed.slice(eq + 1);
+    const pm = rest.indexOf("±");
+    if (pm === -1) {
+      if (key !== "" && !Number.isNaN(Number.parseFloat(rest)))
+        profile.set(key, { sigma: DEFAULT_SIGMA, negStreak: 0, recognized: false });
       continue;
     }
-    const item = /^\s+(open-\d+)\s+\[([^\]]*)\](?:\s+\[([^\]]+)\])?:\s*(.*)$/.exec(line);
-    if (item === null) continue;
-    opens.push({
-      id: item[1]!,
-      project,
-      question: item[4]!,
-      status: item[3] ?? "active",
-      assignee: nonEmpty(item[2]),
+    const after = rest.slice(pm + 1);
+    const recognized = after.endsWith("!");
+    const clean = recognized ? after.slice(0, -1) : after;
+    const tilde = clean.indexOf("~");
+    const mu = Number.parseFloat(rest.slice(0, pm));
+    const sigma = Number.parseFloat(tilde === -1 ? clean : clean.slice(0, tilde));
+    const negStreak = tilde === -1 ? 0 : Number.parseInt(clean.slice(tilde + 1), 10);
+    if (key === "" || Number.isNaN(mu) || Number.isNaN(sigma)) continue;
+    profile.set(key, {
+      sigma: Math.abs(sigma),
+      negStreak: Number.isNaN(negStreak) ? 0 : negStreak,
+      recognized,
     });
   }
-  return opens;
+  return [...profile.values()];
+}
+
+function parseTensionAges(value: string): ReadonlyArray<number> {
+  const ages = new Map<string, number>();
+  for (const pair of value.split(",")) {
+    const colon = pair.lastIndexOf(":");
+    if (colon <= 0) continue;
+    const age = Number.parseInt(pair.slice(colon + 1), 10);
+    if (!Number.isNaN(age)) ages.set(pair.slice(0, colon).trim(), age);
+  }
+  return [...ages.values()];
+}
+
+const isTimestampedRow = (parts: ReadonlyArray<string>) =>
+  parts.length >= 2 && /^\d{4}-\d{2}-\d{2}T/.test(parts[1] ?? "");
+
+/**
+ * Port of the CLI's `assessHealth` (health.ts), which only prints, so T3 can show the
+ * components and score every anima in `list` without a subprocess each.
+ */
+export function assessHealth(input: {
+  readonly agentContent: string;
+  /** Content of the latest breath file, for a timestamp when the last row has none. */
+  readonly latestBreathFile: string;
+  readonly nowMs: number;
+}): AnimaHealthAssessment | null {
+  const lines = input.agentContent.split("\n").filter((line) => line.trim() !== "");
+  const dataLines = lines.filter((line) => !line.startsWith("#"));
+  if (dataLines.length === 0) return null;
+  const agent = parseAgentFile(input.agentContent);
+  const header = (key: string) =>
+    lines.find((line) => line.startsWith(`# ${key}: `))?.slice(key.length + 4) ?? "";
+
+  const hsl: Array<readonly [number, number, number]> = [];
+  const shapes: Array<readonly [number, number, number]> = [];
+  for (const line of dataLines) {
+    const parts = line.split("|");
+    const offset = isTimestampedRow(parts) ? 1 : 0;
+    const [h, sat, light] = (parts[1 + offset] ?? "").split(/[.,]/).map(Number);
+    hsl.push([h || 0, sat || 0, light || 50]);
+    const shape = parts[3 + offset];
+    if (shape) {
+      const [x, y, z] = shape.split("+")[0]!.split("/").map(Number);
+      shapes.push([x || 0, y || 0, z || 0]);
+    }
+  }
+
+  const reasons: Array<string> = [];
+  const self = parseKalmanProfile(header("self"));
+  const maxSigma = Math.max(0, ...self.map((trait) => trait.sigma));
+  const u = Math.min(1, maxSigma / 0.5);
+  if (u > 0.5) reasons.push(`uncertainty: σ=${maxSigma.toFixed(2)}`);
+
+  const maxNegStreak = Math.max(0, ...self.map((trait) => trait.negStreak));
+  const n = Math.min(1, maxNegStreak / 3);
+  if (n > 0.5) reasons.push(`neg-streak: ${maxNegStreak}`);
+
+  const maxTensionAge = Math.max(0, ...parseTensionAges(header("tension")));
+  const t = Math.min(1, maxTensionAge / TENSION_AGE_MAX);
+  if (t > 0.5) reasons.push(`stale-tension: age ${maxTensionAge}`);
+
+  const lastParts = dataLines.at(-1)!.split("|");
+  const lastBreathTs =
+    lastParts.length > 7 && lastParts[1]!.includes("-")
+      ? lastParts[1]!
+      : agent.breaths > 0
+        ? (/ts:(\S+)/.exec(input.latestBreathFile)?.[1] ?? "")
+        : "";
+  let silenceHours = 0;
+  if (lastBreathTs !== "") {
+    const elapsed = (input.nowMs - localTimestampMs(lastBreathTs)) / 3_600_000;
+    // Clamped: a clock behind the breath would otherwise drive the score negative.
+    silenceHours = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
+  } else if (agent.breaths === 0) {
+    silenceHours = SILENCE_HOURS_MAX;
+  }
+  const s = Math.min(1, silenceHours / SILENCE_HOURS_MAX);
+  if (s > 0.5) reasons.push(`silence: ${Math.floor(silenceHours)}h`);
+
+  let colorDrift = 0;
+  if (hsl.length >= 2) {
+    const first = hsl[Math.max(0, hsl.length - 5)]!;
+    const last = hsl.at(-1)!;
+    colorDrift = Math.sqrt(
+      ((last[0] - first[0]) / 360) ** 2 +
+        ((last[1] - first[1]) / 100) ** 2 +
+        ((last[2] - first[2]) / 100) ** 2,
+    );
+  }
+  // The CLI damps drift for recently active animas: domain shifts are expected mid-work.
+  const d = Math.min(1, colorDrift / DRIFT_MAX) * (silenceHours < 2 ? 0.2 : 1);
+  if (d > 0.5) reasons.push(`drift: ${colorDrift.toFixed(2)}`);
+
+  const flooredCount = self.filter(
+    (trait) => trait.sigma <= 0.15 && trait.sigma >= 0.11 && !trait.recognized,
+  ).length;
+  const score =
+    HEALTH_WEIGHTS.u * u +
+    HEALTH_WEIGHTS.n * n +
+    HEALTH_WEIGHTS.t * t +
+    HEALTH_WEIGHTS.d * d +
+    HEALTH_WEIGHTS.s * s;
+
+  const warnings: Array<string> = [];
+  const recentHsl = hsl.slice(-5);
+  const recentShapes = shapes.slice(-5);
+  const trend = <T extends ReadonlyArray<number>>(series: ReadonlyArray<T>, axis: number) =>
+    series.length >= 2 ? series.at(-1)![axis]! - series[0]![axis]! : 0;
+  const lightTrend = trend(recentHsl, 2);
+  const couplingTrend = trend(recentShapes, 2);
+  const breadthTrend = trend(recentShapes, 0);
+  const head = hsl.at(-1)!;
+  const projectCount = new Set(
+    header("projects")
+      .split(",")
+      .flatMap((pair) => {
+        const [project, note] = pair.split("=");
+        return project && note ? [project.trim()] : [];
+      }),
+  ).size;
+  if (couplingTrend > 0.3) warnings.push("coupling climbing fast");
+  if (head[1] < 15 && projectCount > 1) warnings.push("very diffuse focus");
+  if (head[2] < 35) warnings.push("vitality low");
+  if (lightTrend < -10) warnings.push("vitality declining");
+  if (breadthTrend < -0.3 && couplingTrend > 0.2) warnings.push("tunneling");
+  if (flooredCount >= 3) warnings.push(`recognition deficit: ${flooredCount} traits at σ floor`);
+
+  return {
+    score,
+    action: score > HEALTH_PROACTIVE ? "proactive" : score > HEALTH_INTERNAL ? "internal" : "none",
+    components: { uncertainty: u, negStreak: n, staleTension: t, drift: d, silence: s },
+    maxSigma,
+    maxNegStreak,
+    maxTensionAge,
+    silenceHours,
+    colorDrift,
+    reasons: reasons.slice(0, 3),
+    warnings,
+  };
+}
+
+const AUDIT_MAX_LINE = 400;
+
+/** Port of the CLI's per-anima `audit` checks (audit.ts), which only print. */
+export function auditAnima(input: {
+  readonly agentContent: string;
+  /** Keyed by file name, e.g. `003.breath`. */
+  readonly breathFiles: ReadonlyMap<string, string>;
+  readonly hasIdentity: boolean;
+}): ReadonlyArray<AnimaAuditFinding> {
+  const findings: Array<AnimaAuditFinding> = [];
+  const push = (level: AnimaAuditFinding["level"], message: string) =>
+    findings.push({ level, message });
+  const breaths = parseAgentFile(input.agentContent).breaths;
+  const dataLines = input.agentContent.split("\n").filter((line) => /^\d+\|/.test(line));
+  if (breaths > 0 && dataLines.length !== breaths + 1)
+    push(
+      "error",
+      `breath count mismatch: header says ${breaths}, found ${dataLines.length} data lines (expected ${breaths + 1})`,
+    );
+  for (const line of dataLines) {
+    const parts = line.split("|");
+    const index = Number.parseInt(parts[0]!, 10);
+    const offset = isTimestampedRow(parts) ? 1 : 0;
+    const hslField = parts[1 + offset] ?? "";
+    const shapeField = parts[3 + offset] ?? "";
+    const graphField = parts[4 + offset] ?? "";
+    if (hslField.split(/[.,]/).map(Number).some(Number.isNaN))
+      push("error", `breath ${index}: NaN in HSL (${hslField})`);
+    if (/^\d+\.\d+\.\d+$/.test(hslField)) push("info", `breath ${index}: dot-separated HSL`);
+    if (shapeField && shapeField.split(/[+/]/).map(Number).some(Number.isNaN))
+      push("warn", `breath ${index}: NaN in shape/drift`);
+    if (line.length > AUDIT_MAX_LINE)
+      push("warn", `breath ${index}: line length ${line.length} (>${AUDIT_MAX_LINE})`);
+    if (graphField.includes(":") && graphField.length > 60)
+      push("info", `breath ${index}: graph not compressed (${graphField.length} chars)`);
+    const detail = input.breathFiles.get(breathFileName(index));
+    if (detail === undefined) push("warn", `breath ${index}: missing detail file`);
+    else if ((/^# decisions: (.*)$/m.exec(detail)?.[1] ?? "").trim() === "")
+      push("info", `breath ${index}: empty decisions in detail file`);
+  }
+  if (!input.hasIdentity) push("warn", "no identity.md");
+  return findings;
 }
 
 /** Never let a bundle path leave the anima directory. */
@@ -570,6 +907,7 @@ export interface SummaryInput {
   readonly inbox: ReadonlyArray<AnimaInboxMessage>;
   readonly session: ParsedSession | null;
   readonly digest: string;
+  readonly health: number | null;
 }
 
 export function buildSummary(input: SummaryInput): AnimaSummary {
@@ -599,6 +937,7 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     topSkills: agent.skills.toSorted((left, right) => right.mean - left.mean).slice(0, 5),
     inboxCount: input.inbox.length,
     policyCount: input.policy.operational.length,
+    health: input.health,
     digest: input.digest,
   };
 }

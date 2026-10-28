@@ -100,7 +100,14 @@ describe("identity, breath, policy, inbox, session", () => {
     expect(AnimaFiles.parseBreathFile(breath(0, "x"), "000.breath")?.parent).toBeNull();
   });
 
-  it("parses policy sections with numbered rules", () => {
+  it("parses policy sections with numbered rules and hook fire stats", () => {
+    // `1phfl5w` is hook.ts's hashOf("WHEN a THEN b"); pending rules never count fires.
+    const fires = [
+      '{"h":"1phfl5w","ts":"2026-07-16T06:33"}',
+      "garbage",
+      '{"h":"1phfl5w","ts":"2026-07-20T06:35"}',
+      '{"h":"other","ts":"2026-07-20T06:36"}',
+    ].join("\n");
     const policy = AnimaFiles.parsePolicy(
       `# Policy: t3-atlas
 # rev: 2 updated: 2026-10-26 by: t3-atlas
@@ -115,24 +122,35 @@ NEVER d [proposed by x, 2026-01-01]
 ## Audit
 2|2026-10-26|t3-atlas|added: ALWAYS c
 `,
+      fires,
     );
     expect(policy.revision).toBe(2);
     expect(policy.operational).toEqual([
-      { index: 1, text: "WHEN a THEN b" },
-      { index: 2, text: "ALWAYS c" },
+      { index: 1, text: "WHEN a THEN b", fires: 2, lastFiredAt: "2026-07-20T06:35" },
+      { index: 2, text: "ALWAYS c", fires: 0, lastFiredAt: null },
     ]);
-    expect(policy.pending).toHaveLength(1);
+    expect(policy.pending).toEqual([
+      { index: 1, text: "NEVER d [proposed by x, 2026-01-01]", fires: 0, lastFiredAt: null },
+    ]);
     expect(policy.audit).toEqual(["2|2026-10-26|t3-atlas|added: ALWAYS c"]);
   });
 
   it("parses JSONL and legacy inbox lines, skipping garbage", () => {
     const inbox = AnimaFiles.parseInbox(
-      `{"id":"m_1","ts":"t","from":"a","to":"b","type":"self-aim","body":"hi"}\n{broken\n2026|bob|info|a|b\n`,
+      `{"id":"m_1","ts":"t","from":"a","to":"b","type":"self-aim","body":"hi"}\n{broken\n2026|bob|info|a|b\n{"id":"m_2","ts":"t","from":"b","to":"a","type":"query","body":"re","contextId":"ctx_m_1","replyTo":"m_1","status":"done"}\n`,
     );
     expect(inbox.map((message) => [message.id, message.type, message.body])).toEqual([
       ["m_1", "self-aim", "hi"],
       ["2026:bob", "info", "a|b"],
+      ["m_2", "query", "re"],
     ]);
+    expect(inbox[0]).toMatchObject({ to: "b", replyTo: null, contextId: null, status: null });
+    expect(inbox[2]).toMatchObject({
+      to: "a",
+      replyTo: "m_1",
+      contextId: "ctx_m_1",
+      status: "done",
+    });
   });
 
   it("treats a heartbeat older than 90 minutes as stale", () => {
@@ -144,20 +162,176 @@ NEVER d [proposed by x, 2026-01-01]
     );
   });
 
-  it("parses opens list output", () => {
-    expect(
-      AnimaFiles.parseOpensListOutput(
-        "\natlas (/p/atlas):\n  open-001 [t3-atlas]: Is it done?\n  open-002 [x] [blocked]: Why?\n",
-      ),
-    ).toEqual([
+  it("parses opens.json, skipping malformed entries", () => {
+    const opens = AnimaFiles.parseOpensFile(
+      JSON.stringify([
+        {
+          id: "open-001",
+          question: "Is it done?",
+          opened_by: "atlas",
+          assigned: "kite",
+          opened: "2026-08-06",
+          context: "ctx",
+          resolves_when: "tests pass",
+          related: ["open-002", 3],
+          status: "watching",
+        },
+        { id: "open-002", question: "Why?", assigned: "", resolves_when: "x" },
+        { question: "no id" },
+        "nope",
+      ]),
+      "/p/atlas",
+    );
+    expect(opens).toEqual([
       {
         id: "open-001",
         project: "/p/atlas",
         question: "Is it done?",
-        status: "active",
-        assignee: "t3-atlas",
+        status: "watching",
+        assignee: "kite",
+        resolves: "tests pass",
+        context: "ctx",
+        openedBy: "atlas",
+        openedAt: "2026-08-06",
+        related: ["open-002"],
       },
-      { id: "open-002", project: "/p/atlas", question: "Why?", status: "blocked", assignee: "x" },
+      {
+        id: "open-002",
+        project: "/p/atlas",
+        question: "Why?",
+        status: "active",
+        assignee: null,
+        resolves: "x",
+        context: null,
+        openedBy: null,
+        openedAt: null,
+        related: [],
+      },
+    ]);
+    expect(AnimaFiles.parseOpensFile("{not json", "/p")).toEqual([]);
+    expect(AnimaFiles.parseOpensFile('{"id":"open-001"}', "/p")).toEqual([]);
+  });
+
+  it("reads card.json loosely and the library title", () => {
+    expect(
+      AnimaFiles.parseCard(
+        JSON.stringify({
+          name: "indigo",
+          description: "Direct.",
+          version: "1.0.0",
+          generatedAt: "2026-10-28T10:49",
+          skills: [{ name: "a", confidence: 0.95 }, { name: "b" }, null],
+          interfaces: ["inbox", 1],
+          status: "inactive",
+        }),
+      ),
+    ).toEqual({
+      description: "Direct.",
+      version: "1.0.0",
+      generatedAt: "2026-10-28T10:49",
+      skills: [{ name: "a", confidence: 0.95 }],
+      interfaces: ["inbox"],
+      status: "inactive",
+    });
+    expect(AnimaFiles.parseCard("[]")).toBeNull();
+    expect(AnimaFiles.parseCard("")).toBeNull();
+    expect(AnimaFiles.libraryTitle("From: x\n# Codec notes\nbody")).toBe("Codec notes");
+    expect(AnimaFiles.libraryTitle("no heading")).toBeNull();
+  });
+});
+
+describe("health and audit", () => {
+  const HEALTH_AGENT = `# anima v1
+# id:x1 name:hx born:2026-02-25 breaths:3 accent:#223464
+# role: agent
+# projects: atlas=C,other=D
+# self: rigor=.6±.45~4,warmth=.5±.12,humor=.5±.13,density=.5±.14,certainty=.4
+# tension: speed-vs-care:15,scope:3
+# circuit: open
+# circuit-count: 2
+# team: kite, quill
+0|2026-03-01T10:00|0.0.50|C4|0.1/0.1/0.1+0/0/0|||
+1|2026-03-02T10:00|200,40,60|n1|0.5/0.2/0.1+0/0/0|||
+2|2026-03-03T10:00|210,20,40|n2|0.4/0.3/0.3+0/0/0|||
+3|2026-03-04T10:00|90,10,30|n3|0.1/0.3/0.5+0/0/0|g|aim|p
+`;
+
+  it("matches the CLI's assessHealth on the same anima", () => {
+    // Expected values come from running the anima CLI's assessHealth on this fixture at this time.
+    const health = AnimaFiles.assessHealth({
+      agentContent: HEALTH_AGENT,
+      latestBreathFile: "",
+      nowMs: AnimaFiles.localTimestampMs("2026-03-04T20:00"),
+    });
+    expect(health?.score).toBeCloseTo(0.81375, 10);
+    expect(health).toMatchObject({
+      action: "proactive",
+      maxNegStreak: 4,
+      maxTensionAge: 15,
+      reasons: ["uncertainty: σ=0.45", "neg-streak: 4", "stale-tension: age 15"],
+      warnings: [
+        "coupling climbing fast",
+        "very diffuse focus",
+        "vitality low",
+        "vitality declining",
+        "recognition deficit: 3 traits at σ floor",
+      ],
+    });
+    expect(health?.components.drift).toBe(1);
+    expect(health?.silenceHours).toBeCloseTo(10, 10);
+    expect(AnimaFiles.parseAgentFile(HEALTH_AGENT)).toMatchObject({
+      circuit: "open",
+      circuitCount: 2,
+      team: ["kite", "quill"],
+    });
+    expect(
+      AnimaFiles.assessHealth({ agentContent: "# anima v1\n", latestBreathFile: "", nowMs: 0 }),
+    ).toBeNull();
+  });
+
+  it("falls back to the latest breath file and damps drift while recently active", () => {
+    const untimed = HEALTH_AGENT.replace(
+      "3|2026-03-04T10:00|90,10,30|n3|0.1/0.3/0.5+0/0/0|g|aim|p",
+      "3|90,10,30|n3",
+    );
+    const health = AnimaFiles.assessHealth({
+      agentContent: untimed,
+      latestBreathFile: "# breath:3 ts:2026-03-04T19:00 parent:2 hash:h\n",
+      nowMs: AnimaFiles.localTimestampMs("2026-03-04T20:00"),
+    });
+    expect(health?.silenceHours).toBeCloseTo(1, 10);
+    expect(health?.components.drift).toBeCloseTo(0.2, 10);
+  });
+
+  it("reports the CLI's audit findings", () => {
+    const agent = [
+      "# anima v1",
+      "# id:x name:a born:2026-01-01 breaths:3",
+      "0|2026-01-01T10:00|0.0.50|C4|0.1/0.1/0.1+0/0/0|||",
+      "1|2026-01-02T10:00|x,1,2|n|0.1/a/0.1|" + "k:".repeat(40) + "||",
+      "2|2026-01-03T10:00|1,2,3|" + "n".repeat(400) + "|0.1/0.1/0.1|||",
+    ].join("\n");
+    const findings = AnimaFiles.auditAnima({
+      agentContent: agent,
+      breathFiles: new Map([
+        ["000.breath", "# breath:0\n# decisions: genesis\n"],
+        ["001.breath", "# breath:1\n# decisions: \n"],
+      ]),
+      hasIdentity: false,
+    });
+    expect(findings).toEqual([
+      {
+        level: "error",
+        message: "breath count mismatch: header says 3, found 3 data lines (expected 4)",
+      },
+      { level: "info", message: "breath 0: dot-separated HSL" },
+      { level: "error", message: "breath 1: NaN in HSL (x,1,2)" },
+      { level: "warn", message: "breath 1: NaN in shape/drift" },
+      { level: "info", message: "breath 1: graph not compressed (80 chars)" },
+      { level: "info", message: "breath 1: empty decisions in detail file" },
+      { level: "warn", message: "breath 2: line length 440 (>400)" },
+      { level: "warn", message: "breath 2: missing detail file" },
+      { level: "warn", message: "no identity.md" },
     ]);
   });
 });
@@ -255,6 +429,7 @@ describe("buildSummary", () => {
       inbox: [],
       session: null,
       digest: built.digest,
+      health: 0.25,
     });
     expect(summary).toMatchObject({
       name: "atlas",
@@ -263,6 +438,7 @@ describe("buildSummary", () => {
       lastBreathAt: "2026-03-12T19:08",
       voice: "Speaks slowly. Precise.",
       live: false,
+      health: 0.25,
     });
     expect(summary.topSkills.map((skill) => skill.name)).toEqual([
       "typescript",

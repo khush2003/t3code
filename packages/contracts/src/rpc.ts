@@ -111,7 +111,15 @@ import {
   AnimaError,
   AnimaExportInput,
   AnimaGetInput,
+  AnimaHealthInput,
+  AnimaHealthResult,
   AnimaImportInput,
+  AnimaInboxInput,
+  AnimaLibraryListInput,
+  AnimaLibraryListResult,
+  AnimaLibraryReadInput,
+  AnimaLibraryReadResult,
+  AnimaLibraryShelveInput,
   AnimaListInput,
   AnimaListResult,
   AnimaMergeApplyInput,
@@ -121,8 +129,12 @@ import {
   AnimaMergeStatusResult,
   AnimaMutationResult,
   AnimaNotFoundError,
+  AnimaOpensInput,
   AnimaPolicyInput,
   AnimaSetEnabledInput,
+  AnimaTeamInput,
+  AnimaThreadRuntimeStatus,
+  AnimaThreadStatusInput,
   AnimaWakePreviewInput,
   AnimaWakePreviewResult,
 } from "./anima.ts";
@@ -464,6 +476,14 @@ export const WS_METHODS = {
   animaMergeStart: "anima.mergeStart",
   animaMergeStatus: "anima.mergeStatus",
   animaMergeApply: "anima.mergeApply",
+  animaInbox: "anima.inbox",
+  animaOpens: "anima.opens",
+  animaHealth: "anima.health",
+  animaLibraryList: "anima.libraryList",
+  animaLibraryRead: "anima.libraryRead",
+  animaLibraryShelve: "anima.libraryShelve",
+  animaTeam: "anima.team",
+  animaThreadStatus: "anima.threadStatus",
   assetsCreateUrl: "assets.createUrl",
   assetsPersistChatAttachments: "assets.persistChatAttachments",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
@@ -1577,6 +1597,89 @@ const WsAnimaMergeApplyRpc = Rpc.make(WS_METHODS.animaMergeApply, {
   ]),
 });
 
+const WsAnimaInboxRpc = Rpc.make(WS_METHODS.animaInbox, {
+  payload: AnimaInboxInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaOpensRpc = Rpc.make(WS_METHODS.animaOpens, {
+  payload: AnimaOpensInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaHealthRpc = Rpc.make(WS_METHODS.animaHealth, {
+  payload: AnimaHealthInput,
+  success: AnimaHealthResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaLibraryListRpc = Rpc.make(WS_METHODS.animaLibraryList, {
+  payload: AnimaLibraryListInput,
+  success: AnimaLibraryListResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaLibraryReadRpc = Rpc.make(WS_METHODS.animaLibraryRead, {
+  payload: AnimaLibraryReadInput,
+  success: AnimaLibraryReadResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaLibraryShelveRpc = Rpc.make(WS_METHODS.animaLibraryShelve, {
+  payload: AnimaLibraryShelveInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaTeamRpc = Rpc.make(WS_METHODS.animaTeam, {
+  payload: AnimaTeamInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAnimaThreadStatusRpc = Rpc.make(WS_METHODS.animaThreadStatus, {
+  payload: AnimaThreadStatusInput,
+  success: Schema.NullOr(AnimaThreadRuntimeStatus),
+  error: EnvironmentAuthorizationError,
+});
+
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
   success: AssetCreateUrlResult,
@@ -2309,6 +2412,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaMergeStartRpc,
   WsAnimaMergeStatusRpc,
   WsAnimaMergeApplyRpc,
+  WsAnimaInboxRpc,
+  WsAnimaOpensRpc,
+  WsAnimaHealthRpc,
+  WsAnimaLibraryListRpc,
+  WsAnimaLibraryReadRpc,
+  WsAnimaLibraryShelveRpc,
+  WsAnimaTeamRpc,
+  WsAnimaThreadStatusRpc,
   WsAssetsCreateUrlRpc,
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,

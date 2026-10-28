@@ -361,6 +361,35 @@ export function summarizeT3ToolCalls(
     case "anima-attach":
       label = phrase("Attached", "attach", `an anima to a project ${times}`);
       break;
+    case "anima-inbox-read":
+      label = phrase("Read", "read", `anima inboxes ${times}`);
+      break;
+    case "anima-message":
+      label = phrase("Messaged", "message", `animas ${times}`);
+      break;
+    case "anima-opens-list":
+      label = phrase("Listed", "list", `anima opens ${times}`);
+      break;
+    case "anima-opens-update":
+      label = phrase("Updated", "update", `anima opens ${times}`);
+      break;
+    case "anima-library-list":
+      label = phrase("Listed", "list", `the anima library ${times}`);
+      break;
+    case "anima-library-read":
+      label = phrase(
+        "Read",
+        "read",
+        quantity(countEntities(entityIds("slug")), "anima library entry", "anima library entries"),
+      );
+      break;
+    case "anima-health":
+      label = phrase(
+        "Checked",
+        "check",
+        `the health of ${quantity(countEntities(entityIds("name")), "anima")}`,
+      );
+      break;
     case "attachment-prepare":
       label = phrase(
         "Prepared",

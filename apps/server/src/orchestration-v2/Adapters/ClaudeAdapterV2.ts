@@ -149,6 +149,8 @@ import {
 import * as ServerConfig from "../../config.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ServerSettings from "../../serverSettings.ts";
+import * as AnimaRuntime from "../../anima/AnimaRuntime.ts";
+import type { AnimaToolCall } from "../../anima/AnimaPolicyMatch.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
@@ -1458,6 +1460,35 @@ const subagentDeviceInstructions: HookCallback = () =>
     },
   });
 
+/** A PreToolUse hook that hands each call to the anima runtime, the in-process `anima hook pretool`. */
+export function makeClaudeAnimaHooks(
+  preTool: (call: AnimaToolCall) => Promise<string>,
+): NonNullable<ClaudeQueryOptions["hooks"]> {
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== "PreToolUse") return {};
+            const toolInput =
+              typeof input.tool_input === "object" &&
+              input.tool_input !== null &&
+              !Array.isArray(input.tool_input)
+                ? (input.tool_input as Readonly<Record<string, unknown>>)
+                : {};
+            const additionalContext = await preTool({ toolName: input.tool_name, toolInput }).catch(
+              () => "",
+            );
+            return additionalContext === ""
+              ? {}
+              : { hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext } };
+          },
+        ],
+      },
+    ],
+  };
+}
+
 export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
   readonly nativeThreadId: string;
@@ -1479,6 +1510,7 @@ export function makeClaudeQueryOptions(input: {
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly onElicitation?: ClaudeQueryOptions["onElicitation"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
+  readonly hooks?: ClaudeQueryOptions["hooks"];
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
@@ -1600,9 +1632,16 @@ export function makeClaudeQueryOptions(input: {
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
-    ...(deviceInstructions
-      ? { hooks: { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] } }
-      : {}),
+    ...(input.hooks === undefined && !deviceInstructions
+      ? {}
+      : {
+          hooks: {
+            ...input.hooks,
+            ...(deviceInstructions
+              ? { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] }
+              : {}),
+          },
+        }),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
@@ -4498,6 +4537,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const animaRuntime = yield* Effect.serviceOption(AnimaRuntime.AnimaRuntime);
   const { attachmentsDir, fileSystem, path, crypto, idAllocator, queryRunner } = adapterOptions;
   const subagentModelCatalog = scopeClaudeModelCatalog(
     BUNDLED_CLAUDE_MODEL_CATALOG,
@@ -10247,6 +10287,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             onUserDialog,
             onElicitation,
             supportedDialogKinds: ["resume_return"],
+            ...(Option.isNone(animaRuntime) || turnInput.appThread.animaName == null
+              ? {}
+              : {
+                  hooks: makeClaudeAnimaHooks((call) =>
+                    runPromise(animaRuntime.value.preTool({ threadId: turnInput.threadId, call })),
+                  ),
+                }),
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
           });
