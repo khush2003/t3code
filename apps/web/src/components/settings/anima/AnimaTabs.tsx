@@ -76,9 +76,6 @@ export function OverviewTab({
     failureTitle: "Could not attach project",
     successTitle: "Project attached",
   });
-  const setEnabled = useAnimaMutation(animaEnvironment.setEnabled, {
-    failureTitle: `Could not update ${summary.name}`,
-  });
   const selected = projects.find((project) => project.id === projectId);
   return (
     <div className="space-y-5 px-3 py-3 sm:px-4">
@@ -89,22 +86,7 @@ export function OverviewTab({
           <RelativeTime value={summary.born} />, active{" "}
           <RelativeTime value={summary.lastActiveAt} />.
         </div>
-        <label className="flex items-center gap-2 text-xs">
-          Enabled
-          <Switch
-            checked={summary.enabled}
-            disabled={!canOperate}
-            onCheckedChange={(enabled) =>
-              void setEnabled({ environmentId, input: { name: summary.name, enabled } })
-            }
-          />
-        </label>
       </div>
-      {summary.aim ? (
-        <Block title="Aim">
-          <p className="text-sm">{summary.aim}</p>
-        </Block>
-      ) : null}
       {summary.voice ? (
         <Block title="Voice">
           <p className="text-sm text-foreground/90">{summary.voice}</p>

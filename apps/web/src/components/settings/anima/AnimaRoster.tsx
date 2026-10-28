@@ -12,6 +12,7 @@ import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { SettingsGroup } from "../SettingsGroup";
 import { filterAnimas, sortAnimas } from "../animaSettings.logic";
 import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
+import { AnimaPoolStats } from "./AnimaDash";
 import { AnimaConstellation, AnimaSigil } from "./AnimaVisuals";
 
 function AnimaRosterRow({
@@ -138,7 +139,8 @@ export function AnimaRoster({
     );
   }
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <AnimaPoolStats animas={animas} />
       <div className="flex items-center gap-2 px-3 sm:px-4">
         <Input
           type="search"
