@@ -52,6 +52,8 @@ export const AnimaSummary = Schema.Struct({
   topSkills: Schema.Array(AnimaTrait),
   inboxCount: NonNegativeInt,
   policyCount: NonNegativeInt,
+  /** CLI health score in 0..1, higher means more in need of tending; null before the first row. */
+  health: Schema.NullOr(Schema.Number),
   /** Stable digest of state + breaths + policy + identity; equal digests mean identical animas. */
   digest: Schema.String,
 });
@@ -80,6 +82,9 @@ export type AnimaBreath = typeof AnimaBreath.Type;
 export const AnimaPolicyRule = Schema.Struct({
   index: NonNegativeInt,
   text: Schema.String,
+  /** Runtime hook fires recorded in policy-fires.jsonl; always 0 for pending rules. */
+  fires: NonNegativeInt,
+  lastFiredAt: Schema.NullOr(Schema.String),
 });
 export type AnimaPolicyRule = typeof AnimaPolicyRule.Type;
 
@@ -99,6 +104,11 @@ export const AnimaInboxMessage = Schema.Struct({
   from: Schema.String,
   ts: Schema.String,
   body: Schema.String,
+  to: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Message id this one answers. */
+  replyTo: Schema.optional(Schema.NullOr(Schema.String)),
+  contextId: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type AnimaInboxMessage = typeof AnimaInboxMessage.Type;
 
@@ -108,8 +118,26 @@ export const AnimaOpen = Schema.Struct({
   question: Schema.String,
   status: Schema.String,
   assignee: Schema.NullOr(Schema.String),
+  /** What closes the question. */
+  resolves: Schema.optional(Schema.NullOr(Schema.String)),
+  context: Schema.optional(Schema.NullOr(Schema.String)),
+  openedBy: Schema.optional(Schema.NullOr(Schema.String)),
+  /** `YYYY-MM-DD`. */
+  openedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  related: Schema.optional(Schema.Array(Schema.String)),
 });
 export type AnimaOpen = typeof AnimaOpen.Type;
+
+/** The CLI-generated `card.json`, read as-is; it can lag the anima until the CLI regenerates it. */
+export const AnimaCard = Schema.Struct({
+  description: Schema.String,
+  version: Schema.NullOr(Schema.String),
+  generatedAt: Schema.NullOr(Schema.String),
+  skills: Schema.Array(Schema.Struct({ name: Schema.String, confidence: Schema.Number })),
+  interfaces: Schema.Array(Schema.String),
+  status: Schema.NullOr(Schema.String),
+});
+export type AnimaCard = typeof AnimaCard.Type;
 
 export const AnimaDetail = Schema.Struct({
   summary: AnimaSummary,
@@ -121,7 +149,16 @@ export const AnimaDetail = Schema.Struct({
   policy: AnimaPolicy,
   breaths: Schema.Array(AnimaBreath),
   inbox: Schema.Array(AnimaInboxMessage),
+  /** Opens in the anima's `# project:` directory; empty when it has none. */
   opens: Schema.Array(AnimaOpen),
+  projectPath: Schema.NullOr(Schema.String),
+  card: Schema.NullOr(AnimaCard),
+  /** Skills this anima offers to others for consults. */
+  offers: Schema.Array(Schema.String),
+  /** Members, when this anima leads a team. */
+  team: Schema.Array(Schema.String),
+  /** The lead whose team includes this anima. */
+  lead: Schema.NullOr(Schema.String),
   /** Threads on this environment that run with this anima. */
   threadIds: Schema.Array(ThreadId),
 });
@@ -232,6 +269,160 @@ export const AnimaBreatheResult = Schema.Struct({
   /** True when the thread was mid-turn, so the request waits behind the current work. */
   queued: Schema.Boolean,
 });
+
+export const AnimaMessageType = Schema.Literals([
+  "directive",
+  "feedback",
+  "blocker",
+  "query",
+  "info",
+  "consult",
+]);
+
+const AnimaMessageBody = TrimmedNonEmptyString.check(Schema.isMaxLength(16_000));
+
+export const AnimaInboxSendAction = Schema.Struct({
+  type: Schema.Literal("send"),
+  messageType: AnimaMessageType,
+  body: AnimaMessageBody,
+  /** Recorded sender; defaults to `user`. */
+  from: Schema.optional(AnimaName),
+});
+
+/** Answers a message in this anima's inbox; the reply goes to its sender, from this anima. */
+export const AnimaInboxReplyAction = Schema.Struct({
+  type: Schema.Literal("reply"),
+  messageId: TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,79}$/)),
+  body: AnimaMessageBody,
+});
+
+export const AnimaInboxAction = Schema.Union([
+  AnimaInboxSendAction,
+  AnimaInboxReplyAction,
+  /** Drops messages that arrived before the last breath or session start; later ones stay. */
+  Schema.Struct({ type: Schema.Literal("clear") }),
+]);
+export type AnimaInboxAction = typeof AnimaInboxAction.Type;
+
+/** `name` is the inbox's owner: the recipient of a send, the replier of a reply. */
+export const AnimaInboxInput = Schema.Struct({
+  name: AnimaName,
+  action: AnimaInboxAction,
+});
+export type AnimaInboxInput = typeof AnimaInboxInput.Type;
+
+const AnimaOpenId = TrimmedNonEmptyString.check(Schema.isPattern(/^open-\d{1,6}$/));
+const AnimaOpenText = TrimmedNonEmptyString.check(Schema.isMaxLength(2_000));
+
+export const AnimaOpensAction = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("add"),
+    question: AnimaOpenText,
+    resolves: AnimaOpenText,
+    /** Defaults to the anima that opens it. */
+    assignee: Schema.optional(AnimaName),
+    context: Schema.optional(AnimaOpenText),
+  }),
+  Schema.Struct({ type: Schema.Literal("close"), id: AnimaOpenId }),
+  Schema.Struct({ type: Schema.Literal("assign"), id: AnimaOpenId, assignee: AnimaName }),
+  Schema.Struct({
+    type: Schema.Literal("update"),
+    id: AnimaOpenId,
+    status: Schema.optional(Schema.Literals(["active", "watching", "blocked"])),
+    context: Schema.optional(AnimaOpenText),
+    resolves: Schema.optional(AnimaOpenText),
+  }),
+]);
+export type AnimaOpensAction = typeof AnimaOpensAction.Type;
+
+/** Acts on the opens of `name`'s `# project:` directory, as `name`. */
+export const AnimaOpensInput = Schema.Struct({
+  name: AnimaName,
+  action: AnimaOpensAction,
+});
+export type AnimaOpensInput = typeof AnimaOpensInput.Type;
+
+export const AnimaHealthInput = Schema.Struct({ name: AnimaName });
+
+/** Mirrors the CLI's `assessHealth`; each component is 0..1 and the score is their weighted sum. */
+export const AnimaHealthAssessment = Schema.Struct({
+  score: Schema.Number,
+  /** `internal` above 0.35, `proactive` above 0.6: how urgently the CLI would tend this anima. */
+  action: Schema.Literals(["none", "internal", "proactive"]),
+  components: Schema.Struct({
+    uncertainty: Schema.Number,
+    negStreak: Schema.Number,
+    staleTension: Schema.Number,
+    drift: Schema.Number,
+    silence: Schema.Number,
+  }),
+  maxSigma: Schema.Number,
+  maxNegStreak: NonNegativeInt,
+  maxTensionAge: NonNegativeInt,
+  silenceHours: Schema.Number,
+  colorDrift: Schema.Number,
+  reasons: Schema.Array(Schema.String),
+  warnings: Schema.Array(Schema.String),
+});
+export type AnimaHealthAssessment = typeof AnimaHealthAssessment.Type;
+
+export const AnimaAuditFinding = Schema.Struct({
+  level: Schema.Literals(["error", "warn", "info"]),
+  message: Schema.String,
+});
+export type AnimaAuditFinding = typeof AnimaAuditFinding.Type;
+
+export const AnimaHealthResult = Schema.Struct({
+  name: AnimaName,
+  /** Null before the anima has any rows. */
+  health: Schema.NullOr(AnimaHealthAssessment),
+  circuit: Schema.Literals(["closed", "open", "half-open"]),
+  circuitCount: NonNegativeInt,
+  /** Data-integrity findings from the CLI's `audit` checks. */
+  audit: Schema.Array(AnimaAuditFinding),
+});
+export type AnimaHealthResult = typeof AnimaHealthResult.Type;
+
+export const AnimaLibrarySlug = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+);
+
+export const AnimaLibraryEntry = Schema.Struct({
+  slug: Schema.String,
+  /** First `# ` heading, if any. */
+  title: Schema.NullOr(Schema.String),
+  bytes: NonNegativeInt,
+  modifiedAt: Schema.NullOr(Schema.String),
+});
+export type AnimaLibraryEntry = typeof AnimaLibraryEntry.Type;
+
+export const AnimaLibraryListInput = Schema.Struct({});
+export const AnimaLibraryListResult = Schema.Struct({ entries: Schema.Array(AnimaLibraryEntry) });
+export type AnimaLibraryListResult = typeof AnimaLibraryListResult.Type;
+
+export const AnimaLibraryReadInput = Schema.Struct({ slug: AnimaLibrarySlug });
+export const AnimaLibraryReadResult = Schema.Struct({
+  slug: Schema.String,
+  content: Schema.String,
+});
+export type AnimaLibraryReadResult = typeof AnimaLibraryReadResult.Type;
+
+/** Creates the entry, or appends a dated section when the slug exists. */
+export const AnimaLibraryShelveInput = Schema.Struct({
+  slug: AnimaLibrarySlug,
+  author: AnimaName,
+  content: TrimmedNonEmptyString.check(Schema.isMaxLength(64_000)),
+  /** Shelves into this anima's own directory instead of the shared library. */
+  forAnima: Schema.optional(AnimaName),
+});
+export type AnimaLibraryShelveInput = typeof AnimaLibraryShelveInput.Type;
+
+export const AnimaTeamInput = Schema.Struct({
+  lead: AnimaName,
+  action: Schema.Literals(["add", "remove"]),
+  member: AnimaName,
+});
+export type AnimaTeamInput = typeof AnimaTeamInput.Type;
 
 export const AnimaWakePreviewInput = Schema.Struct({ name: AnimaName });
 export const AnimaWakePreviewResult = Schema.Struct({ payload: Schema.String });

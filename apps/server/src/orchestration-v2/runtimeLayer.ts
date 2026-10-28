@@ -53,7 +53,9 @@ import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
 import * as AnimaService from "../anima/AnimaService.ts";
+import * as AnimaRuntimeReactor from "./AnimaRuntimeReactor.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -189,6 +191,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerRuntimePolicyProvided,
       TurnItemPositionStore.layer,
       layerThreadAnimaWake,
+      AnimaRuntime.layer,
     ),
   ),
 );
@@ -390,7 +393,14 @@ const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
   ),
 );
 
+// Exported so the WebSocket layer reads the instance this reactor and turn start feed.
+const layerAnimaRuntimeProvided = AnimaRuntimeReactor.layer.pipe(
+  Layer.provideMerge(AnimaRuntime.layer),
+  Layer.provide(layerOrchestratorProvided),
+);
+
 export const layer = Layer.mergeAll(
+  layerAnimaRuntimeProvided,
   layerCommandOutputHubProvided,
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
