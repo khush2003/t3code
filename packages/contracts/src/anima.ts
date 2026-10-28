@@ -127,6 +127,36 @@ export const AnimaDetail = Schema.Struct({
 });
 export type AnimaDetail = typeof AnimaDetail.Type;
 
+export const AnimaPolicyFire = Schema.Struct({
+  /** Operational rule text that matched. */
+  rule: Schema.String,
+  /** What triggered it, e.g. `Bash: git push --force`. */
+  trigger: Schema.String,
+  ts: Schema.String,
+});
+export type AnimaPolicyFire = typeof AnimaPolicyFire.Type;
+
+/** What T3's server-side anima runtime knows about one thread since its anima woke. */
+export const AnimaThreadRuntimeStatus = Schema.Struct({
+  threadId: ThreadId,
+  name: AnimaName,
+  /** Tool calls observed since the wake. */
+  toolEvents: NonNegativeInt,
+  /** Breath count recorded at the wake; null when the thread has not woken yet. */
+  breathsAtWake: Schema.NullOr(NonNegativeInt),
+  breathCount: NonNegativeInt,
+  /** Enough work happened without a breath that the anima should breathe. */
+  breathDue: Schema.Boolean,
+  /** Same tool failing repeatedly; null when no loop is suspected. */
+  loop: Schema.NullOr(Schema.Struct({ tool: Schema.String, failures: NonNegativeInt })),
+  /** Policy rules fired in this thread, newest first. */
+  fires: Schema.Array(AnimaPolicyFire),
+  lastHeartbeatAt: Schema.NullOr(Schema.String),
+});
+export type AnimaThreadRuntimeStatus = typeof AnimaThreadRuntimeStatus.Type;
+
+export const AnimaThreadStatusInput = Schema.Struct({ threadId: ThreadId });
+
 export const AnimaListInput = Schema.Struct({});
 export const AnimaListResult = Schema.Struct({
   animas: Schema.Array(AnimaSummary),
