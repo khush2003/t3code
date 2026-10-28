@@ -5,14 +5,13 @@ import { animaEnvironment } from "../../../state/anima";
 import { useEnvironmentQuery } from "../../../state/query";
 import { Badge } from "../../ui/badge";
 import { Skeleton } from "../../ui/skeleton";
-import { Toggle, ToggleGroup } from "../../ui/toggle-group";
+import { cn } from "../../../lib/utils";
 import { SettingsGroup } from "../SettingsGroup";
 import {
   ANIMA_TABS,
   ANIMA_TAB_LABELS,
   type AnimaTab,
   groupOpens,
-  isAnimaTab,
   isInboxMessageSettled,
 } from "../animaSettings.logic";
 import { AnimaDetailBanner } from "./AnimaDash";
@@ -21,6 +20,7 @@ import { InboxTab } from "./AnimaInbox";
 import { OpensTab } from "./AnimaOpens";
 import { PolicyTab } from "./AnimaPolicy";
 import { SyncTab } from "./AnimaSyncTab";
+import { animaColor } from "./AnimaVisuals";
 import { ActivityTab, BreathsTab, IdentityTab, OverviewTab, ThreadsTab } from "./AnimaTabs";
 
 function TabMarker({ tab, detail }: { readonly tab: AnimaTab; readonly detail: AnimaDetail }) {
@@ -95,6 +95,7 @@ export function AnimaDetailView({
     }),
   );
   const detail = query.data;
+  const accent = detail ? animaColor(detail.summary) : null;
   return (
     <div className="@container/anima space-y-3">
       <AnimaDetailBanner
@@ -106,23 +107,33 @@ export function AnimaDetailView({
         onBreathe={() => onTab("breaths")}
         onOpenAnima={onOpenAnima}
       />
-      <div className="overflow-x-auto px-3 sm:px-4">
-        <ToggleGroup
-          aria-label="Anima sections"
-          variant="segmented"
-          value={[tab]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (isAnimaTab(value)) onTab(value);
-          }}
-        >
-          {ANIMA_TABS.map((entry) => (
-            <Toggle key={entry} value={entry}>
+      <div
+        role="tablist"
+        aria-label="Anima sections"
+        className="flex gap-1 overflow-x-auto border-b border-border/60 px-3 sm:px-4"
+      >
+        {ANIMA_TABS.map((entry) => {
+          const selected = entry === tab;
+          return (
+            <button
+              key={entry}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={cn(
+                "-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                selected
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+              style={selected && accent ? { borderColor: accent } : undefined}
+              onClick={() => onTab(entry)}
+            >
               {ANIMA_TAB_LABELS[entry]}
               {detail ? <TabMarker tab={entry} detail={detail} /> : null}
-            </Toggle>
-          ))}
-        </ToggleGroup>
+            </button>
+          );
+        })}
       </div>
       <SettingsGroup>
         {detail ? (
