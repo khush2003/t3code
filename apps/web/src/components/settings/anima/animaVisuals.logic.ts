@@ -33,12 +33,12 @@ export function hslToCss(hsl: Hsl, alpha?: number): string {
   return `oklch(${lightness}% ${chroma} ${Math.round(hsl.h)}${tail})`;
 }
 
-export function breathCss(value: string | null | undefined, fallback: string): string {
+function breathCss(value: string | null | undefined, fallback: string): string {
   const hsl = parseHsl(value);
   return hsl ? hslToCss(hsl) : fallback;
 }
 
-export function clampUnit(value: number): number {
+function clampUnit(value: number): number {
   return Number.isFinite(value) ? clamp(value, 0, 1) : 0;
 }
 

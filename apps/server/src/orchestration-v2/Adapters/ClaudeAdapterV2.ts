@@ -1968,7 +1968,7 @@ const subagentDeviceInstructions: HookCallback = () =>
 const CLAUDE_CODE_MODEL_ALIASES = new Set(["opus", "sonnet", "haiku", "fable"]);
 
 /** A PreToolUse hook that hands each call to the anima runtime, the in-process `anima hook pretool`. */
-export function makeClaudeAnimaHooks(
+function makeClaudeAnimaHooks(
   preTool: (call: AnimaToolCall) => Promise<string>,
 ): NonNullable<ClaudeQueryOptions["hooks"]> {
   return {

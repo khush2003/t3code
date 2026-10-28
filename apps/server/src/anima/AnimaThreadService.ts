@@ -19,7 +19,7 @@ import * as AnimaService from "./AnimaService.ts";
  * Self-contained so the agent never opens the anima skill or breathe.md: those walk through the
  * wake and a bare template run, which is what made earlier breaths noisy and invented.
  */
-export function breathePrompt(name: string): string {
+function breathePrompt(name: string): string {
   const cli = "bun ~/.claude/skills/anima/anima.ts";
   return [
     `Breathe now. This is an explicit request from the user, so the "is this a chapter boundary" gate is satisfied: do not decline. Record one breath for the anima "${name}" from this thread only. Do not open the anima skill or breathe.md, do not run the wake step or \`read --wake\` again.`,
