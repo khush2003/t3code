@@ -21,11 +21,6 @@ const MAX_VOICE_CHARS = 8000;
 /** Matches hook.ts VOICE_REINJECT_MS: how often a long session needs the persona restated. */
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
-/**
- * Policy firing, the loop breaker and the breath nag are Claude Code hooks (`anima hook`), live only
- * when ~/.claude/settings.json installs them (they are not on this machine), and only for Claude
- * threads. Other providers get the wake, the voice and the periodic refresh from this module.
- */
 function voiceBlock(name: string, voice: string, payload: string): string[] {
   const text = voice.trim().slice(0, MAX_VOICE_CHARS).trim();
   if (text === "" || payload.includes(text.slice(0, 200))) return [];

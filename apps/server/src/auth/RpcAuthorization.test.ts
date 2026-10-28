@@ -14,6 +14,7 @@ import {
   AuthSourceControlWriteScope,
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
+  CLIENT_GUARDED_RPC_SCOPES,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -33,6 +34,31 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 describe("RPC authorization scopes", () => {
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
+  });
+
+  it("guards each client-gated method with the scope the server enforces", () => {
+    for (const [method, scope] of Object.entries(CLIENT_GUARDED_RPC_SCOPES)) {
+      expect([method, requiredScopeForRpcMethod(method)]).toEqual([method, scope]);
+    }
+  });
+
+  it("lets read-only sessions see anima health, library and thread status but not change them", () => {
+    for (const method of [
+      WS_METHODS.animaHealth,
+      WS_METHODS.animaLibraryList,
+      WS_METHODS.animaLibraryRead,
+      WS_METHODS.animaThreadStatus,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    }
+    for (const method of [
+      WS_METHODS.animaInbox,
+      WS_METHODS.animaOpens,
+      WS_METHODS.animaLibraryShelve,
+      WS_METHODS.animaTeam,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
   });
 
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
