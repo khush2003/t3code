@@ -67,6 +67,15 @@ export const layer = McpToolAccess.toLayer(AnimaToolkit, {
         .pipe(Effect.mapError(failure));
     }),
   ),
+  t3_anima_record: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const name = yield* callerAnima(input.name);
+      const animas = yield* AnimaService.AnimaService;
+      return yield* animas
+        .record({ ...input, name: name as AnimaName })
+        .pipe(Effect.mapError(failure));
+    }),
+  ),
   t3_anima_inbox_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const name = yield* callerAnima(input.name);
