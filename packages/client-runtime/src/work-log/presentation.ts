@@ -746,6 +746,7 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "theme-set":
     case "anima-policy":
     case "anima-attach":
+    case "anima-clinic":
     case "attachment-prepare":
     case "attachment-discard":
     case "attachment-send":
