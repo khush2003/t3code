@@ -33,6 +33,23 @@ saved to the anima, so other apps show the same creature.
 The world moves only while it is on screen. Use the pause button to keep it
 still. It also stays still when your system asks for reduced motion.
 
+## Sync an anima between machines
+
+With a second environment connected, an anima's **Sync** tab compares the two copies:
+the breaths each machine has, the state that differs, and line diffs of its files.
+**Merge both** keeps every breath from both machines, ordered by time. Anything only one
+machine changed since they last synced takes that change, policies keep rules added on
+either side, and traits keep the more certain estimate.
+
+When both machines changed the same hand-written part (identity, vow, style, role), the
+tab lists it, and **Resolve with an agent** starts a thread in No Project that asks you
+how to settle each one. Once you apply its result, both machines get it.
+
+**Stay synced** keeps the two copies merged while the app is open and both machines are
+connected. After a disconnect it catches up on reconnect. If both machines change the same
+hand-written part, it pauses and tells you, and resumes once that conflict is resolved.
+Each install keeps the five newest backups of an anima.
+
 ## Which anima CLI is used
 
 The server runs the CLI named by `ANIMA_CLI` if it is set, then an `anima`

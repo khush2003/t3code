@@ -4,51 +4,14 @@ import type { AnimaBundle, AnimaCompareResult, EnvironmentId } from "@t3tools/co
 import {
   type AnimaSyncPorts,
   diffAnimaBundles,
-  invertAnimaRelation,
   quickAnimaState,
-  resolveAnimaSync,
+  syncAnimaPair,
 } from "./animaSync.ts";
 
 const bundle = { name: "ada", digest: "d" } as unknown as AnimaBundle;
 const from = "env-a" as EnvironmentId;
 const to = "env-b" as EnvironmentId;
-const request = { fromEnvironmentId: from, toEnvironmentId: to, name: bundle.name };
-
-function ports(relation: AnimaCompareResult["relation"]) {
-  const importBundle = vi.fn(async () => ({ output: "ok", summary: null }));
-  const mergeStart = vi.fn(async () => ({ mergeId: "m", threadId: "t", stagingPath: "/s" }));
-  const value = {
-    exportBundle: vi.fn(async () => bundle),
-    compare: vi.fn(async () => ({ relation }) as AnimaCompareResult),
-    importBundle,
-    mergeStart,
-  } as unknown as AnimaSyncPorts;
-  return { value, importBundle, mergeStart };
-}
-
-describe("resolveAnimaSync", () => {
-  it("replaces or starts a merge on the destination", async () => {
-    const p = ports("diverged");
-    expect(await resolveAnimaSync({ kind: "replace" }, request, bundle, p.value)).toEqual({
-      kind: "replaced",
-      output: "ok",
-    });
-    expect(p.importBundle).toHaveBeenCalledWith(to, { bundle, mode: "replace" });
-    const projectId = "p1" as never;
-    expect(
-      await resolveAnimaSync({ kind: "merge", projectId }, request, bundle, p.value),
-    ).toMatchObject({ kind: "merging", mergeId: "m" });
-    expect(p.mergeStart).toHaveBeenCalledWith(to, { bundle, projectId });
-  });
-});
-
 describe("helpers", () => {
-  it("inverts directional relations only", () => {
-    expect(invertAnimaRelation("incoming-ahead")).toBe("local-ahead");
-    expect(invertAnimaRelation("local-ahead")).toBe("incoming-ahead");
-    expect(invertAnimaRelation("diverged")).toBe("diverged");
-  });
-
   it("classifies summaries without exporting", () => {
     const a = { id: "1", digest: "x" };
     expect(quickAnimaState(a, null)).toBe("only-here");
@@ -101,5 +64,65 @@ describe("diffAnimaBundles", () => {
       { kind: "add", text: "g" },
       { kind: "same", text: "h" },
     ]);
+  });
+});
+
+describe("syncAnimaPair", () => {
+  const name = bundle.name;
+  const pair = (compare: Partial<AnimaCompareResult>) => {
+    const exports = new Map<string, AnimaBundle>([
+      [from, { ...bundle, digest: "a" }],
+      [to, { ...bundle, digest: "b" }],
+    ]);
+    const importBundle = vi.fn(async () => ({ output: "ok", summary: null }));
+    const value = {
+      exportBundle: vi.fn(async (environmentId: EnvironmentId) => exports.get(environmentId)!),
+      compare: vi.fn(async () => ({ relation: "diverged", ...compare }) as AnimaCompareResult),
+      importBundle,
+      mergeStart: vi.fn(),
+    } as unknown as AnimaSyncPorts;
+    return { value, importBundle, exports };
+  };
+  const both = { first: true, second: true };
+
+  it("merges into the first machine, then hands the result to the second", async () => {
+    const p = pair({ conflicts: [] });
+    p.importBundle.mockImplementationOnce(async () => {
+      p.exports.set(from, { ...bundle, digest: "merged" });
+      return { output: "ok", summary: null };
+    });
+    expect(await syncAnimaPair({ name, first: from, second: to, present: both }, p.value)).toEqual({
+      status: "synced",
+    });
+    expect(p.importBundle.mock.calls).toEqual([
+      [from, { bundle: { ...bundle, digest: "b" }, mode: "merge" }],
+      [to, { bundle: { ...bundle, digest: "merged" }, mode: "fast-forward" }],
+    ]);
+  });
+
+  it("stops without writing at conflicts or a different anima", async () => {
+    const conflict = { path: "identity.md", key: null, local: "a", incoming: "b", draft: "a" };
+    const conflicted = pair({ conflicts: [conflict] });
+    expect(
+      await syncAnimaPair({ name, first: from, second: to, present: both }, conflicted.value),
+    ).toEqual({ status: "conflicts", conflicts: [conflict] });
+    const unrelated = pair({ relation: "unrelated" });
+    expect(
+      await syncAnimaPair({ name, first: from, second: to, present: both }, unrelated.value),
+    ).toEqual({ status: "unrelated" });
+    expect(conflicted.importBundle).not.toHaveBeenCalled();
+    expect(unrelated.importBundle).not.toHaveBeenCalled();
+  });
+
+  it("creates the anima where it is missing", async () => {
+    const p = pair({});
+    await syncAnimaPair(
+      { name, first: from, second: to, present: { first: false, second: true } },
+      p.value,
+    );
+    expect(p.importBundle).toHaveBeenCalledWith(from, {
+      bundle: { ...bundle, digest: "b" },
+      mode: "create",
+    });
   });
 });

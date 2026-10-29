@@ -831,6 +831,59 @@ describe("AnimaService sync", () => {
     ),
   );
 
+  it.effect("merges a copy that drifted apart, keeping both, and stops at conflicts", () =>
+    withService({}, ({ service, root }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* seed(root, "atlas", "id-atlas", 2);
+        const mine = yield* bundleOf(service, "atlas");
+        const edit = (files: typeof mine.files, path: string, change: (text: string) => string) =>
+          files.map((file) =>
+            file.path === path ? { ...file, content: change(file.content) } : file,
+          );
+        let files = edit(mine.files, "breaths/002.breath", (text) =>
+          text.replace("hash:h2", "hash:t2").replace("2026-03-03", "2026-03-09"),
+        );
+        files = edit(files, "agent.anima", (text) =>
+          text
+            .replace("2|2026-03-03T10:00|0,0,50|note 2", "2|2026-03-09T10:00|0,0,50|there")
+            .replace("# memo: m", "# memo: there"),
+        );
+        const theirs = { ...mine, files };
+
+        expect(yield* service.compare(theirs)).toMatchObject({
+          relation: "diverged",
+          localOnlyBreaths: 1,
+          incomingOnlyBreaths: 1,
+          conflicts: [],
+        });
+        yield* service.import({ bundle: theirs, mode: "merge" });
+        const merged = yield* bundleOf(service, "atlas");
+        expect(merged.breathChain).toEqual(["0:h0", "1:h1", "2:h2", "3:t2"]);
+        expect((yield* service.get({ name: "atlas" })).summary.memo).toBe("there");
+        expect(yield* service.syncBase("atlas")).toEqual(merged.files);
+        expect((yield* service.import({ bundle: merged, mode: "merge" })).output).toBe(
+          "Already in sync.",
+        );
+
+        const agentPath = NodePath.join(root, "atlas", "agent.anima");
+        const current = yield* fs.readFileString(agentPath);
+        yield* fs.writeFileString(
+          agentPath,
+          current.replace("# vow: Be honest.", "# vow: Be kind."),
+        );
+        const bold = {
+          ...theirs,
+          files: edit(merged.files, "agent.anima", (text) =>
+            text.replace("# vow: Be honest.", "# vow: Be bold."),
+          ),
+        };
+        const conflict = yield* Effect.flip(service.import({ bundle: bold, mode: "merge" }));
+        expect(conflict).toMatchObject({ reason: "Needs a decision: vow." });
+      }),
+    ),
+  );
+
   it.effect("creates a missing anima from a bundle and refuses escaping paths", () =>
     withService({}, ({ service, root }) =>
       Effect.gen(function* () {

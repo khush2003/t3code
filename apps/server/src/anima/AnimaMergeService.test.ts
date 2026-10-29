@@ -11,6 +11,9 @@ import * as NodePath from "node:path";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AnimaMergeService from "./AnimaMergeService.ts";
 import * as AnimaService from "./AnimaService.ts";
@@ -74,6 +77,12 @@ const run = <A, E>(
     const base = Layer.mergeAll(
       projectStore,
       launch,
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/named",
+        ensureScratchProject: Effect.succeed({ projectId: ProjectId.make("p1") }),
+      }),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+      ServerSettings.layerTest(),
       Layer.succeed(HostProcess.HomeDirectory, home),
       Layer.succeed(ProcessRunner.ProcessRunner, { run: () => Effect.die("no cli") }),
     );
@@ -118,12 +127,17 @@ describe("AnimaMergeService", () => {
         const instructions = yield* fs.readFileString(
           NodePath.join(started.stagingPath, "MERGE.md"),
         );
-        expect(instructions).toContain("diverged");
-        expect(instructions).toContain("Last shared breath: 1");
+        expect(instructions).toContain("1 only here");
+        expect(instructions).toContain("question tool");
         expect(
           yield* fs.exists(NodePath.join(started.stagingPath, "incoming", "breaths", "003.breath")),
         ).toBe(true);
-        expect(yield* fs.readDirectory(NodePath.join(started.stagingPath, "merged"))).toEqual([]);
+        const draft = (file: string) =>
+          fs.readFileString(NodePath.join(started.stagingPath, "merged", file));
+        expect(yield* draft("agent.anima")).toContain("breaths:4");
+        expect(yield* draft("breaths/004.breath")).toContain(
+          "# breath:4 ts:2026-03-04T10:00 parent:3 hash:z",
+        );
 
         expect((yield* merge.status({ mergeId: started.mergeId })).state).toBe("running");
         const early = yield* Effect.flip(merge.apply({ mergeId: started.mergeId }));
@@ -170,8 +184,8 @@ describe("AnimaMergeService", () => {
 
         const started = yield* merge.start({
           bundle: { ...other, id: "id-atlas", files: tree(["h0", "n"]) },
-          projectId: ProjectId.make("p1"),
         });
+        expect(launched[0]).toMatchObject({ projectId: "p1" });
         const merged = NodePath.join(started.stagingPath, "merged");
         for (const file of tree(["h0", "n"])) {
           const target = NodePath.join(merged, file.path);
