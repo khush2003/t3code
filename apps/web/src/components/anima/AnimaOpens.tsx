@@ -9,15 +9,15 @@ import type {
   EnvironmentId,
 } from "@t3tools/contracts";
 
-import { requestConfirmDialog } from "../../../confirmDialog";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { Badge } from "../../ui/badge";
-import { Button } from "../../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
-import { Input } from "../../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { Textarea } from "../../ui/textarea";
-import { ANIMA_OPEN_STATUSES, groupOpens, isAnimaOpenStatus } from "../animaSettings.logic";
+import { requestConfirmDialog } from "../../confirmDialog";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Textarea } from "../ui/textarea";
+import { ANIMA_OPEN_STATUSES, groupOpens, isAnimaOpenStatus } from "./anima.logic";
 import { AnimaBlock, AnimaEmptyNote, Field, useAnimaMutation } from "./AnimaBits";
 
 const STATUS_VARIANTS: Readonly<Record<string, "error" | "info" | "secondary" | "outline">> = {

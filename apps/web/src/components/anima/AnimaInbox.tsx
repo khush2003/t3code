@@ -3,14 +3,14 @@ import { CornerDownRightIcon, InboxIcon, ReplyIcon, SendIcon, Trash2Icon } from 
 import { useState } from "react";
 import type { AnimaDetail, AnimaInboxMessage, AnimaName, EnvironmentId } from "@t3tools/contracts";
 
-import { cn } from "../../../lib/utils";
-import { requestConfirmDialog } from "../../../confirmDialog";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { Badge } from "../../ui/badge";
-import { Button } from "../../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { Textarea } from "../../ui/textarea";
+import { cn } from "../../lib/utils";
+import { requestConfirmDialog } from "../../confirmDialog";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Textarea } from "../ui/textarea";
 import {
   ANIMA_MESSAGE_TYPES,
   type AnimaInboxThread,
@@ -18,7 +18,7 @@ import {
   isInboxMessageSettled,
   isReplyableMessageId,
   threadInbox,
-} from "../animaSettings.logic";
+} from "./anima.logic";
 import { RelativeTime, useAnimaMutation } from "./AnimaBits";
 
 const TYPE_VARIANTS: Readonly<

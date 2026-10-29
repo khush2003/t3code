@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { AnimaCreateInput, EnvironmentId } from "@t3tools/contracts";
 
-import { useProjects } from "../../../state/entities";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { Button } from "../../ui/button";
+import { useProjects } from "../../state/entities";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogClose,
@@ -13,9 +13,9 @@ import {
   DialogPanel,
   DialogPopup,
   DialogTitle,
-} from "../../ui/dialog";
-import { Input } from "../../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Field, useAnimaMutation } from "./AnimaBits";
 import { animaNameProblem, describeNameProblem } from "./animaVisuals.logic";
 
