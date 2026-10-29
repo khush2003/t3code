@@ -66,9 +66,9 @@ describe("parseAgentFile", () => {
     expect(parsed.rows[1]?.ts).toBe("2026-02-26T08:47");
   });
 
-  it("parses Kalman traits and drops markers", () => {
+  it("parses Kalman traits with their negative streak", () => {
     expect(parsed.traits).toEqual([
-      { name: "architecture", mean: 0.77, sigma: 0.15 },
+      { name: "architecture", mean: 0.77, sigma: 0.15, negStreak: 1 },
       { name: "systems_thinking", mean: 0.9, sigma: 0.14 },
     ]);
     expect(parsed.skills[2]).toEqual({ name: "vite", mean: 0.3, sigma: null });
