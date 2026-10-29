@@ -97,7 +97,7 @@ export function TraitBars({
         return (
           <li
             key={trait.name}
-            className="grid grid-cols-[minmax(0,8rem)_1fr_3.5rem] items-center gap-2.5"
+            className="grid grid-cols-[minmax(0,8rem)_1fr_4.5rem] items-center gap-2.5"
           >
             <span className="truncate text-xs text-foreground/85">{trait.name}</span>
             <span
@@ -129,6 +129,14 @@ export function TraitBars({
               />
             </span>
             <span className="text-right text-2xs tabular-nums text-muted-foreground">
+              {trait.negStreak ? (
+                <span
+                  className="mr-1 text-warning-foreground"
+                  aria-label={`${trait.negStreak} negative updates in a row`}
+                >
+                  ↓{trait.negStreak}
+                </span>
+              ) : null}
               {traitPercent(trait)}%
               {trait.sigma !== null ? (
                 <span className="text-muted-foreground/60"> ±{Math.round(trait.sigma * 100)}</span>

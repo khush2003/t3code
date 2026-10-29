@@ -78,7 +78,7 @@ const nonEmpty = (value: string | undefined): string | null => {
   return trimmed === "" ? null : trimmed;
 };
 
-/** `name=.77±.15~1,other=.5` -> traits; the `~streak` and `!` markers are dropped. */
+/** `name=.77±.15~1,other=.5` -> traits; `~n` is the negative streak, the `!` marker is dropped. */
 function parseTraits(value: string): ReadonlyArray<AnimaTrait> {
   const traits: Array<AnimaTrait> = [];
   for (const pair of value.split(",")) {
@@ -91,7 +91,13 @@ function parseTraits(value: string): ReadonlyArray<AnimaTrait> {
     const mean = Number.parseFloat(pm === -1 ? rest : rest.slice(0, pm));
     if (!Number.isFinite(mean)) continue;
     const sigmaRaw = pm === -1 ? Number.NaN : Number.parseFloat(rest.slice(pm + 1));
-    traits.push({ name, mean, sigma: Number.isFinite(sigmaRaw) ? sigmaRaw : null });
+    const streak = Number.parseInt(/~(\d+)/.exec(rest)?.[1] ?? "0", 10);
+    traits.push({
+      name,
+      mean,
+      sigma: Number.isFinite(sigmaRaw) ? sigmaRaw : null,
+      ...(streak > 0 ? { negStreak: streak } : {}),
+    });
   }
   return traits;
 }
