@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  parseKin,
   parseUserModel,
   parseVoiceSamples,
   pulseBuckets,
+  searchAnimas,
   soulMeaning,
   tensionBoard,
 } from "./animaDashboard.logic";
@@ -68,13 +68,6 @@ describe("anima header readers", () => {
     ]);
   });
 
-  it("reads kin with and without a strength", () => {
-    expect(parseKin("cobalt=quiet-builder.2,ion=sibling:?")).toEqual([
-      { name: "cobalt", label: "quiet builder", strength: 2 },
-      { name: "ion", label: "sibling", strength: null },
-    ]);
-  });
-
   it("reads the user model", () => {
     expect(parseUserModel("direct=.95±.15,impatient-with-fluff=.85")).toEqual([
       { name: "direct", mean: 0.95, sigma: 0.15 },
@@ -90,5 +83,35 @@ describe("anima header readers", () => {
     });
     expect(soulMeaning("350,10,70")).toMatchObject({ domain: "systems", vitalityLabel: "vital" });
     expect(soulMeaning(null)).toBeNull();
+  });
+});
+
+describe("searchAnimas", () => {
+  it("ranks a name match above aims and finds tensions and skills", () => {
+    const animas = [
+      {
+        name: "canvas",
+        aim: "ship the canvas proof",
+        vow: null,
+        memo: null,
+        tensions: [{ slug: "canvas-vs-dom", age: 2 }],
+        topSkills: [{ name: "canvas-capture", mean: 0.8, sigma: null }],
+        homeProject: null,
+      },
+      {
+        name: "ink",
+        aim: "review the canvas",
+        vow: null,
+        memo: null,
+        topSkills: [],
+        homeProject: null,
+      },
+    ];
+    const hits = searchAnimas(animas, "canvas");
+    expect(hits[0]).toMatchObject({ anima: "canvas", kind: "anima", score: 120 });
+    expect(hits.map((hit) => `${hit.anima}:${hit.kind}`)).toEqual(
+      expect.arrayContaining(["canvas:tension", "canvas:skill", "ink:aim"]),
+    );
+    expect(searchAnimas(animas, "c")).toEqual([]);
   });
 });

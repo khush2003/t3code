@@ -9,7 +9,7 @@ import {
   TentTreeIcon,
   UsersIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { isElectron } from "~/env";
 import { animaEnvironment, useAnimaList } from "../../state/anima";
@@ -30,6 +30,9 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { AnimaDetailView } from "./AnimaDetailView";
 import { AnimaLibrary } from "./AnimaLibrary";
 import { AnimaDashboard } from "./AnimaDashboard";
+import { animaOrder } from "./animaDashboard.logic";
+import { ANIMA_SEARCH_INPUT_ID } from "./AnimaPool";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { NewAnimaDialog } from "./NewAnimaDialog";
 import type { AnimaHomeView, AnimaTab } from "./anima.logic";
 import { AnimaWorld } from "./world/AnimaWorld";
@@ -94,6 +97,29 @@ export function AnimaPage(target: {
       to: "/anima",
       search: { environmentId: next, ...(target.view ? { view: target.view } : {}) },
     });
+
+  const onKey = useStableCallback((event: KeyboardEvent) => {
+    const element = event.target as HTMLElement | null;
+    if (event.metaKey || event.ctrlKey || event.altKey || creating) return;
+    if (element?.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+    const order = animaOrder(animas);
+    const at = order.findIndex((entry) => entry.name === target.anima);
+    if (event.key === "/" && !target.anima && view === "dashboard") {
+      event.preventDefault();
+      document.getElementById(ANIMA_SEARCH_INPUT_ID)?.focus();
+    } else if (event.key === "Escape" && target.anima) {
+      open(undefined);
+    } else if (event.key === "j" && order.length > 0) {
+      open(order[at < 0 ? 0 : (at + 1) % order.length]!.name, target.tab);
+    } else if (event.key === "k" && target.anima && order.length > 0) {
+      open(order[(at - 1 + order.length) % order.length]!.name, target.tab);
+    }
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for page shortcuts on the window, an external event source
+  useEffect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onKey]);
 
   const newAnimaButton = (
     <Tooltip>
@@ -228,7 +254,7 @@ export function AnimaPage(target: {
                 <AnimaDashboard
                   environmentId={environmentId}
                   animas={animas}
-                  onOpen={(name) => open(name)}
+                  onOpen={(name, tab) => open(name, tab)}
                   onCreate={() => setCreating(true)}
                   createDisabledReason={createDisabledReason}
                 />
