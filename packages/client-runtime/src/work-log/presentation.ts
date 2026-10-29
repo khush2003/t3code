@@ -504,6 +504,7 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "environment-update":
     case "anima-policy":
     case "anima-attach":
+    case "anima-clinic":
     case "attachment-prepare":
     case "attachment-discard":
     case "attachment-send":

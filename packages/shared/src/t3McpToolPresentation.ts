@@ -59,6 +59,7 @@ export type T3McpToolSummaryAction =
   | "anima-read"
   | "anima-policy"
   | "anima-attach"
+  | "anima-clinic"
   | "anima-inbox-read"
   | "anima-message"
   | "anima-opens-list"
@@ -358,6 +359,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["Attach", "Attaching", "Attached", "an anima to a project"],
     "anima-attach",
   ),
+  t3_anima_clinic: tool(["Choose", "Choosing", "Chose", "an anima's look"], "anima-clinic"),
   t3_anima_inbox_read: tool(["Read", "Reading", "Read", "an anima inbox"], "anima-inbox-read"),
   t3_anima_inbox_send: tool(["Message", "Messaging", "Messaged", "an anima"], "anima-message"),
   t3_anima_opens_list: tool(["List", "Listing", "Listed", "anima opens"], "anima-opens-list"),
