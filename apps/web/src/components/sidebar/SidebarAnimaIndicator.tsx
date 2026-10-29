@@ -1,7 +1,7 @@
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
 
 import { useAnimaSummary } from "../chat/animaPresence";
-import { animaColor } from "../settings/anima/AnimaVisuals";
+import { animaColor } from "../anima/AnimaVisuals";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Reads the shared, non-polling roster snapshot, so rows add no runtime subscriptions. */

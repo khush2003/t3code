@@ -11,7 +11,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveSettingsScope } from "./settingsScope";
 import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScopeNavigation";
 
-import { validateAnimaSearch } from "./animaSettings.logic";
 import { validateScheduledTasksSearch } from "./scheduledTasksSettings.logic";
 
 const checkoutSearch = {
@@ -54,11 +53,6 @@ function createSettingsRouter(initialEntry = "/settings/general") {
     path: "scheduled-tasks",
     validateSearch: validateScheduledTasksSearch,
   });
-  const anima = createRoute({
-    getParentRoute: () => settings,
-    path: "anima",
-    validateSearch: validateAnimaSearch,
-  });
   const legacyProject = createRoute({
     getParentRoute: () => root,
     path: "projects/$projectKey",
@@ -79,7 +73,6 @@ function createSettingsRouter(initialEntry = "/settings/general") {
         sourceControl,
         providers,
         scheduledTasks,
-        anima,
       ]),
       legacyProject,
     ]),
@@ -113,7 +106,7 @@ describe("settings scope navigation", () => {
     expect(router.state.location.search).toEqual(checkoutSearch);
   });
 
-  it.each(["/settings/projects", "/settings/scheduled-tasks", "/settings/anima"] as const)(
+  it.each(["/settings/projects", "/settings/scheduled-tasks"] as const)(
     "keeps %s when regrouping or selecting a target from the shared settings layout",
     async (to) => {
       const router = createSettingsRouter();
@@ -264,14 +257,5 @@ describe("scheduled task scope navigation", () => {
       search: () => ({ machine: undefined, project: undefined, checkout: undefined }),
     });
     expect(router.state.matches.at(-1)?.search).toEqual({});
-  });
-});
-
-describe("anima scope navigation", () => {
-  it("keeps the project and checkout filters when entering anima", async () => {
-    const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/projects", search: checkoutSearch });
-    await router.navigate({ to: "/settings/anima" });
-    expect(router.state.matches.at(-1)?.search).toEqual(checkoutSearch);
   });
 });

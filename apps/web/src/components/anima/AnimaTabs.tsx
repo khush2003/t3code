@@ -5,16 +5,16 @@ import { IdCardIcon, WindIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
-import { cn } from "../../../lib/utils";
-import { animaEnvironment } from "../../../state/anima";
-import { useProjects, useThreadShell } from "../../../state/entities";
-import { useEnvironmentQuery } from "../../../state/query";
-import ChatMarkdown from "../../ChatMarkdown";
-import { Badge } from "../../ui/badge";
-import { Button } from "../../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { SettingsGroup } from "../SettingsGroup";
-import { breathNoteText, buildAnimaFeed } from "../animaSettings.logic";
+import { cn } from "../../lib/utils";
+import { animaEnvironment } from "../../state/anima";
+import { useProjects, useThreadShell } from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
+import ChatMarkdown from "../ChatMarkdown";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { SettingsGroup } from "../settings/SettingsGroup";
+import { breathNoteText, buildAnimaFeed } from "./anima.logic";
 import {
   AnimaAccentDot,
   AnimaBlock,

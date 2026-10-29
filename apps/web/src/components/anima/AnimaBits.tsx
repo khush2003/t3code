@@ -6,14 +6,14 @@ import {
   type AtomCommand,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { cn } from "../../../lib/utils";
-import { formatRelativeTimeLabel } from "../../../timestampFormat";
-import { describeAnimaError } from "../../../state/anima";
-import { useAtomCommand } from "../../../state/use-atom-command";
-import { Badge } from "../../ui/badge";
-import { Label } from "../../ui/label";
-import { stackedThreadToast, toastManager } from "../../ui/toast";
-import { safeAnimaAccent, traitPercent } from "../animaSettings.logic";
+import { cn } from "../../lib/utils";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { describeAnimaError } from "../../state/anima";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { Badge } from "../ui/badge";
+import { Label } from "../ui/label";
+import { stackedThreadToast, toastManager } from "../ui/toast";
+import { safeAnimaAccent, traitPercent } from "./anima.logic";
 
 /** Static on purpose: a pulsing live indicator repaints continuously. */
 export function AnimaAccentDot({

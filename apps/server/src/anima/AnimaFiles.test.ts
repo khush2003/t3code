@@ -195,6 +195,46 @@ NEVER d [proposed by x, 2026-01-01]
     );
   });
 
+  it("reads the session project from both the legacy and the packaged CLI formats", () => {
+    const now = AnimaFiles.localTimestampMs("2026-10-26T16:00");
+    const project = encodeURIComponent(
+      JSON.stringify({
+        projectPath: "/work/a|b",
+        projectName: "a|b",
+        source: "explicit",
+        recordedAt: "2026-10-26T15:00:00.000Z",
+      }),
+    );
+    const cases: ReadonlyArray<readonly [string, string | null]> = [
+      ["2026-10-26T15:00|2026-10-26T15:30|/work/x", "/work/x"],
+      ["2026-10-26T15:00|2026-10-26T15:30|/work/a|b", "/work/a|b"],
+      [`2026-10-26T15:00|2026-10-26T15:30|${project}`, "/work/a|b"],
+      ['2026-10-26T15:00|2026-10-26T15:30|{"projectPath":"/work/y"}', "/work/y"],
+      ["2026-10-26T15:00|2026-10-26T15:30|%7Bbroken", null],
+      ["2026-10-26T15:00|2026-10-26T15:30", null],
+    ];
+    for (const [content, cwd] of cases) {
+      expect(AnimaFiles.parseSession(`${content}\n`, now)).toMatchObject({ live: true, cwd });
+    }
+  });
+
+  it("reads a clinic check-in and ignores malformed ones", () => {
+    const valid = { version: 1, form: "owl", accent: "#9b82bc", checkedInAt: "x" };
+    expect(AnimaFiles.parseAppearance(JSON.stringify(valid))).toEqual({
+      form: "owl",
+      accent: "#9b82bc",
+    });
+    for (const bad of [
+      { ...valid, version: 2 },
+      { ...valid, form: "dragon" },
+      { ...valid, accent: "purple" },
+      [],
+    ]) {
+      expect(AnimaFiles.parseAppearance(JSON.stringify(bad))).toBeNull();
+    }
+    expect(AnimaFiles.parseAppearance("")).toBeNull();
+  });
+
   it("parses opens.json, skipping malformed entries", () => {
     const opens = AnimaFiles.parseOpensFile(
       JSON.stringify([
@@ -376,6 +416,7 @@ describe("bundle paths and digest", () => {
     }
     expect(AnimaFiles.isBundlePath("breaths/000.breath")).toBe(true);
     expect(AnimaFiles.isBundlePath("skills/a/b.md")).toBe(true);
+    expect(AnimaFiles.isBundlePath("appearance.json")).toBe(true);
     expect(AnimaFiles.isBundlePath("session")).toBe(false);
     expect(AnimaFiles.isBundlePath("evil.sh")).toBe(false);
   });
@@ -461,6 +502,7 @@ describe("buildSummary", () => {
       policy: AnimaFiles.parsePolicy(built.files[2]!.content),
       inbox: [],
       session: null,
+      appearance: null,
       digest: built.digest,
       health: 0.25,
     });
@@ -479,6 +521,19 @@ describe("buildSummary", () => {
       "type-design",
       "vite",
     ]);
+    expect(summary.form).toBeNull();
+    const checkedIn = AnimaFiles.buildSummary({
+      name: "atlas",
+      agent: AnimaFiles.parseAgentFile(built.files[0]!.content),
+      identity: "",
+      policy: AnimaFiles.parsePolicy(""),
+      inbox: [],
+      session: null,
+      appearance: { form: "fox", accent: "#ff8800" },
+      digest: built.digest,
+      health: null,
+    });
+    expect(checkedIn).toMatchObject({ form: "fox", accent: "#ff8800" });
   });
 });
 
