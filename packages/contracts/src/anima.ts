@@ -14,6 +14,8 @@ export const AnimaTrait = Schema.Struct({
   /** Kalman estimate in 0..1. */
   mean: Schema.Number,
   sigma: Schema.NullOr(Schema.Number),
+  /** Consecutive negative updates (`~n`); absent when zero. */
+  negStreak: Schema.optional(NonNegativeInt),
 });
 export type AnimaTrait = typeof AnimaTrait.Type;
 

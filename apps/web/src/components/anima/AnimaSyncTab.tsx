@@ -64,11 +64,16 @@ function notify(type: "success" | "error" | "info", title: string, description?:
   );
 }
 
-const MODE_VERB = {
-  create: "Copy",
-  "fast-forward": "Fast-forward",
-  replace: "Replace",
-} as const;
+function takeLabel(mode: "create" | "fast-forward" | "replace", winner: string, target: string) {
+  switch (mode) {
+    case "create":
+      return `Copy to ${target}`;
+    case "fast-forward":
+      return `Fast-forward ${target} to ${winner}`;
+    case "replace":
+      return `Replace ${target} with ${winner}'s copy`;
+  }
+}
 
 function BreathList({
   title,
@@ -498,7 +503,7 @@ function SyncPanel({
                 }
               >
                 <ArrowRightIcon />
-                {MODE_VERB[takeThere]} {here.label} from {there.label}
+                {takeLabel(takeThere, there.label, here.label)}
               </Button>
             ) : null}
             {takeHere && comparison.hereBundle ? (
@@ -509,7 +514,7 @@ function SyncPanel({
                 onClick={() => void take(comparison, here, there, comparison.hereBundle!, takeHere)}
               >
                 <ArrowLeftIcon />
-                {MODE_VERB[takeHere]} {there.label} from {here.label}
+                {takeLabel(takeHere, here.label, there.label)}
               </Button>
             ) : null}
           </div>
