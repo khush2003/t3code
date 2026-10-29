@@ -930,6 +930,11 @@ export function breathChain(files: ReadonlyArray<AnimaBundleFile>): ReadonlyArra
   return entries.toSorted((left, right) => left.index - right.index).map((item) => item.entry);
 }
 
+function breathKey(entry: string): string {
+  const hash = entry.slice(entry.indexOf(":") + 1);
+  return hash === "" ? entry : hash;
+}
+
 export interface ComparableAnima {
   readonly id: string;
   readonly digest: string;
@@ -963,8 +968,11 @@ export function relationBetween(
     common += 1;
   }
   const commonBreath = common === 0 ? -1 : Number.parseInt(local.chain[common - 1]!, 10);
-  const localOnlyBreaths = local.chain.length - common;
-  const incomingOnlyBreaths = incoming.chain.length - common;
+  // A breath is the same breath under any number: merging renumbers, the hash stays.
+  const localKeys = new Set(local.chain.map(breathKey));
+  const incomingKeys = new Set(incoming.chain.map(breathKey));
+  const localOnlyBreaths = [...localKeys].filter((key) => !incomingKeys.has(key)).length;
+  const incomingOnlyBreaths = [...incomingKeys].filter((key) => !localKeys.has(key)).length;
   const base = { commonBreath, localOnlyBreaths, incomingOnlyBreaths };
   if (local.id !== incoming.id) return { relation: "unrelated", ...base };
   if (local.digest === incoming.digest) return { relation: "identical", ...base };
