@@ -3,11 +3,10 @@ import type { AnimaBundle, AnimaCompareResult, EnvironmentId } from "@t3tools/co
 
 import {
   type AnimaSyncPorts,
+  diffAnimaBundles,
   invertAnimaRelation,
-  planAnimaSync,
   quickAnimaState,
   resolveAnimaSync,
-  syncAnima,
 } from "./animaSync.ts";
 
 const bundle = { name: "ada", digest: "d" } as unknown as AnimaBundle;
@@ -26,46 +25,6 @@ function ports(relation: AnimaCompareResult["relation"]) {
   } as unknown as AnimaSyncPorts;
   return { value, importBundle, mergeStart };
 }
-
-describe("planAnimaSync", () => {
-  it("maps each relation to an action", () => {
-    expect(planAnimaSync("missing")).toEqual({ kind: "import", mode: "create" });
-    expect(planAnimaSync("incoming-ahead")).toEqual({ kind: "import", mode: "fast-forward" });
-    expect(planAnimaSync("identical")).toEqual({ kind: "up-to-date" });
-    expect(planAnimaSync("local-ahead")).toEqual({ kind: "destination-ahead" });
-    expect(planAnimaSync("diverged")).toEqual({ kind: "needs-choice", reason: "diverged" });
-    expect(planAnimaSync("unrelated")).toEqual({ kind: "needs-choice", reason: "unrelated" });
-  });
-});
-
-describe("syncAnima", () => {
-  it("creates a missing anima", async () => {
-    const p = ports("missing");
-    expect(await syncAnima(request, p.value)).toEqual({ status: "created", output: "ok" });
-    expect(p.importBundle).toHaveBeenCalledWith(to, { bundle, mode: "create" });
-  });
-
-  it("fast-forwards when incoming is ahead", async () => {
-    const p = ports("incoming-ahead");
-    expect(await syncAnima(request, p.value)).toMatchObject({ status: "fast-forwarded" });
-    expect(p.importBundle).toHaveBeenCalledWith(to, { bundle, mode: "fast-forward" });
-  });
-
-  it.each(["identical", "local-ahead"] as const)("does not write for %s", async (relation) => {
-    const p = ports(relation);
-    const outcome = await syncAnima(request, p.value);
-    expect(outcome.status).toBe(relation === "identical" ? "up-to-date" : "destination-ahead");
-    expect(p.importBundle).not.toHaveBeenCalled();
-  });
-
-  it.each(["diverged", "unrelated"] as const)("returns a choice for %s", async (relation) => {
-    const p = ports(relation);
-    const outcome = await syncAnima(request, p.value);
-    expect(outcome).toMatchObject({ status: "needs-choice", reason: relation, bundle });
-    expect(p.importBundle).not.toHaveBeenCalled();
-    expect(p.mergeStart).not.toHaveBeenCalled();
-  });
-});
 
 describe("resolveAnimaSync", () => {
   it("replaces or starts a merge on the destination", async () => {
@@ -97,5 +56,47 @@ describe("helpers", () => {
     expect(quickAnimaState(a, { id: "1", digest: "x" })).toBe("identical");
     expect(quickAnimaState(a, { id: "1", digest: "y" })).toBe("different");
     expect(quickAnimaState(a, { id: "2", digest: "x" })).toBe("unrelated");
+  });
+});
+
+describe("diffAnimaBundles", () => {
+  const exportOf = (breaths: ReadonlyArray<string>, files: Record<string, string>) =>
+    ({
+      breathChain: breaths,
+      files: Object.entries(files).map(([path, content]) => ({ path, content })),
+    }) as unknown as AnimaBundle;
+
+  it("lists breaths each side lacks, header changes, and file line diffs", () => {
+    const source = exportOf(["0:a", "1:b", "2:c"], {
+      "agent.anima":
+        "# aim: ship\n# vow: up\n0|t0|1,2,3|C4\n1|t1|4,5,6|C4|s|g|first\n2|t2|7,8,9|C4|s|g|second",
+      "breaths/2.breath": "x",
+      "identity.md": "a\nb\nc\nd\ne\nf\ng\nh",
+      "policy.md": "rule",
+    });
+    const destination = exportOf(["0:a", "1:z"], {
+      "agent.anima": "# aim: plan\n# vow: up\n0|t0|1,2,3|C4\n1|t9|0,0,0|C4|s|g|mine",
+      "identity.md": "a\nb\nc\nd\ne\nf\nG\nh",
+    });
+    const diff = diffAnimaBundles(source, destination);
+    expect(diff.sharedBreaths).toBe(1);
+    expect(diff.sourceOnly).toEqual([
+      { index: 2, at: "t2", hsl: "7,8,9", aim: "second" },
+      { index: 1, at: "t1", hsl: "4,5,6", aim: "first" },
+    ]);
+    expect(diff.destinationOnly).toEqual([{ index: 1, at: "t9", hsl: "0,0,0", aim: "mine" }]);
+    expect(diff.header).toEqual([{ key: "aim", source: "ship", destination: "plan" }]);
+    expect(diff.files.map((file) => [file.path, file.status, file.added, file.removed])).toEqual([
+      ["identity.md", "changed", 1, 1],
+      ["policy.md", "only-source", 1, 0],
+    ]);
+    expect(diff.files[0]!.lines).toEqual([
+      { kind: "gap", count: 4 },
+      { kind: "same", text: "e" },
+      { kind: "same", text: "f" },
+      { kind: "remove", text: "G" },
+      { kind: "add", text: "g" },
+      { kind: "same", text: "h" },
+    ]);
   });
 });
