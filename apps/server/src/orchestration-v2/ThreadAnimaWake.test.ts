@@ -20,7 +20,7 @@ const makeLayer = (
       Layer.mock(AnimaService.AnimaService)({
         wake,
         voice: () => Effect.succeed(extra.voice ?? ""),
-        capsule: () => Effect.succeed(extra.capsule ?? "capsule"),
+        identityBrief: (input) => Effect.succeed(`${extra.capsule ?? "capsule"}:${input.target}`),
       }),
     ),
   );
@@ -105,7 +105,13 @@ it.effect("refreshes the identity at most once every 15 minutes per thread", () 
     assert.match(yield* service.refresh(input), /^capsule/);
     assert.equal(yield* service.refresh(input), "");
     const other = yield* service.refresh({ threadId: ThreadId.make("thread:other"), name: "iris" });
-    assert.match(other, /^capsule/);
+    assert.match(other, /^capsule:claude/);
+    const codex = yield* service.refresh({
+      threadId: ThreadId.make("thread:codex"),
+      name: "iris",
+      target: "codex",
+    });
+    assert.match(codex, /^capsule:codex/);
     yield* TestClock.adjust("15 minutes");
     assert.match(yield* service.refresh(input), /^capsule/);
   }).pipe(Effect.provide(makeLayer(() => Effect.succeed("payload")))),
@@ -118,7 +124,9 @@ it.effect("never fails the turn when the capsule cannot be built", () =>
   }).pipe(
     Effect.provide(
       ThreadAnimaWake.layer.pipe(
-        Layer.provide(Layer.mock(AnimaService.AnimaService)({ capsule: () => Effect.die("boom") })),
+        Layer.provide(
+          Layer.mock(AnimaService.AnimaService)({ identityBrief: () => Effect.die("boom") }),
+        ),
       ),
     ),
   ),

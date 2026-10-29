@@ -3,19 +3,19 @@ import { CheckIcon, PencilIcon, ShieldCheckIcon, Trash2Icon, XIcon, ZapIcon } fr
 import { useState } from "react";
 import type { AnimaDetail, EnvironmentId } from "@t3tools/contracts";
 
-import { requestConfirmDialog } from "../../../confirmDialog";
-import { animaEnvironment } from "../../../state/anima";
-import { Badge } from "../../ui/badge";
-import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
-import { Switch } from "../../ui/switch";
-import { Toggle, ToggleGroup } from "../../ui/toggle-group";
+import { requestConfirmDialog } from "../../confirmDialog";
+import { animaEnvironment } from "../../state/anima";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   type AnimaPolicyFireRow,
   type AnimaPolicySort,
   keyedLines,
   policyFireRows,
-} from "../animaSettings.logic";
+} from "./anima.logic";
 import {
   AnimaBlock,
   AnimaEmptyNote,

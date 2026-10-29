@@ -25,6 +25,11 @@ export const AnimaShape = Schema.Struct({
 });
 export type AnimaShape = typeof AnimaShape.Type;
 
+/** Creature forms an anima can choose through `anima clinic check-in`. */
+export const ANIMA_FORMS = ["fox", "owl", "axolotl", "frog", "moth", "raccoon"] as const;
+export const AnimaForm = Schema.Literals(ANIMA_FORMS);
+export type AnimaForm = typeof AnimaForm.Type;
+
 export const AnimaSummary = Schema.Struct({
   name: AnimaName,
   id: Schema.String,
@@ -56,6 +61,8 @@ export const AnimaSummary = Schema.Struct({
   health: Schema.NullOr(Schema.Number),
   /** Stable digest of state + breaths + policy + identity; equal digests mean identical animas. */
   digest: Schema.String,
+  /** Self-chosen creature form from `appearance.json`; null until the anima checks in. */
+  form: Schema.optional(Schema.NullOr(AnimaForm)),
 });
 export type AnimaSummary = typeof AnimaSummary.Type;
 
@@ -208,6 +215,8 @@ export const AnimaListResult = Schema.Struct({
   /** False when the anima CLI is not installed on this environment. */
   cliAvailable: Schema.Boolean,
   rootPath: Schema.String,
+  /** `anima version` of the CLI in use; null for the legacy skill script, which has no version command. */
+  cliVersion: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type AnimaListResult = typeof AnimaListResult.Type;
 
@@ -232,6 +241,14 @@ export const AnimaAttachInput = Schema.Struct({
   projectId: ProjectId,
 });
 export type AnimaAttachInput = typeof AnimaAttachInput.Type;
+
+export const AnimaClinicInput = Schema.Struct({
+  name: AnimaName,
+  form: AnimaForm,
+  /** `#rrggbb`; omitted keeps the anima's current accent. */
+  accent: Schema.optional(Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/))),
+});
+export type AnimaClinicInput = typeof AnimaClinicInput.Type;
 
 export const AnimaSetEnabledInput = Schema.Struct({
   name: AnimaName,
@@ -298,15 +315,26 @@ export const AnimaInboxSendAction = Schema.Struct({
 });
 
 /** Answers a message in this anima's inbox; the reply goes to its sender, from this anima. */
+const AnimaMessageId = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,79}$/),
+);
+
 export const AnimaInboxReplyAction = Schema.Struct({
   type: Schema.Literal("reply"),
-  messageId: TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,79}$/)),
+  messageId: AnimaMessageId,
   body: AnimaMessageBody,
+});
+
+/** Removes exactly these messages from the inbox once they are handled. */
+export const AnimaInboxAckAction = Schema.Struct({
+  type: Schema.Literal("ack"),
+  messageIds: Schema.NonEmptyArray(AnimaMessageId),
 });
 
 export const AnimaInboxAction = Schema.Union([
   AnimaInboxSendAction,
   AnimaInboxReplyAction,
+  AnimaInboxAckAction,
   /** Drops messages that arrived before the last breath or session start; later ones stay. */
   Schema.Struct({ type: Schema.Literal("clear") }),
 ]);
