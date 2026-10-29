@@ -4,17 +4,17 @@ import {
   type AnimaBundleDiff,
   type AnimaDiffLine,
   animaSyncRelationLabel,
-  animaTakeMode,
   diffAnimaBundles,
-  invertAnimaRelation,
   quickAnimaState,
-  resolveAnimaSync,
+  syncAnimaPair,
 } from "@t3tools/client-runtime/anima-sync";
-import { ArrowLeftIcon, ArrowRightIcon, CombineIcon } from "lucide-react";
+import { availableScratchWorkspaceRoot } from "@t3tools/client-runtime/operations/projects";
+import { ArrowLeftIcon, ArrowRightIcon, CombineIcon, SparklesIcon } from "lucide-react";
 import { useContext, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type {
   AnimaBundle,
+  AnimaMergeConflict,
   AnimaName,
   AnimaSyncRelation,
   EnvironmentId,
@@ -28,11 +28,12 @@ import {
   describeAnimaError,
   useAnimaList,
 } from "../../state/anima";
-import { useProjects } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
+import { useProjects } from "../../state/entities";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { isConnectedWithConfig } from "../settings/scopedSettings";
 import { useEnvironments } from "../../state/environments";
@@ -40,12 +41,16 @@ import { cn } from "~/lib/utils";
 import { mergeStatusLabel } from "./anima.logic";
 import { PageHeading, RelativeTime, useAnimaMutation } from "./AnimaBits";
 import { hslToCss, parseHsl } from "./animaVisuals.logic";
+import { staySyncKey, useAnimaStaySyncStore } from "./animaStaySync";
+import { useRunStaySync } from "./AnimaStaySyncRunner";
 
 type EnvironmentOption = { readonly environmentId: EnvironmentId; readonly label: string };
 
 /** Everything is seen from "here": `there` is the other machine, the diff's source. */
 type Comparison = {
   readonly relation: AnimaSyncRelation;
+  /** Changed differently on both machines since they last synced; merging stops here. */
+  readonly conflicts: ReadonlyArray<AnimaMergeConflict>;
   readonly hereBundle: AnimaBundle | null;
   readonly thereBundle: AnimaBundle | null;
   readonly diff: AnimaBundleDiff;
@@ -62,17 +67,6 @@ function notify(type: "success" | "error" | "info", title: string, description?:
   toastManager.add(
     stackedThreadToast({ type, title, ...(description === undefined ? {} : { description }) }),
   );
-}
-
-function takeLabel(mode: "create" | "fast-forward" | "replace", winner: string, target: string) {
-  switch (mode) {
-    case "create":
-      return `Copy to ${target}`;
-    case "fast-forward":
-      return `Fast-forward ${target} to ${winner}`;
-    case "replace":
-      return `Replace ${target} with ${winner}'s copy`;
-  }
 }
 
 function BreathList({
@@ -321,6 +315,100 @@ function MergeProgress({
   );
 }
 
+function ConflictList({
+  conflicts,
+  here,
+  there,
+}: {
+  readonly conflicts: ReadonlyArray<AnimaMergeConflict>;
+  readonly here: string;
+  readonly there: string;
+}) {
+  return (
+    <ul className="space-y-2">
+      {conflicts.map((conflict) => (
+        <li
+          key={`${conflict.path}:${conflict.key ?? ""}`}
+          className="rounded-xl bg-warning/8 p-3 dark:bg-warning/12"
+        >
+          <p className="mb-2 font-mono text-xs">
+            {conflict.key === null ? conflict.path : `${conflict.key} (${conflict.path})`}
+          </p>
+          <div className="grid gap-3 text-xs md:grid-cols-2">
+            {[
+              [there, conflict.incoming],
+              [here, conflict.local],
+            ].map(([label, text]) => (
+              <div key={label} className="min-w-0">
+                <p className="mb-1 text-2xs uppercase tracking-wide text-muted-foreground">
+                  {label}
+                </p>
+                <p className="line-clamp-4 whitespace-pre-wrap break-words">{text}</p>
+              </div>
+            ))}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function StaySynced({
+  name,
+  here,
+  there,
+  present,
+}: {
+  readonly name: AnimaName;
+  readonly here: EnvironmentOption;
+  readonly there: EnvironmentOption;
+  readonly present: { readonly first: boolean; readonly second: boolean };
+}) {
+  const key = staySyncKey(name, here.environmentId, there.environmentId);
+  const link = useAnimaStaySyncStore((state) => state.links[key] ?? null);
+  const status = useAnimaStaySyncStore((state) => state.statuses[key] ?? null);
+  const setEnabled = useAnimaStaySyncStore((state) => state.setEnabled);
+  const runSync = useRunStaySync();
+  const line = !link
+    ? `Off. Turn on to merge every change between ${here.label} and ${there.label} while this app is open.`
+    : link.paused
+      ? `Paused: ${link.paused.conflicts.join(", ")} changed on both machines. Compare to resolve.`
+      : status?.state === "syncing"
+        ? "Syncing..."
+        : status?.state === "error"
+          ? `Last attempt failed: ${status.message}`
+          : status?.state === "waiting"
+            ? "Waiting for both machines to be connected."
+            : status?.state === "synced"
+              ? "In sync. Changes on either machine follow within a few seconds."
+              : "On.";
+  return (
+    <div className="flex items-start gap-3 rounded-2xl bg-muted/30 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">Stay synced</p>
+        <p
+          className={cn(
+            "text-xs",
+            link?.paused ? "text-warning-foreground" : "text-muted-foreground",
+          )}
+        >
+          {line}
+        </p>
+      </div>
+      <Switch
+        aria-label="Stay synced"
+        checked={link !== null}
+        onCheckedChange={(checked) => {
+          setEnabled(name, here.environmentId, there.environmentId, checked);
+          const created = useAnimaStaySyncStore.getState().links[key];
+          // The runner only acts on differences; a first run also records the shared base.
+          if (checked && created) void runSync(key, created, present);
+        }}
+      />
+    </div>
+  );
+}
+
 function SyncPanel({
   name,
   here,
@@ -332,7 +420,6 @@ function SyncPanel({
 }) {
   const registry = useContext(RegistryContext);
   const [state, setState] = useState<SyncState>({ phase: "idle" });
-  const [projectId, setProjectId] = useState("");
   const hereList = useAnimaList(here.environmentId);
   const thereList = useAnimaList(there.environmentId);
   const hereSummary = hereList.animas.find((anima) => anima.name === name) ?? null;
@@ -344,8 +431,22 @@ function SyncPanel({
     animaEnvironment.importBundle.permissionAtom(there.environmentId),
   );
   const canMerge = useAtomValue(animaEnvironment.mergeStart.permissionAtom(here.environmentId));
+  const hereEnvironment = useEnvironments().environments.find(
+    (entry) => entry.environmentId === here.environmentId,
+  );
+  // Without a scratch folder (a server whose data lives in a checkout) the agent needs a project.
+  const noProject =
+    availableScratchWorkspaceRoot(
+      hereEnvironment?.connection.phase,
+      hereEnvironment?.serverConfig,
+    ) !== null;
   const projects = useProjects().filter((project) => project.environmentId === here.environmentId);
+  const [projectId, setProjectId] = useState("");
+  const selectedProject = projects.find((project) => project.id === projectId);
   const quick = quickAnimaState(hereSummary, thereSummary);
+  // Until both lists load, an anima missing from one only looks absent.
+  const listsLoaded = hereList.data !== null && thereList.data !== null;
+  const present = { first: hereSummary !== null, second: thereSummary !== null };
   const ports = () =>
     createAnimaSyncPorts(registry, (environmentId) =>
       environmentId === here.environmentId
@@ -354,6 +455,10 @@ function SyncPanel({
           ? there.label
           : environmentId,
     );
+  const refresh = () => {
+    hereList.refresh();
+    thereList.refresh();
+  };
   const fail = (title: string, error: unknown, comparison: Comparison | null) => {
     setState(comparison ? { phase: "compared", comparison } : { phase: "idle" });
     notify("error", title, describeAnimaError(error));
@@ -368,15 +473,24 @@ function SyncPanel({
         thereSummary ? p.exportBundle(there.environmentId, name) : null,
       ]);
       if (thereBundle) {
-        const { relation } = await p.compare(here.environmentId, thereBundle);
-        const diff = diffAnimaBundles(thereBundle, hereBundle);
-        setState({ phase: "compared", comparison: { relation, hereBundle, thereBundle, diff } });
+        const result = await p.compare(here.environmentId, thereBundle);
+        setState({
+          phase: "compared",
+          comparison: {
+            relation: result.relation,
+            conflicts: result.conflicts ?? [],
+            hereBundle,
+            thereBundle,
+            diff: diffAnimaBundles(thereBundle, hereBundle),
+          },
+        });
       } else if (hereBundle) {
         const diff = diffAnimaBundles(hereBundle, null);
         setState({
           phase: "compared",
           comparison: {
             relation: "missing",
+            conflicts: [],
             hereBundle,
             thereBundle,
             diff: { ...diff, sourceOnly: [], destinationOnly: diff.sourceOnly },
@@ -388,46 +502,64 @@ function SyncPanel({
     }
   };
 
-  /** Makes `target` match `winner`'s bundle; replace keeps a backup on the target. */
-  const take = async (
+  const mergeBoth = async (comparison: Comparison | null) => {
+    setState({ phase: "working", label: "Merging...", comparison });
+    try {
+      const result = await syncAnimaPair(
+        { name, first: here.environmentId, second: there.environmentId, present },
+        ports(),
+      );
+      if (result.status === "conflicts") {
+        setState(comparison ? { phase: "compared", comparison } : { phase: "idle" });
+        notify("info", "Both machines changed the same things", "Resolve them with an agent.");
+        return;
+      }
+      if (result.status === "unrelated") {
+        setState({ phase: "done", message: "These are different animas; overwrite one instead." });
+        return;
+      }
+      setState({
+        phase: "done",
+        message: `${here.label} and ${there.label} now hold the same ${name}, with every breath from both.`,
+      });
+      notify("success", `${name} merged`);
+      refresh();
+    } catch (error) {
+      fail("Merge failed", error, comparison);
+    }
+  };
+
+  /** Overwrites `target` with `winner`'s copy; the target keeps a backup. */
+  const overwrite = async (
     comparison: Comparison,
     winner: EnvironmentOption,
     target: EnvironmentOption,
     bundle: AnimaBundle,
-    mode: "create" | "fast-forward" | "replace",
   ) => {
-    if (mode === "replace") {
-      const message = `Replace ${name} on ${target.label} with ${winner.label}'s version?\n${target.label}'s breaths and edits that ${winner.label} lacks are discarded. A backup is kept on ${target.label}.`;
-      const confirmed =
-        (await requestConfirmDialog(message, { variant: "destructive" })) ??
-        window.confirm(message);
-      if (!confirmed) return;
-    }
+    const message = `Replace ${name} on ${target.label} with ${winner.label}'s copy?\n${target.label}'s breaths and edits that ${winner.label} lacks are discarded. A backup is kept on ${target.label}.`;
+    const confirmed =
+      (await requestConfirmDialog(message, { variant: "destructive" })) ?? window.confirm(message);
+    if (!confirmed) return;
     setState({ phase: "working", label: "Syncing...", comparison });
     try {
-      await ports().importBundle(target.environmentId, { bundle, mode });
-      const message = `${target.label} now matches ${winner.label}.`;
-      setState({ phase: "done", message });
-      notify("success", message);
-      hereList.refresh();
-      thereList.refresh();
+      await ports().importBundle(target.environmentId, { bundle, mode: "replace" });
+      const done = `${target.label} now matches ${winner.label}.`;
+      setState({ phase: "done", message: done });
+      notify("success", done);
+      refresh();
     } catch (error) {
       fail("Sync failed", error, comparison);
     }
   };
 
-  const merge = async (comparison: Comparison, bundle: AnimaBundle) => {
+  const resolveWithAgent = async (comparison: Comparison, bundle: AnimaBundle) => {
     setState({ phase: "working", label: "Starting the merge...", comparison });
     try {
-      const started = await resolveAnimaSync(
-        { kind: "merge", projectId: projectId as ProjectId },
-        { toEnvironmentId: here.environmentId },
+      const started = await ports().mergeStart(here.environmentId, {
         bundle,
-        ports(),
-      );
-      if (started.kind === "merging") {
-        setState({ phase: "merging", mergeId: started.mergeId, threadId: started.threadId });
-      }
+        ...(noProject || !selectedProject ? {} : { projectId: selectedProject.id as ProjectId }),
+      });
+      setState({ phase: "merging", mergeId: started.mergeId, threadId: started.threadId });
     } catch (error) {
       fail("Could not start the merge", error, comparison);
     }
@@ -436,18 +568,13 @@ function SyncPanel({
   const comparison =
     state.phase === "compared" || state.phase === "working" ? (state.comparison ?? null) : null;
   const busy = state.phase === "working";
-  const selectedProject = projects.find((project) => project.id === projectId);
-  const takeThere = comparison?.thereBundle != null ? animaTakeMode(comparison.relation) : null;
-  const takeHere =
-    comparison?.hereBundle != null
-      ? comparison.thereBundle
-        ? animaTakeMode(invertAnimaRelation(comparison.relation))
-        : "create"
-      : null;
-  const canMergeHere =
-    comparison?.thereBundle != null &&
-    comparison.hereBundle !== null &&
-    (comparison.relation === "diverged" || comparison.relation === "unrelated");
+  const both = comparison?.hereBundle != null && comparison.thereBundle != null;
+  const conflicts = comparison?.conflicts ?? [];
+  const canMergeBoth =
+    comparison !== null &&
+    comparison.relation !== "identical" &&
+    comparison.relation !== "unrelated" &&
+    conflicts.length === 0;
 
   return (
     <div className="space-y-6">
@@ -475,7 +602,7 @@ function SyncPanel({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || quick === "identical"}
+            disabled={busy || !listsLoaded || quick === "identical"}
             onClick={() => void compare()}
           >
             {busy ? state.label : comparison ? "Compare again" : "Compare"}
@@ -484,48 +611,38 @@ function SyncPanel({
         <MachineCard label={here.label} summary={hereSummary} caption="This machine" />
       </div>
 
+      <StaySynced name={name} here={here} there={there} present={present} />
+
       {comparison ? (
         <div className="space-y-3 rounded-2xl border border-border/60 p-4">
           <div>
             <h3 className="text-sm font-medium">Reconcile</h3>
             <p className="text-xs text-muted-foreground">
-              {relationAdvice(comparison.relation, here.label, there.label)}
+              {relationAdvice(comparison.relation, conflicts.length, here.label, there.label)}
             </p>
           </div>
+          {conflicts.length > 0 ? (
+            <ConflictList conflicts={conflicts} here={here.label} there={there.label} />
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            {takeThere && comparison.thereBundle ? (
+            {canMergeBoth ? (
               <Button
                 size="sm"
-                variant={takeThere === "replace" ? "destructive-outline" : "default"}
-                disabled={busy || !canImportHere}
-                onClick={() =>
-                  void take(comparison, there, here, comparison.thereBundle!, takeThere)
-                }
+                disabled={busy || !canImportHere || !canImportThere}
+                onClick={() => void mergeBoth(comparison)}
               >
-                <ArrowRightIcon />
-                {takeLabel(takeThere, there.label, here.label)}
+                <CombineIcon />
+                {both
+                  ? "Merge both"
+                  : `Copy to ${comparison.hereBundle ? there.label : here.label}`}
               </Button>
             ) : null}
-            {takeHere && comparison.hereBundle ? (
-              <Button
-                size="sm"
-                variant={takeHere === "replace" ? "destructive-outline" : "default"}
-                disabled={busy || !canImportThere}
-                onClick={() => void take(comparison, here, there, comparison.hereBundle!, takeHere)}
-              >
-                <ArrowLeftIcon />
-                {takeLabel(takeHere, here.label, there.label)}
-              </Button>
-            ) : null}
-          </div>
-          {canMergeHere ? (
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
-              <span className="text-xs text-muted-foreground">
-                Or keep both: an agent merges {there.label}&apos;s breaths into {here.label}
-              </span>
+            {conflicts.length > 0 && comparison.thereBundle && !noProject ? (
               <Select value={projectId} onValueChange={(value) => setProjectId(String(value))}>
                 <SelectTrigger size="sm" aria-label="Project for the merge agent">
-                  <SelectValue>{selectedProject?.title ?? "In project..."}</SelectValue>
+                  <SelectValue>
+                    {selectedProject?.title ?? "Run the agent in project..."}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
                   {projects.map((project) => (
@@ -535,16 +652,44 @@ function SyncPanel({
                   ))}
                 </SelectPopup>
               </Select>
+            ) : null}
+            {conflicts.length > 0 && comparison.thereBundle ? (
               <Button
                 size="sm"
-                variant="outline"
-                disabled={busy || !selectedProject || !canMerge}
-                onClick={() => void merge(comparison, comparison.thereBundle!)}
+                disabled={busy || !canMerge || (!noProject && !selectedProject)}
+                onClick={() => void resolveWithAgent(comparison, comparison.thereBundle!)}
               >
-                <CombineIcon />
-                Merge with agent
+                <SparklesIcon />
+                Resolve with an agent
               </Button>
-            </div>
+            ) : null}
+          </div>
+          {both && comparison.relation !== "identical" ? (
+            <details className="border-t border-border/40 pt-3">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                Or overwrite one machine instead
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive-outline"
+                  disabled={busy || !canImportHere}
+                  onClick={() => void overwrite(comparison, there, here, comparison.thereBundle!)}
+                >
+                  <ArrowRightIcon />
+                  Replace {here.label} with {there.label}&apos;s copy
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive-outline"
+                  disabled={busy || !canImportThere}
+                  onClick={() => void overwrite(comparison, here, there, comparison.hereBundle!)}
+                >
+                  <ArrowLeftIcon />
+                  Replace {there.label} with {here.label}&apos;s copy
+                </Button>
+              </div>
+            </details>
           ) : null}
         </div>
       ) : null}
@@ -558,10 +703,7 @@ function SyncPanel({
             environmentId={here.environmentId}
             mergeId={state.mergeId}
             threadId={state.threadId}
-            onApplied={() => {
-              setState({ phase: "done", message: `Merged on ${here.label}.` });
-              hereList.refresh();
-            }}
+            onApplied={() => void mergeBoth(null)}
           />
         </div>
       ) : null}
@@ -572,20 +714,27 @@ function SyncPanel({
   );
 }
 
-function relationAdvice(relation: AnimaSyncRelation, here: string, there: string): string {
+function relationAdvice(
+  relation: AnimaSyncRelation,
+  conflicts: number,
+  here: string,
+  there: string,
+): string {
+  if (conflicts > 0)
+    return "Both machines changed the items below since they last synced; everything else merges on its own. An agent asks you about each one, then the result goes to both machines.";
   switch (relation) {
     case "missing":
-      return `Only one machine has this anima. Copy it across.`;
+      return "Only one machine has this anima. Copy it across.";
     case "identical":
       return "Both machines hold the same anima.";
     case "incoming-ahead":
-      return `${there} has every breath ${here} has, plus more. Fast-forward ${here} to catch up.`;
+      return `${there} has every breath ${here} has, plus more. Merging brings ${here} up to date and keeps anything ${here} changed.`;
     case "local-ahead":
-      return `${here} has every breath ${there} has, plus more. Fast-forward ${there} to catch up.`;
+      return `${here} has every breath ${there} has, plus more. Merging brings ${there} up to date and keeps anything ${there} changed.`;
     case "diverged":
-      return `Both machines breathed since the last shared breath. Pick the side that wins, or let an agent merge them. Replacing keeps a backup of the side that loses.`;
+      return "Both machines did their own work since the last shared breath. Merging keeps every breath from both, ordered by time, and combines the rest.";
     case "unrelated":
-      return `These are different animas that share a name. Replacing one keeps a backup of it.`;
+      return "These are different animas that share a name. They cannot merge; overwrite one if you mean to.";
   }
 }
 

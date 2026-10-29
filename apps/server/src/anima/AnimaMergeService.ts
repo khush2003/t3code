@@ -4,7 +4,8 @@ import {
   AnimaName,
   AnimaNotFoundError,
   type AnimaBundle,
-  type AnimaBundleFile,
+  AnimaBundleFile,
+  type AnimaMergeConflict,
   AnimaMergeApplyInput,
   type AnimaMergeStartInput,
   type AnimaMergeStartResult,
@@ -26,9 +27,16 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as AnimaFiles from "./AnimaFiles.ts";
+import * as AnimaMerge from "./AnimaMerge.ts";
 import * as AnimaService from "./AnimaService.ts";
 
 const MERGE_DIR = ".merge";
@@ -51,6 +59,11 @@ const MergeMeta = Schema.Struct({
 });
 type MergeMeta = typeof MergeMeta.Type;
 const MergeMetaJson = Schema.fromJsonString(MergeMeta);
+/** The other machine's files at merge start: after applying, the base for the next sync. */
+const INCOMING_FILE = "incoming.json";
+const IncomingJson = Schema.fromJsonString(Schema.Array(AnimaBundleFile));
+const encodeIncoming = Schema.encodeEffect(IncomingJson);
+const decodeIncoming = Schema.decodeUnknownEffect(IncomingJson);
 const encodeMergeMeta = Schema.encodeEffect(MergeMetaJson);
 
 export class AnimaMergeService extends Context.Service<
@@ -68,84 +81,81 @@ export class AnimaMergeService extends Context.Service<
   }
 >()("t3/anima/AnimaMergeService") {}
 
+function describeConflict(conflict: AnimaMergeConflict, index: number): string {
+  const where =
+    conflict.key === null ? conflict.path : `\`# ${conflict.key}:\` in ${conflict.path}`;
+  const clip = (text: string) => (text.length > 1200 ? `${text.slice(0, 1200)}\n[...]` : text);
+  return `### ${index + 1}. ${where}
+
+This machine (local):
+\`\`\`
+${clip(conflict.local)}
+\`\`\`
+
+The other machine (incoming):
+\`\`\`
+${clip(conflict.incoming)}
+\`\`\``;
+}
+
 function renderMergeInstructions(input: {
   readonly name: string;
   readonly mergeId: string;
   readonly stagingPath: string;
-  readonly relation: string;
-  readonly commonBreath: number;
   readonly localOnlyBreaths: number;
   readonly incomingOnlyBreaths: number;
-  readonly changedFiles: ReadonlyArray<string>;
+  readonly conflicts: ReadonlyArray<AnimaMergeConflict>;
 }): string {
-  const changed =
-    input.changedFiles.length === 0
-      ? "(none)"
-      : input.changedFiles
-          .slice(0, 60)
-          .map((file) => `- ${file}`)
-          .join("\n");
+  const conflicts =
+    input.conflicts.length === 0
+      ? "None. Check the draft reads coherently, then finish."
+      : input.conflicts.map(describeConflict).join("\n\n");
   return `# Merge anima '${input.name}' (${input.mergeId})
 
-Two copies of the anima \`${input.name}\` have diverged: one on this machine (\`local/\`) and one
-imported from another machine (\`incoming/\`). Produce one merged anima in \`merged/\`.
+Two copies of the anima \`${input.name}\` drifted apart: one on this machine (\`local/\`) and one
+from another machine (\`incoming/\`). Both did real work, so the result keeps both.
 
 Staging directory: \`${input.stagingPath}\`
 
 \`\`\`
 local/     current files on this machine (read only)
 incoming/  files from the other machine (read only)
-merged/    your output; starts empty
+merged/    a draft that already combines everything a rule could decide
 \`\`\`
 
-Relation: ${input.relation}. Last shared breath: ${input.commonBreath < 0 ? "none" : input.commonBreath}.
-Local-only breaths: ${input.localOnlyBreaths}. Incoming-only breaths: ${input.incomingOnlyBreaths}.
+## What the draft already did
 
-Files that differ:
-${changed}
+- **Breaths.** Every breath from both sides is kept (${input.localOnlyBreaths} only here,
+  ${input.incomingOnlyBreaths} only there). Breaths after the last shared one are ordered by time
+  and renumbered, with \`agent.anima\` rows, \`# breath:\` and \`parent:\` rewritten to match. Do not
+  renumber, drop or rewrite breaths, and keep every \`hash:\` as it is.
+- **State the CLI rewrites each breath** (memo, aim, arc, ka, hue) comes from the side with the
+  latest breath. Traits (\`self\`, \`skills\`, \`user\`) keep the more certain estimate (lower sigma).
+  Lists (\`projects\`, \`kin\`, \`team\`, \`tension\`) are combined. \`breaths:\` is recomputed.
+- **policy.md** keeps rules added on either side and drops rules either side removed.
+- Anything only one side changed since the two last synced takes that side's version.
 
-## File semantics
+## Conflicts to resolve with the user
 
-- \`agent.anima\`: header lines \`# key: value\` followed by one row per breath
-  (\`n|ts|hsl|note|shape|graph|aim|project\`). The first header line after \`# anima v1\` is
-  \`# id:<id> name:<name> born:<date> breaths:<N> accent:<color>\`. Keep \`id\`, \`name\`, \`born\` and
-  \`accent\` from local. \`breaths:\` is the index of the last breath, so recompute it.
-- \`breaths/NNN.breath\`: one file per breath, with \`# breath:N ts:... parent:N-1 hash:...\`,
-  \`# files:\`, \`# decisions:\` (space separated) and \`# open:\` lines.
-- \`identity.md\`: the anima's voice and values. \`policy.md\`: \`## Operational\` rules (one per line),
-  \`## Pending\`, and a \`## Audit\` log of \`rev|date|who|text\`.
-- \`constitution.json\` and \`skills/**/*.md\` are optional.
+Each item below was changed differently on both machines. The draft currently holds the version
+from the machine with the latest breath; that is a placeholder, not a decision.
 
-## How to merge
+${conflicts}
 
-1. **Breaths.** Both lineages share breaths up to the common breath. Keep those as they are.
-   Union the breaths after it (local-only and incoming-only) ordered by timestamp, and renumber
-   them consecutively from the common breath + 1. Keep every lineage's \`decisions\` and \`open\`
-   items. Rewrite each breath file's \`# breath:\` and \`parent:\` to the new numbers (the \`hash:\`
-   may be kept) and renumber the matching rows in \`agent.anima\`. Do not drop breaths.
-2. **identity.md.** Synthesise one document that preserves what is distinctive in both. Do not
-   concatenate; resolve contradictions in favour of the more recent breath.
-3. **policy.md.** Union the operational rules and drop exact or near-duplicates. Keep at most 40
-   operational rules (the CLI cap); move the surplus to \`## Pending\`. Merge the audit logs,
-   bump \`# rev:\` above both sides, and add an audit line saying the policies were merged.
-4. **Traits.** \`# self:\` and \`# skills:\` are \`trait=mean±sigma\` estimates. For each trait present
-   on both sides keep the estimate with the lower sigma (higher precision); on a tie keep the one
-   from the longer history. Traits on one side only are kept as they are.
-5. **Other header lines.** Take memo, vow and aim from the side with the most recent breath.
-   Union list-like values (\`projects\`, \`kin\`, \`tension\`) without duplicates.
-6. **Header.** Recompute \`breaths:\` so it equals the last breath index, and make sure the last
-   row in \`agent.anima\` has that same index.
-7. Copy any other file (constitution, skills) from whichever side has it; prefer the newer one.
+For each conflict, ask the user how to resolve it with your question tool (AskUserQuestion, or
+request_user_input). Offer: keep this machine's version, keep the other machine's, or a combined
+version you write that keeps what is distinctive in both (show it). Ask about related conflicts
+together when that is clearer, but never settle a contradiction without the user. Then write
+their decision into \`merged/\`. For \`identity.md\`, synthesise rather than concatenate.
 
 ## Finishing
 
-- \`merged/\` must be a complete anima tree on its own: \`agent.anima\`, \`identity.md\`,
-  \`policy.md\` and every \`breaths/NNN.breath\`.
-- Only write inside \`${input.stagingPath}/merged\`. Never touch the live anima, \`local/\` or \`incoming/\`.
-- When the tree is complete, write an empty file \`merged/DONE\`. If the merge is impossible, write
-  \`merged/FAILED\` with the reason instead.
-- Reply with a short summary of how you resolved the conflicts. A person reviews it and applies the
-  merge; the live files are backed up first.
+- Only edit inside \`${input.stagingPath}/merged\`. Never touch the live anima, \`local/\` or
+  \`incoming/\`. \`merged/\` must stay a complete anima tree.
+- When every conflict is resolved, write an empty file \`merged/DONE\`. If the merge is impossible,
+  write \`merged/FAILED\` with the reason instead.
+- Reply with a short summary of each decision. The user applies the result from the anima's Sync
+  tab; the live files are backed up first, and the other machine catches up on its next sync.
 `;
 }
 
@@ -155,6 +165,9 @@ const make = Effect.gen(function* () {
   const animas = yield* AnimaService.AnimaService;
   const launches = yield* ThreadLaunchService.ThreadLaunchService;
   const projects = yield* ProjectStore.ProjectStoreV2;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
 
   const failed = (operation: string) => (cause: unknown) => new AnimaError({ operation, cause });
   const rejected = (operation: string, reason: string) =>
@@ -209,16 +222,38 @@ const make = Effect.gen(function* () {
       ).id;
       if (incomingId !== local.id)
         return yield* rejected("mergeStart", "The bundle is a different anima with the same name.");
-      const project = yield* projects
-        .get(input.projectId)
-        .pipe(Effect.mapError(failed("mergeStart")));
+      const projectId =
+        input.projectId ??
+        (yield* managedFolders.ensureScratchProject.pipe(
+          Effect.mapError((error) => rejected("mergeStart", error.message)),
+        )).projectId;
+      const project = yield* projects.get(projectId).pipe(Effect.mapError(failed("mergeStart")));
       if (Option.isNone(project))
         return yield* rejected("mergeStart", "The project was not found.");
-      const modelSelection = project.value.defaultModelSelection;
+      const settings = resolveProjectSettings(
+        yield* serverSettings.getSettings.pipe(Effect.mapError(failed("mergeStart"))),
+        projectId,
+        project.value,
+      ).settings;
+      const modelSelection =
+        project.value.defaultModelSelection ??
+        resolveNewThreadModelSelection({
+          defaultSelection: settings.defaultModelSelection,
+          fallbackSelection: settings.fallbackModelSelection,
+          providers: yield* providerRegistry.getProviders,
+          settings,
+          projectId,
+          now: yield* Clock.currentTimeMillis,
+        }).selection;
       if (modelSelection === null)
-        return yield* rejected("mergeStart", "The project has no default model to run the merge.");
+        return yield* rejected("mergeStart", "No model is set up to run the merge.");
 
       const comparison = yield* animas.compare(bundle);
+      const draft = AnimaMerge.mergeAnimaFiles({
+        local: local.files,
+        incoming: bundle.files,
+        base: yield* animas.syncBase(bundle.name),
+      });
       const nowMs = yield* Clock.currentTimeMillis;
       const slug = DateTime.formatIso(DateTime.makeUnsafe(nowMs))
         .replace(/[-:]/g, "")
@@ -229,25 +264,27 @@ const make = Effect.gen(function* () {
         mergeId,
         name: bundle.name,
         animaId: local.id,
-        projectId: input.projectId,
+        projectId,
         threadId: ThreadId.make(`anima-merge:${mergeId}`),
         createdAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs)),
       };
       yield* Effect.gen(function* () {
         yield* writeFiles(path.join(staging, "local"), local.files);
         yield* writeFiles(path.join(staging, "incoming"), bundle.files);
-        yield* fs.makeDirectory(path.join(staging, "merged"), { recursive: true });
+        yield* fs.writeFileString(
+          path.join(staging, INCOMING_FILE),
+          yield* encodeIncoming(bundle.files),
+        );
+        yield* writeFiles(path.join(staging, "merged"), draft.files);
         yield* fs.writeFileString(
           path.join(staging, INSTRUCTIONS_FILE),
           renderMergeInstructions({
             name: bundle.name,
             mergeId,
             stagingPath: staging,
-            relation: comparison.relation,
-            commonBreath: comparison.commonBreath,
             localOnlyBreaths: comparison.localOnlyBreaths,
             incomingOnlyBreaths: comparison.incomingOnlyBreaths,
-            changedFiles: comparison.changedFiles,
+            conflicts: draft.conflicts,
           }),
         );
         yield* fs.writeFileString(path.join(staging, META_FILE), yield* encodeMergeMeta(meta));
@@ -258,7 +295,7 @@ const make = Effect.gen(function* () {
         .launch({
           commandId,
           threadId: meta.threadId,
-          projectId: input.projectId,
+          projectId,
           title: `Merge anima ${bundle.name}`,
           modelSelection,
           // The agent writes under ~/.claude/anima, outside the project workspace.
@@ -267,13 +304,22 @@ const make = Effect.gen(function* () {
           workspaceStrategy: { type: "root" },
           initialMessage: {
             messageId: MessageId.make(`anima-merge-message:${mergeId}`),
-            text: `Merge the anima '${bundle.name}'. Read ${path.join(staging, INSTRUCTIONS_FILE)} and follow it exactly; write the result to ${path.join(staging, "merged")} and finish by creating merged/DONE.`,
+            text: `Merge the anima '${bundle.name}'. Read ${path.join(staging, INSTRUCTIONS_FILE)} and follow it exactly: resolve each conflict with me through your question tool, write the result to ${path.join(staging, "merged")}, and finish by creating merged/DONE.`,
             attachments: [],
           },
           createdBy: "system",
           creationSource: "server",
         })
-        .pipe(Effect.mapError(failed("mergeStart")));
+        .pipe(
+          Effect.mapError((error) => {
+            const cause =
+              "cause" in error && error.cause instanceof Error ? error.cause.message : "";
+            return rejected(
+              "mergeStart",
+              `Could not start the merge thread: ${cause || error.message}`,
+            );
+          }),
+        );
       return { mergeId, threadId: meta.threadId, stagingPath: staging };
     },
   );
@@ -342,6 +388,13 @@ const make = Effect.gen(function* () {
       const meta = yield* readMeta(dir);
       const files = yield* readMerged(path.join(dir, "merged"));
       const result = yield* animas.install({ name: meta.name, files, expectedId: meta.animaId });
+      // The merge already holds every change the other machine had at its start, so that copy is
+      // the base: a later sync then reads the decisions here as this machine's changes.
+      const incoming = yield* fs.readFileString(path.join(dir, INCOMING_FILE)).pipe(
+        Effect.flatMap(decodeIncoming),
+        Effect.orElseSucceed(() => files),
+      );
+      yield* animas.recordSyncBase(meta.name, incoming);
       const nowMs = yield* Clock.currentTimeMillis;
       yield* fs
         .writeFileString(

@@ -1,6 +1,7 @@
 import type {
   AnimaBundle,
   AnimaCompareResult,
+  AnimaMergeConflict,
   AnimaMergeStartResult,
   AnimaMutationResult,
   AnimaName,
@@ -9,14 +10,6 @@ import type {
   EnvironmentId,
   ProjectId,
 } from "@t3tools/contracts";
-
-/** The same comparison seen from the other side. */
-export function invertAnimaRelation(relation: AnimaSyncRelation): AnimaSyncRelation {
-  if (relation === "incoming-ahead") return "local-ahead";
-  if (relation === "local-ahead") return "incoming-ahead";
-  // `missing` flips to "the other side has nothing to compare"; callers treat that as absent.
-  return relation;
-}
 
 export type AnimaQuickState = "only-here" | "only-there" | "identical" | "different" | "unrelated";
 
@@ -30,6 +23,55 @@ export function quickAnimaState(
   if (here === null) return "only-there";
   if (here.id !== there.id) return "unrelated";
   return here.digest === there.digest ? "identical" : "different";
+}
+
+export type AnimaPairSyncResult =
+  | { readonly status: "in-sync" }
+  | { readonly status: "synced" }
+  | { readonly status: "conflicts"; readonly conflicts: ReadonlyArray<AnimaMergeConflict> }
+  | { readonly status: "unrelated" };
+
+/**
+ * Brings both machines to one merged anima: the first merges the second's copy in, then the second
+ * takes the result. Never overwrites a side; stops at conflicts a person must decide. `present`
+ * says which side has the anima, from the list both clients already read.
+ */
+export async function syncAnimaPair(
+  input: {
+    readonly name: AnimaName;
+    readonly first: EnvironmentId;
+    readonly second: EnvironmentId;
+    readonly present: { readonly first: boolean; readonly second: boolean };
+  },
+  ports: AnimaSyncPorts,
+): Promise<AnimaPairSyncResult> {
+  const { name, first, second, present } = input;
+  if (!present.first && !present.second) return { status: "in-sync" };
+  if (!present.first || !present.second) {
+    const [from, to] = present.first ? [first, second] : [second, first];
+    await ports.importBundle(to, { bundle: await ports.exportBundle(from, name), mode: "create" });
+    return { status: "synced" };
+  }
+  const [firstBundle, secondBundle] = await Promise.all([
+    ports.exportBundle(first, name),
+    ports.exportBundle(second, name),
+  ]);
+  const compare = await ports.compare(first, secondBundle);
+  if (compare.relation === "unrelated") return { status: "unrelated" };
+  if (compare.conflicts && compare.conflicts.length > 0)
+    return { status: "conflicts", conflicts: compare.conflicts };
+  // Identical copies still record the shared state, the base for the next three-way merge.
+  await ports.importBundle(first, { bundle: secondBundle, mode: "merge" });
+  const merged =
+    firstBundle.digest === secondBundle.digest
+      ? firstBundle
+      : await ports.exportBundle(first, name);
+  // The merge already holds everything the second machine had, so it only has to catch up.
+  await ports.importBundle(second, {
+    bundle: merged,
+    mode: merged.digest === secondBundle.digest ? "merge" : "fast-forward",
+  });
+  return { status: compare.relation === "identical" ? "in-sync" : "synced" };
 }
 
 export function animaSyncRelationLabel(relation: AnimaSyncRelation): string {
@@ -58,40 +100,15 @@ export interface AnimaSyncPorts {
   ) => Promise<AnimaCompareResult>;
   readonly importBundle: (
     environmentId: EnvironmentId,
-    input: { readonly bundle: AnimaBundle; readonly mode: "create" | "replace" | "fast-forward" },
+    input: {
+      readonly bundle: AnimaBundle;
+      readonly mode: "create" | "replace" | "fast-forward" | "merge";
+    },
   ) => Promise<AnimaMutationResult>;
   readonly mergeStart: (
     environmentId: EnvironmentId,
-    input: { readonly bundle: AnimaBundle; readonly projectId: ProjectId },
+    input: { readonly bundle: AnimaBundle; readonly projectId?: ProjectId },
   ) => Promise<AnimaMergeStartResult>;
-}
-
-export interface AnimaSyncRequest {
-  readonly fromEnvironmentId: EnvironmentId;
-  readonly toEnvironmentId: EnvironmentId;
-  readonly name: AnimaName;
-}
-
-export type AnimaSyncResolution =
-  | { readonly kind: "replaced"; readonly output: string }
-  | ({ readonly kind: "merging" } & AnimaMergeStartResult);
-
-/** Resolves a `needs-choice` outcome. Replacing is destructive on the destination (the server keeps a backup). */
-export async function resolveAnimaSync(
-  choice: { readonly kind: "replace" } | { readonly kind: "merge"; readonly projectId: ProjectId },
-  request: Pick<AnimaSyncRequest, "toEnvironmentId">,
-  bundle: AnimaBundle,
-  ports: AnimaSyncPorts,
-): Promise<AnimaSyncResolution> {
-  if (choice.kind === "replace") {
-    const result = await ports.importBundle(request.toEnvironmentId, { bundle, mode: "replace" });
-    return { kind: "replaced", output: result.output };
-  }
-  const started = await ports.mergeStart(request.toEnvironmentId, {
-    bundle,
-    projectId: choice.projectId,
-  });
-  return { kind: "merging", ...started };
 }
 
 export interface AnimaBreathRow {
@@ -332,22 +349,4 @@ export function diffAnimaBundles(
     header,
     files,
   };
-}
-
-/** How to make the destination match the source, given the destination's comparison. */
-export function animaTakeMode(
-  relation: AnimaSyncRelation,
-): "create" | "fast-forward" | "replace" | null {
-  switch (relation) {
-    case "missing":
-      return "create";
-    case "incoming-ahead":
-      return "fast-forward";
-    case "identical":
-      return null;
-    case "local-ahead":
-    case "diverged":
-    case "unrelated":
-      return "replace";
-  }
 }
