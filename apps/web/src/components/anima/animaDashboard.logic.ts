@@ -36,6 +36,25 @@ export function pulseBuckets<T extends { readonly at: string | null }>(
   return buckets;
 }
 
+export const PULSE_WINDOW_HOURS = 48;
+export const PULSE_TICK_HOURS = [48, 24, 12, 6, 0] as const;
+
+/** The original 48-hour pulse: entries active in the window, with x running from 48h ago (0) to now (1). */
+export function recentPulse<T extends { readonly at: string | null }>(
+  entries: ReadonlyArray<T>,
+  now: number,
+): Array<{ readonly entry: T; readonly x: number; readonly hoursAgo: number }> {
+  return entries
+    .flatMap((entry) => {
+      const at = entry.at === null ? Number.NaN : Date.parse(entry.at);
+      const hoursAgo = (now - at) / HOUR;
+      if (!Number.isFinite(hoursAgo) || hoursAgo > PULSE_WINDOW_HOURS) return [];
+      const clamped = Math.max(0, hoursAgo);
+      return [{ entry, x: 1 - clamped / PULSE_WINDOW_HOURS, hoursAgo: clamped }];
+    })
+    .toSorted((a, b) => a.hoursAgo - b.hoursAgo);
+}
+
 export interface BoardTension {
   readonly anima: string;
   readonly slug: string;
