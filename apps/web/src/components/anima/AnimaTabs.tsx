@@ -6,7 +6,7 @@ import { useState, type ReactNode } from "react";
 import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
-import { animaEnvironment } from "../../state/anima";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
 import { useProjects, useThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
@@ -25,6 +25,17 @@ import {
 } from "./AnimaBits";
 import { AnimaTeamSection } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
+import {
+  ArcCard,
+  BondsCard,
+  hasArc,
+  hasBonds,
+  hasVoice,
+  MindCard,
+  PERSONA_HEADER_KEYS,
+  SoulCard,
+  VoiceCard,
+} from "./AnimaPersona";
 import { AnimaBodyPanel, TraitRadar } from "./AnimaVisuals";
 
 interface TabProps {
@@ -68,28 +79,59 @@ export function OverviewTab({
     successTitle: "Project attached",
   });
   const selected = projects.find((project) => project.id === projectId);
+  const knownAnimas = new Set(useAnimaList(environmentId).animas.map((anima) => anima.name));
+  const arc = hasArc(detail);
+  const bonds = hasBonds(detail);
+  const otherHeader = detail.header.filter((entry) => !PERSONA_HEADER_KEYS.has(entry.key));
   return (
     <div className="grid gap-4 @3xl/anima:grid-cols-3">
       <BentoCard className="@3xl/anima:col-span-2">
         <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
       </BentoCard>
-      <BentoCard title="Body" hint="Breadth, depth and coupling of every breath">
-        <AnimaBodyPanel breaths={detail.breaths} accent={summary.accent} />
-      </BentoCard>
-      {summary.voice ? (
+      <div className="grid min-w-0 content-start gap-4">
+        <BentoCard title="Soul" hint="Hue is the work domain, saturation focus, lightness vitality">
+          <SoulCard detail={detail} />
+        </BentoCard>
         <BentoCard
-          title="Voice"
-          className={summary.memo ? "@3xl/anima:col-span-2" : "@3xl/anima:col-span-3"}
+          title="Mind"
+          hint={
+            summary.tensions?.length
+              ? "Tensions held open, with breaths since they began"
+              : undefined
+          }
         >
-          <p className="text-base leading-relaxed text-foreground/90">{summary.voice}</p>
+          <MindCard detail={detail} />
+        </BentoCard>
+      </div>
+      {hasVoice(detail) ? (
+        <BentoCard title="Voice" className="@3xl/anima:col-span-2">
+          <VoiceCard detail={detail} />
         </BentoCard>
       ) : null}
-      {summary.memo ? (
-        <BentoCard title="Memo" className={summary.voice ? "" : "@3xl/anima:col-span-3"}>
-          <p className="line-clamp-6 break-words whitespace-pre-wrap text-sm text-foreground/85">
-            {summary.memo}
-          </p>
-        </BentoCard>
+      <BentoCard
+        title="Body"
+        hint="Breadth, depth and coupling of every breath"
+        className={hasVoice(detail) ? "" : "@3xl/anima:col-span-3"}
+      >
+        <AnimaBodyPanel breaths={detail.breaths} accent={summary.accent} />
+      </BentoCard>
+      {arc || bonds ? (
+        <>
+          {arc ? (
+            <BentoCard
+              title="Arc"
+              hint="How it has changed, in its own words"
+              className={bonds ? "@3xl/anima:col-span-2" : "@3xl/anima:col-span-3"}
+            >
+              <ArcCard detail={detail} />
+            </BentoCard>
+          ) : null}
+          {bonds ? (
+            <BentoCard title="Bonds" className={arc ? "" : "@3xl/anima:col-span-3"}>
+              <BondsCard detail={detail} knownAnimas={knownAnimas} onOpenAnima={onOpenAnima} />
+            </BentoCard>
+          ) : null}
+        </>
       ) : null}
       <BentoCard title="Traits">
         <TraitRadar traits={detail.traits} />
@@ -152,10 +194,10 @@ export function OverviewTab({
         </Button>
         {showWake ? <WakePreview environmentId={environmentId} name={summary.name} /> : null}
       </BentoCard>
-      {detail.header.length > 0 ? (
+      {otherHeader.length > 0 ? (
         <BentoCard title="Header">
           <dl className="grid grid-cols-[minmax(0,6rem)_1fr] gap-x-3 gap-y-1 text-xs">
-            {detail.header.map((entry) => (
+            {otherHeader.map((entry) => (
               <div key={entry.key} className="contents">
                 <dt className="truncate text-muted-foreground">{entry.key}</dt>
                 <dd className="line-clamp-3 min-w-0 break-words">{entry.value}</dd>
@@ -175,7 +217,7 @@ function BentoCard({
   children,
 }: {
   readonly title?: string;
-  readonly hint?: string;
+  readonly hint?: string | undefined;
   readonly className?: string;
   readonly children: ReactNode;
 }) {

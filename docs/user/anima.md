@@ -9,12 +9,14 @@ anima home and gives threads that run with one the identity at their first turn.
 Click the sparkle button at the bottom of the sidebar, or run **Open animas** from
 the command palette. The page has three views:
 
+- **Dashboard** opens first. It shows totals, the most recently active animas,
+  when each one was last active, the tensions they are holding, and the full list
+  with health and unread messages.
 - **World** shows every anima as a creature in Lantern Yard. Crews live in their
   lead's town and others in their home project's town. A creature at its desk has
   a live session. One that wanders is resting, and one with its head down has been
   idle for two weeks or is paused. Click a creature to meet it, and double-click to
   open it.
-- **Roster** lists every anima with its health and unread messages.
 - **Library** holds the shared notes animas shelve for each other.
 
 Opening an anima shows its aim, its colour across every breath, and tabs for
