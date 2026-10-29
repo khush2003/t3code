@@ -101,6 +101,28 @@ function usePortraits(
   return portraits?.key === key ? portraits.urls : null;
 }
 
+/** The anima's creature as a still portrait, for lists. */
+export function CreatureAvatar({
+  anima,
+  size = 40,
+}: {
+  readonly anima: AnimaSummary;
+  readonly size?: number;
+}) {
+  const now = Date.parse(useNowMinute());
+  const urls = usePortraits([{ formIndex: formIndex(anima), look: creatureLook(anima, now) }]);
+  return (
+    <span
+      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 ring-1 ring-white/15"
+      style={{ width: size, height: size }}
+    >
+      {urls?.[0] ? (
+        <img src={urls[0]} alt="" className="size-full scale-125 object-cover object-top" />
+      ) : null}
+    </span>
+  );
+}
+
 /** The anima's Lantern Yard creature; owners can pick a different form, saved through `anima clinic`. */
 export function CreaturePortrait({
   environmentId,
