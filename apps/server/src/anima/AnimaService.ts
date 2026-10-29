@@ -11,7 +11,7 @@ import {
   type AnimaClinicInput,
   type AnimaRecordInput,
   type AnimaBundle,
-  type AnimaBundleFile,
+  AnimaBundleFile,
   type AnimaCompareResult,
   type AnimaCreateInput,
   type AnimaDetail,
@@ -46,6 +46,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AnimaFiles from "./AnimaFiles.ts";
+import * as AnimaMerge from "./AnimaMerge.ts";
 
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
@@ -62,6 +63,10 @@ const CLI_TIMEOUT = "60 seconds";
 const SUMMARY_CONCURRENCY = 8;
 /** Files the CLI keeps across a replace: they describe the live session, not the identity. */
 const PRESERVED_ON_REPLACE = ["session", "inbox"] as const;
+/** Backups kept per anima; staying synced installs often, so older ones are pruned. */
+const BACKUPS_KEPT = 5;
+const SyncBaseJson = Schema.fromJsonString(Schema.Array(AnimaBundleFile));
+const encodeSyncBase = Schema.encodeEffect(SyncBaseJson);
 /** Header keys that already have a dedicated field in AnimaDetail. */
 const DEDICATED_HEADER_KEYS = new Set([
   "id",
@@ -183,6 +188,12 @@ export class AnimaService extends Context.Service<
     readonly install: (
       input: AnimaInstallInput,
     ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    /** The files as they were when this anima last synced with another machine; the merge base. */
+    readonly syncBase: (name: string) => Effect.Effect<ReadonlyArray<AnimaBundleFile> | null>;
+    readonly recordSyncBase: (
+      name: string,
+      files: ReadonlyArray<AnimaBundleFile>,
+    ) => Effect.Effect<void>;
   }
 >()("t3/anima/AnimaService") {}
 
@@ -1163,6 +1174,29 @@ const make = Effect.gen(function* () {
       Effect.catchTags({ AnimaNotFoundError: () => Effect.succeedNone }),
     );
 
+  const syncBasePath = (name: string) => path.join(root, ".sync", `${name}.json`);
+  const syncBase: AnimaService["Service"]["syncBase"] = (name) =>
+    fs.readFileString(syncBasePath(name)).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(SyncBaseJson)),
+      Effect.orElseSucceed(() => null),
+    );
+  const recordSyncBase: AnimaService["Service"]["recordSyncBase"] = Effect.fn(
+    "AnimaService.recordSyncBase",
+  )(
+    function* (name, files) {
+      yield* fs.makeDirectory(path.join(root, ".sync"), { recursive: true });
+      const json = yield* encodeSyncBase(files);
+      yield* fs.writeFileString(syncBasePath(name), json);
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.tapError((cause) =>
+          Effect.logWarning("Could not record the anima sync base", cause),
+        ),
+        Effect.ignore,
+      ),
+  );
+
   const compare: AnimaService["Service"]["compare"] = Effect.fn("AnimaService.compare")(
     function* (bundle) {
       yield* assertBundleSafe("compare", bundle);
@@ -1171,10 +1205,18 @@ const make = Effect.gen(function* () {
       // Recomputed rather than trusted: the digest and chain on the wire are advisory.
       const incoming = comparable(idOf(bundle.files), bundle.files);
       const result = AnimaFiles.compareAnimas(Option.getOrNull(local), incoming);
+      const conflicts =
+        Option.isSome(local) && result.relation !== "identical" && result.relation !== "unrelated"
+          ? AnimaMerge.mergeAnimaFiles({
+              local: local.value.files,
+              incoming: bundle.files,
+              base: yield* syncBase(bundle.name),
+            }).conflicts
+          : [];
       const localSummary = Option.isSome(local)
         ? yield* summary(bundle.name).pipe(Effect.asSome)
         : Option.none<AnimaSummary>();
-      return { ...result, local: Option.getOrNull(localSummary) };
+      return { ...result, conflicts, local: Option.getOrNull(localSummary) };
     },
   );
 
@@ -1214,6 +1256,14 @@ const make = Effect.gen(function* () {
         yield* fs.makeDirectory(backups, { recursive: true });
         yield* fs.rename(dir, path.join(backups, `${input.name}-${slug}`));
         yield* fs.rename(staging, dir);
+        const ownBackup = new RegExp(`^${input.name}-\\d{8}T\\d{6}Z$`);
+        const stale = (yield* fs.readDirectory(backups))
+          .filter((entry) => ownBackup.test(entry))
+          .toSorted()
+          .slice(0, -BACKUPS_KEPT);
+        for (const entry of stale) {
+          yield* fs.remove(path.join(backups, entry), { recursive: true }).pipe(Effect.ignore);
+        }
       }).pipe(
         Effect.tapError(() =>
           fs.remove(staging, { recursive: true, force: true }).pipe(Effect.ignore),
@@ -1237,21 +1287,51 @@ const make = Effect.gen(function* () {
       const local = yield* localComparable(bundle.name);
       if (mode === "create" && Option.isSome(local))
         return yield* rejected("import", `Anima '${bundle.name}' already exists.`);
+      if (mode === "merge" && Option.isSome(local)) {
+        if (local.value.id !== idOf(bundle.files))
+          return yield* rejected("import", "The bundle is a different anima with the same name.");
+        const merged = AnimaMerge.mergeAnimaFiles({
+          local: local.value.files,
+          incoming: bundle.files,
+          base: yield* syncBase(bundle.name),
+        });
+        if (merged.conflicts.length > 0) {
+          const what = merged.conflicts.map((conflict) => conflict.key ?? conflict.path);
+          return yield* rejected("import", `Needs a decision: ${what.join(", ")}.`);
+        }
+        if (AnimaFiles.digestFiles(merged.files) === local.value.digest) {
+          yield* recordSyncBase(bundle.name, local.value.files);
+          return yield* mutationResult(bundle.name, "Already in sync.");
+        }
+        const result = yield* install({
+          name: bundle.name,
+          files: merged.files,
+          expectedId: local.value.id,
+        });
+        yield* recordSyncBase(bundle.name, merged.files);
+        return result;
+      }
       if (mode === "fast-forward") {
         if (Option.isNone(local))
           return yield* rejected("import", `Anima '${bundle.name}' does not exist.`);
-        const relation = AnimaFiles.relationBetween(
+        const { relation, localOnlyBreaths } = AnimaFiles.relationBetween(
           local.value,
           comparable(idOf(bundle.files), bundle.files),
-        ).relation;
-        if (relation !== "incoming-ahead")
+        );
+        // A merged result can hold no new breath, only decisions; it still loses nothing here.
+        if (relation !== "incoming-ahead" && !(relation === "diverged" && localOnlyBreaths === 0))
           return yield* rejected("import", "The incoming anima does not extend the local one.");
       }
-      return yield* install({
+      const result = yield* install({
         name: bundle.name,
         files: bundle.files,
-        expectedId: mode === "fast-forward" && Option.isSome(local) ? local.value.id : undefined,
+        expectedId:
+          (mode === "fast-forward" || mode === "merge") && Option.isSome(local)
+            ? local.value.id
+            : undefined,
       });
+      yield* recordSyncBase(bundle.name, bundle.files);
+      return result;
     },
   );
 
@@ -1280,6 +1360,8 @@ const make = Effect.gen(function* () {
     import: importBundle,
     summary,
     rootPath: Effect.succeed(root),
+    syncBase,
+    recordSyncBase,
     cliAvailable,
     cliInfo,
     breatheGuide,

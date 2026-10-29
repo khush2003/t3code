@@ -546,6 +546,17 @@ export const AnimaSyncRelation = Schema.Literals([
 ]);
 export type AnimaSyncRelation = typeof AnimaSyncRelation.Type;
 
+/** A field or file both machines changed in ways no rule combines; `draft` is the merge's guess. */
+export const AnimaMergeConflict = Schema.Struct({
+  path: Schema.String,
+  /** The `agent.anima` header key, or null for a whole file. */
+  key: Schema.NullOr(Schema.String),
+  local: Schema.String,
+  incoming: Schema.String,
+  draft: Schema.String,
+});
+export type AnimaMergeConflict = typeof AnimaMergeConflict.Type;
+
 export const AnimaCompareInput = Schema.Struct({ bundle: AnimaBundle });
 export const AnimaCompareResult = Schema.Struct({
   relation: AnimaSyncRelation,
@@ -555,19 +566,25 @@ export const AnimaCompareResult = Schema.Struct({
   localOnlyBreaths: NonNegativeInt,
   incomingOnlyBreaths: NonNegativeInt,
   changedFiles: Schema.Array(Schema.String),
+  /** What an automatic merge could not decide; absent from servers without merging. */
+  conflicts: Schema.optional(Schema.Array(AnimaMergeConflict)),
 });
 export type AnimaCompareResult = typeof AnimaCompareResult.Type;
 
 export const AnimaImportInput = Schema.Struct({
   bundle: AnimaBundle,
-  /** `create` fails if present; `replace` overwrites after taking a backup; `fast-forward` only when incoming is ahead. */
-  mode: Schema.Literals(["create", "replace", "fast-forward"]),
+  /**
+   * `create` fails if present; `replace` overwrites after taking a backup; `fast-forward` only when
+   * incoming is ahead; `merge` combines both sides and fails when a person must decide a conflict.
+   */
+  mode: Schema.Literals(["create", "replace", "fast-forward", "merge"]),
 });
 export type AnimaImportInput = typeof AnimaImportInput.Type;
 
 export const AnimaMergeStartInput = Schema.Struct({
   bundle: AnimaBundle,
-  projectId: ProjectId,
+  /** Defaults to the No Project (scratch) project. */
+  projectId: Schema.optional(ProjectId),
 });
 export type AnimaMergeStartInput = typeof AnimaMergeStartInput.Type;
 
