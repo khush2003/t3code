@@ -33,6 +33,7 @@ export const layer = Layer.mergeAll(
     prepare: () => Effect.succeed({ status: "failed" }),
     take: () => Effect.succeed({ status: "failed" }),
     refresh: () => Effect.succeed(""),
+    recall: () => Effect.succeed(""),
   }),
   Layer.mock(AnimaRuntime.AnimaRuntime)({
     attach: () => Effect.void,

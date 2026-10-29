@@ -897,7 +897,11 @@ export const layer: Layer.Layer<
         activeAnima === null
           ? { text: "", ack: Effect.void }
           : yield* animaRuntime.notices(projection.thread.id);
-      const wakeContext = [identityContext, runtimeNotices.text]
+      const recallContext =
+        activeAnima === null
+          ? ""
+          : yield* animaWake.recall({ name: activeAnima, message: userText });
+      const wakeContext = [identityContext, recallContext, runtimeNotices.text]
         .filter((part) => part !== "")
         .join("\n\n");
       const tokenCap = yield* handoffTokenCapConfig.pipe(
