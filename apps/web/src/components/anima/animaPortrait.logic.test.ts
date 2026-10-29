@@ -7,6 +7,7 @@ import {
   graphNodes,
   groupByDay,
   parseIdentity,
+  parsePolicyRule,
 } from "./animaPortrait.logic";
 
 describe("parseIdentity", () => {
@@ -123,5 +124,26 @@ describe("graphNodes", () => {
     ]);
     expect(graphNodes("6D")).toEqual([{ name: null, status: "done", count: 6 }]);
     expect(graphNodes(null)).toEqual([]);
+  });
+});
+
+describe("parsePolicyRule", () => {
+  it("reads WHEN/THEN, ALWAYS, NEVER and a trailing tag", () => {
+    expect(parsePolicyRule("WHEN tests fail THEN stop and read them [ci]")).toEqual({
+      kind: "when",
+      condition: "tests fail",
+      action: "stop and read them",
+      tag: "ci",
+    });
+    expect(parsePolicyRule("never push to main")).toEqual({
+      kind: "never",
+      action: "push to main",
+      tag: null,
+    });
+    expect(parsePolicyRule("Prefer small diffs")).toEqual({
+      kind: "plain",
+      action: "Prefer small diffs",
+      tag: null,
+    });
   });
 });

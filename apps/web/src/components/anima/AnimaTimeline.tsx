@@ -11,7 +11,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { breathNoteText, buildAnimaFeed } from "./anima.logic";
-import { RelativeTime, useAnimaMutation, useAnimaSoul } from "./AnimaBits";
+import { PageHeading, RelativeTime, TraitBars, useAnimaMutation, useAnimaSoul } from "./AnimaBits";
+import { parseUserModel } from "./animaDashboard.logic";
 import { groupByDay } from "./animaPortrait.logic";
 import { SoulOrb, animaSoulColors } from "./AnimaSoul";
 import { BreathNarrative, ThreadTitle } from "./AnimaTabs";
@@ -47,7 +48,10 @@ function SpineNode({
     <div className="relative flex justify-center">
       <span
         aria-hidden
-        className={cn("absolute top-0 w-px bg-border", last ? "h-4" : "bottom-0")}
+        className={cn(
+          "absolute top-0 w-0.5 rounded-full bg-foreground/10",
+          last ? "h-4" : "bottom-0",
+        )}
       />
       <span
         className="relative mt-1.5 grid size-3.5 place-items-center rounded-full ring-4 ring-background [&_svg]:size-2.5 [&_svg]:text-background"
@@ -71,7 +75,7 @@ function ShapeBars({ breath }: { readonly breath: AnimaBreath }) {
     <span className="inline-flex items-end gap-1">
       {entries.map(([label, value]) => (
         <span key={label} className="flex flex-col items-center gap-0.5">
-          <span className="relative h-4 w-1.5 overflow-hidden rounded-full bg-muted">
+          <span className="relative h-5 w-1.5 overflow-hidden rounded-full bg-muted">
             <span
               className="absolute inset-x-0 bottom-0 rounded-full"
               style={{
@@ -97,7 +101,7 @@ function BreathEntry({
 }) {
   const colors = animaSoulColors({ hsl: breath.hsl, accent: null });
   const note = parseBreathNote(breath.note);
-  const text = breathNoteText(breath.note);
+  const text = note ? null : breathNoteText(breath.note);
   const [showFiles, setShowFiles] = useState(false);
   return (
     <li
@@ -159,7 +163,7 @@ function DayHeading({ label, count }: { readonly label: string; readonly count: 
   return (
     <li className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3">
       <div className="relative flex justify-center">
-        <span aria-hidden className="absolute inset-y-0 w-px bg-border" />
+        <span aria-hidden className="absolute inset-y-0 w-0.5 rounded-full bg-foreground/10" />
       </div>
       <h3 className="pt-1 pb-4 text-xs font-semibold tracking-widest text-muted-foreground uppercase">
         {label}
@@ -170,34 +174,6 @@ function DayHeading({ label, count }: { readonly label: string; readonly count: 
     </li>
   );
 }
-
-function PageHeading({
-  eyebrow,
-  title,
-  children,
-}: {
-  readonly eyebrow: string;
-  readonly title: ReactNode;
-  readonly children?: ReactNode;
-}) {
-  const soul = useAnimaSoul();
-  return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="space-y-1.5">
-        <p
-          className="text-xs font-semibold tracking-widest uppercase"
-          style={soul ? { color: soul.core } : undefined}
-        >
-          {eyebrow}
-        </p>
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-      </div>
-      {children}
-    </header>
-  );
-}
-
-export { PageHeading };
 
 export function BreathsTab({
   environmentId,
@@ -298,6 +274,8 @@ export function BreathsTab({
         </div>
       </PageHeading>
 
+      <Fingerprints detail={detail} />
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-56 flex-1">
           <Input
@@ -352,6 +330,28 @@ export function BreathsTab({
           Load all {detail.summary.breathCount} breaths
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+/** The original timeline's header: how the anima sees itself beside how it reads the user. */
+function Fingerprints({ detail }: { readonly detail: AnimaDetail }) {
+  const user = parseUserModel(detail.header.find((entry) => entry.key === "user")?.value ?? "");
+  const top = <T extends { readonly mean: number }>(list: ReadonlyArray<T>) =>
+    list.toSorted((a, b) => b.mean - a.mean).slice(0, 6);
+  if (detail.traits.length === 0 && user.length === 0) return null;
+  return (
+    <div className="grid gap-8 rounded-2xl bg-muted/30 p-5 md:grid-cols-2">
+      <div className="space-y-2.5">
+        <p className="text-2xs font-medium tracking-widest text-muted-foreground uppercase">Self</p>
+        <TraitBars traits={top(detail.traits)} empty="No self-reading yet." />
+      </div>
+      <div className="space-y-2.5">
+        <p className="text-2xs font-medium tracking-widest text-muted-foreground uppercase">
+          Observer · how it reads you
+        </p>
+        <TraitBars traits={top(user)} empty="No reading of you yet." />
+      </div>
     </div>
   );
 }

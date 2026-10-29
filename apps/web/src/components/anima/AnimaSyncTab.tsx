@@ -33,7 +33,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { useSettingsScope } from "../settings/SettingsScopeContext";
 import { mergeStatusLabel } from "./anima.logic";
-import { useAnimaMutation } from "./AnimaBits";
+import { PageHeading, useAnimaMutation } from "./AnimaBits";
 
 type EnvironmentOption = { readonly environmentId: EnvironmentId; readonly label: string };
 
@@ -255,7 +255,7 @@ function SyncDirection({
   const busy = state.phase === "working";
   const selectedProject = projects.find((project) => project.id === projectId);
   return (
-    <div className="space-y-3 rounded-lg border border-border/60 p-3">
+    <div className="space-y-3 rounded-2xl bg-muted/30 p-5">
       <div className="flex items-center gap-2">
         {icon}
         <h3 className="text-sm font-medium">{title}</h3>
@@ -372,15 +372,19 @@ export function SyncTab({
   const other = others.find((entry) => entry.environmentId === otherId) ?? others[0] ?? null;
   if (!here || !other) {
     return (
-      <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
-        Connect a second environment to copy {name} between machines.
-      </p>
+      <div className="space-y-4">
+        <PageHeading eyebrow="Sync" title={`Carry ${name} between machines`} />
+        <p className="text-sm text-muted-foreground">
+          Connect a second environment to copy {name} between machines.
+        </p>
+      </div>
     );
   }
   const hereOption = { environmentId: here.environmentId, label: here.label };
   const otherOption = { environmentId: other.environmentId, label: other.label };
   return (
-    <div className="space-y-4 px-3 py-3 sm:px-4">
+    <div className="space-y-8">
+      <PageHeading eyebrow="Sync" title={`Carry ${name} between machines`} />
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">Sync with</span>
         <Select

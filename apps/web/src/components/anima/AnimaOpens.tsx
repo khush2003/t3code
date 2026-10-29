@@ -18,7 +18,16 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { ANIMA_OPEN_STATUSES, groupOpens, isAnimaOpenStatus } from "./anima.logic";
-import { AnimaBlock, AnimaEmptyNote, Field, useAnimaMutation } from "./AnimaBits";
+import {
+  AnimaBlock,
+  AnimaEmptyNote,
+  Field,
+  PageHeading,
+  useAnimaMutation,
+  useAnimaSoul,
+} from "./AnimaBits";
+import { SoulOrb } from "./AnimaSoul";
+import { cn } from "../../lib/utils";
 
 const STATUS_VARIANTS: Readonly<Record<string, "error" | "info" | "secondary" | "outline">> = {
   blocked: "error",
@@ -104,8 +113,16 @@ function OpenCard({
     if (confirmed) await act({ type: "close", id: open.id });
   };
   const assignee = open.assignee && names.includes(open.assignee) ? open.assignee : null;
+  const soul = useAnimaSoul();
+  const assigned = useAnimaList(environmentId).animas.find((anima) => anima.name === open.assignee);
   return (
-    <li className="space-y-2 rounded-lg border border-border/60 bg-card px-3 py-2.5">
+    <li
+      className={cn(
+        "space-y-3 rounded-2xl border-l-4 bg-muted/30 px-5 py-4",
+        closed && "opacity-70",
+      )}
+      style={{ borderLeftColor: soul?.core ?? "var(--border)" }}
+    >
       <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
         <Badge size="sm" variant={STATUS_VARIANTS[open.status.toLowerCase()] ?? "outline"}>
           {open.status}
@@ -140,7 +157,17 @@ function OpenCard({
           </span>
         ) : null}
       </div>
-      <p className="text-sm font-medium leading-snug">{open.question}</p>
+      <div className="flex items-start gap-3">
+        <p className="min-w-0 flex-1 text-base leading-snug font-medium text-balance">
+          {open.question}
+        </p>
+        {assigned ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <SoulOrb anima={assigned} size={18} />
+            {assigned.name}
+          </span>
+        ) : null}
+      </div>
       {editing ? (
         <div className="space-y-2">
           <Field label="Resolves when" htmlFor={`${open.id}-resolves`}>
@@ -362,21 +389,23 @@ export function OpensTab({
   const names = animas.map((anima) => anima.name);
   const { live, closed } = groupOpens(detail.opens);
   return (
-    <div className="space-y-4 px-3 py-3 sm:px-4">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 truncate font-mono text-2xs text-muted-foreground">
-          {detail.projectPath}
-        </span>
-        <Button
-          size="xs"
-          className="ms-auto"
-          disabled={!canOperate || adding}
-          onClick={() => setAdding(true)}
-        >
+    <div className="space-y-8">
+      <PageHeading
+        eyebrow="Opens"
+        title={
+          <>
+            {live.length} open {live.length === 1 ? "question" : "questions"}
+            <span className="block truncate font-mono text-xs font-normal tracking-normal text-muted-foreground">
+              {detail.projectPath}
+            </span>
+          </>
+        }
+      >
+        <Button size="sm" disabled={!canOperate || adding} onClick={() => setAdding(true)}>
           <PlusIcon />
           New open
         </Button>
-      </div>
+      </PageHeading>
       {adding ? (
         <NewOpenForm
           environmentId={environmentId}
@@ -391,7 +420,7 @@ export function OpensTab({
             Questions that block or steer the work go here until something resolves them.
           </AnimaEmptyNote>
         ) : (
-          <ul className="space-y-2">
+          <ul className="grid gap-3 lg:grid-cols-2">
             {live.map((open) => (
               <OpenCard
                 key={open.id}
@@ -416,7 +445,7 @@ export function OpensTab({
           }
         >
           {showClosed ? (
-            <ul className="space-y-2">
+            <ul className="grid gap-3 lg:grid-cols-2">
               {closed.map((open) => (
                 <OpenCard
                   key={open.id}
