@@ -1431,12 +1431,12 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:anima-open",
-      searchTerms: ["anima", "open", "identity", "settings", name],
+      searchTerms: ["anima", "open", "identity", name],
       title: "Open anima",
       description: name,
       icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
-        await navigate({ to: "/settings/anima", search: { environmentId, anima: name } });
+        await navigate({ to: "/anima", search: { environmentId, anima: name } });
       },
     });
   }
@@ -1606,6 +1606,17 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:animas",
+    searchTerms: ["anima", "animas", "identity", "world", "yard", "roster", "breath", "agents"],
+    title: "Open animas",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/anima" });
     },
   });
 

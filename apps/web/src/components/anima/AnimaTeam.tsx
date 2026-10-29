@@ -3,10 +3,10 @@ import { CrownIcon, UserMinusIcon, UserPlusIcon, UsersIcon } from "lucide-react"
 import { type ReactNode, useState } from "react";
 import type { AnimaDetail, AnimaName, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
-import { requestConfirmDialog } from "../../../confirmDialog";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { Button } from "../../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+import { requestConfirmDialog } from "../../confirmDialog";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import {
   AnimaBlock,
   AnimaEmptyNote,

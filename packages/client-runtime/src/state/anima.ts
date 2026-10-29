@@ -89,6 +89,12 @@ export function createAnimaEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    clinic: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:clinic",
+      tag: WS_METHODS.animaClinic,
+      scheduler,
+      concurrency,
+    }),
     setEnabled: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:set-enabled",
       tag: WS_METHODS.animaSetEnabled,

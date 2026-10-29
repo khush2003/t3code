@@ -2,11 +2,11 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { MessageSquarePlusIcon } from "lucide-react";
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
 
-import { useComposerDraftStore } from "../../../composerDraftStore";
-import { useNewThreadHandler } from "../../../hooks/useHandleNewThread";
-import { useProjects } from "../../../state/entities";
-import { Button } from "../../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useProjects } from "../../state/entities";
+import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 
 /** Opens a draft thread in the chosen project with the anima preselected. */
 function useStartAnimaThread(environmentId: EnvironmentId) {

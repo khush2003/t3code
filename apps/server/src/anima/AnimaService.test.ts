@@ -35,21 +35,47 @@ const breathFile = (n: number) =>
   `# breath:${n} ts:2026-03-0${n + 1}T10:00 parent:${n === 0 ? "-" : n - 1} hash:h${n}\n# files:\n# decisions: d${n}\n# open:\n`;
 
 interface Call {
+  readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly spawnCwd: string | undefined;
   readonly env: NodeJS.ProcessEnv | undefined;
 }
 
+const VERSION_ENVELOPE = JSON.stringify({
+  schemaVersion: 1,
+  cliVersion: "0.2.4",
+  protocolVersion: 1,
+  command: "version",
+  ok: true,
+  exitCode: 0,
+  data: { version: "0.2.4", protocolVersion: 1 },
+});
+
+/** `modern` answers the `version --json` probe; probes are counted, not recorded as calls. */
 const fakeRunner = (
   calls: Array<Call>,
   reply: { stdout?: string; stderr?: string; code?: number },
+  modern: boolean,
+  probes: { count: number },
 ) =>
   Layer.succeed(ProcessRunner.ProcessRunner, {
     run: (input) =>
       Effect.sync(() => {
-        calls.push({ args: input.args, spawnCwd: input.spawnCwd, env: input.env });
+        const probe = input.args.includes("version") && input.args.includes("--json");
+        if (probe) probes.count += 1;
+        else
+          calls.push({
+            command: input.command,
+            args: input.args,
+            spawnCwd: input.spawnCwd,
+            env: input.env,
+          });
         return {
-          stdout: reply.stdout ?? "ok\n",
+          stdout: probe
+            ? modern
+              ? VERSION_ENVELOPE
+              : "usage: anima <command>\n"
+            : (reply.stdout ?? "ok\n"),
           stderr: reply.stderr ?? "",
           code: (reply.code ?? 0) as never,
           timedOut: false,
@@ -71,12 +97,18 @@ const projectStore = Layer.mock(ProjectStore.ProjectStoreV2)({
 });
 
 const withService = <A, E>(
-  options: { readonly cli?: boolean; readonly reply?: Parameters<typeof fakeRunner>[1] },
+  options: {
+    readonly cli?: boolean;
+    readonly modern?: boolean;
+    readonly reply?: Parameters<typeof fakeRunner>[1];
+    readonly env?: (home: string) => NodeJS.ProcessEnv;
+  },
   body: (input: {
     readonly service: AnimaService.AnimaService["Service"];
     readonly home: string;
     readonly root: string;
     readonly calls: Array<Call>;
+    readonly probes: { count: number };
   }) => Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
 ) =>
   Effect.gen(function* () {
@@ -91,13 +123,15 @@ const withService = <A, E>(
       yield* fs.writeFileString(NodePath.join(home, ".claude", "skills", "anima", "anima.ts"), "");
     }
     const calls: Array<Call> = [];
+    const probes = { count: 0 };
     const layer = AnimaService.layer.pipe(
-      Layer.provide(fakeRunner(calls, options.reply ?? {})),
+      Layer.provide(fakeRunner(calls, options.reply ?? {}, options.modern === true, probes)),
       Layer.provide(projectStore),
       Layer.provide(Layer.succeed(HostProcess.HomeDirectory, home)),
+      Layer.provide(Layer.succeed(HostProcess.Environment, options.env?.(home) ?? { PATH: "" })),
     );
     const service = yield* AnimaService.AnimaService.pipe(Effect.provide(layer));
-    return yield* body({ service, home, root, calls });
+    return yield* body({ service, home, root, calls, probes });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
 const seed = Effect.fn("seed")(function* (
@@ -395,6 +429,13 @@ describe("AnimaService CLI invocation", () => {
           ["library", "shelve", "codec", "--author", "atlas", "--content", "--x"],
           ["library", "shelve", "codec", "--author", "atlas", "--content", "y", "--for", "boss"],
         ]);
+        expect(calls.every((call) => call.command === "bun")).toBe(true);
+        expect(calls[0]?.env).toEqual({
+          HOME: home,
+          ANIMA_HOME: root,
+          ANIMA_CLI: NodePath.join(home, ".claude", "skills", "anima", "anima.ts"),
+          ANIMA_OUTPUT_STYLES_DIR: NodePath.join(home, ".claude", "output-styles"),
+        });
         expect(calls.every((call) => call.env?.HOME === home)).toBe(true);
       }),
     ),
@@ -427,19 +468,151 @@ describe("AnimaService CLI invocation", () => {
     }),
   );
 
-  it.effect("wakes with the workspace as spawn cwd and previews with --peek", () =>
-    withService(
-      { reply: { stdout: "WAKE PAYLOAD\n", stderr: "\u001b]1;atlas\u0007" } },
-      ({ service, root, calls }) =>
-        Effect.gen(function* () {
-          yield* seed(root, "atlas", "id-atlas", 0);
-          expect(yield* service.wake({ name: "atlas", cwd: "/work/atlas" })).toBe("WAKE PAYLOAD");
-          expect(calls.at(-1)?.spawnCwd).toBe("/work/atlas");
-          expect(calls.at(-1)?.args.slice(1)).toEqual(["read", "--wake", "--agent", "atlas"]);
-          yield* service.wakePreview("atlas");
-          expect(calls.at(-1)?.args).toContain("--peek");
-          expect(calls.at(-1)?.spawnCwd).toBe(root);
-        }),
+  it.effect("wakes with the workspace as spawn cwd and previews without clocking in", () =>
+    Effect.gen(function* () {
+      for (const modern of [false, true]) {
+        yield* withService(
+          { modern, reply: { stdout: "WAKE PAYLOAD\n", stderr: "\u001b]1;atlas\u0007" } },
+          ({ service, root, calls, probes }) =>
+            Effect.gen(function* () {
+              yield* seed(root, "atlas", "id-atlas", 0);
+              expect(yield* service.wake({ name: "atlas", cwd: "/work/atlas" })).toBe(
+                "WAKE PAYLOAD",
+              );
+              expect(calls.at(-1)?.spawnCwd).toBe("/work/atlas");
+              expect(calls.at(-1)?.args.slice(1)).toEqual([
+                "read",
+                "--wake",
+                "--agent",
+                "atlas",
+                ...(modern ? ["--project", "/work/atlas"] : []),
+              ]);
+              yield* service.wakePreview("atlas");
+              // The packaged CLI silently ignores --peek and clocks in.
+              expect(calls.at(-1)?.args.slice(1)).toEqual([
+                "read",
+                "--wake",
+                "--agent",
+                "atlas",
+                modern ? "--no-clock-in" : "--peek",
+              ]);
+              expect(calls.at(-1)?.spawnCwd).toBe(root);
+              expect((yield* service.list).cliVersion).toBe(modern ? "0.2.4" : null);
+              expect(probes.count).toBe(1);
+            }),
+        );
+      }
+    }),
+  );
+
+  it.effect("resolves ANIMA_CLI, then anima on PATH, then the legacy script", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const bin = yield* fs.makeTempDirectoryScoped({ prefix: "anima-bin-" });
+      const script = NodePath.join(bin, "cli.ts");
+      yield* fs.writeFileString(script, "");
+      yield* fs.writeFileString(NodePath.join(bin, "anima"), "#!/bin/sh\n");
+      yield* fs.chmod(NodePath.join(bin, "anima"), 0o755);
+      const commandFor = (env: (home: string) => NodeJS.ProcessEnv) =>
+        withService({ env }, ({ service, root, calls }) =>
+          Effect.gen(function* () {
+            yield* seed(root, "atlas", "id-atlas", 0);
+            yield* service.wakePreview("atlas");
+            const call = calls.at(-1)!;
+            return { command: call.command, first: call.args[0], env: call.env, root };
+          }),
+        );
+      const override = yield* commandFor(() => ({ PATH: bin, ANIMA_CLI: script }));
+      expect(override).toMatchObject({ command: "bun", first: script });
+      expect(override.env?.ANIMA_CLI).toBe(script);
+
+      const binary = yield* commandFor(() => ({ PATH: "", ANIMA_CLI: "anima-dev" }));
+      expect(binary).toMatchObject({ command: "anima-dev", first: "read" });
+
+      const onPath = yield* commandFor((home) => ({
+        PATH: `/nonexistent:${bin}`,
+        ANIMA_HOME: NodePath.join(home, ".claude", "anima"),
+      }));
+      expect(onPath).toMatchObject({ command: NodePath.join(bin, "anima"), first: "read" });
+      expect(onPath.env?.ANIMA_CLI).toBe(NodePath.join(bin, "anima"));
+      expect(onPath.env?.ANIMA_HOME).toBe(onPath.root);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("checks in, acknowledges and briefs through the packaged CLI", () =>
+    withService({ modern: true, reply: { stdout: "BRIEF\n" } }, ({ service, root, calls }) =>
+      Effect.gen(function* () {
+        yield* seed(root, "atlas", "id-atlas", 0);
+        yield* service.clinic({ name: "atlas", form: "owl", accent: "#9b82bc" });
+        yield* service.clinic({ name: "atlas", form: "fox" });
+        yield* service.inboxAction({
+          name: "atlas",
+          action: { type: "ack", messageIds: ["m1", "m2"] },
+        });
+        expect(yield* service.identityBrief({ name: "atlas", target: "codex" })).toBe("BRIEF");
+        expect(yield* service.breatheGuide).toBe("BRIEF");
+        expect(calls.map((call) => call.args.slice(1))).toEqual([
+          [
+            "clinic",
+            "check-in",
+            "--agent",
+            "atlas",
+            "--form",
+            "owl",
+            "--accent",
+            "#9b82bc",
+            "--as",
+            "atlas",
+          ],
+          ["clinic", "check-in", "--agent", "atlas", "--form", "fox", "--as", "atlas"],
+          ["inbox", "--agent", "atlas", "--ack", "m1", "--ack", "m2"],
+          ["brief", "--target", "codex", "--agent", "atlas"],
+          ["resource", "read", "breathe"],
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("checks in and acknowledges by editing files under the legacy script", () =>
+    withService({}, ({ service, root, calls }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* seed(root, "atlas", "id-atlas", 0);
+        yield* fs.writeFileString(
+          NodePath.join(root, "atlas", "inbox"),
+          '{"id":"m1","type":"info","from":"a","ts":"t","body":"b"}\n2026-01-01T10:00|boss|info|old\n{"id":"m3","type":"info","from":"a","ts":"t","body":"c"}\n',
+        );
+        const result = yield* service.clinic({ name: "atlas", form: "moth" });
+        expect(result.summary).toMatchObject({ form: "moth", accent: "#223464" });
+        const recolored = yield* service.clinic({
+          name: "atlas",
+          form: "frog",
+          accent: "#00ff88",
+        });
+        expect(recolored.summary).toMatchObject({ form: "frog", accent: "#00ff88" });
+        const saved = JSON.parse(
+          yield* fs.readFileString(NodePath.join(root, "atlas", "appearance.json")),
+        );
+        expect(saved).toMatchObject({ version: 1, form: "frog", accent: "#00ff88" });
+        // Kept in exports so the look travels with the anima.
+        const bundle = yield* service.export("atlas");
+        expect(bundle.files.map((file) => file.path)).toContain("appearance.json");
+
+        yield* service.inboxAction({
+          name: "atlas",
+          action: { type: "ack", messageIds: ["m1", "2026-01-01T10:00:boss"] },
+        });
+        expect((yield* service.inbox("atlas")).map((message) => message.id)).toEqual(["m3"]);
+        const unknown = yield* Effect.flip(
+          service.inboxAction({ name: "atlas", action: { type: "ack", messageIds: ["m9"] } }),
+        );
+        expect(unknown).toMatchObject({ _tag: "AnimaCommandRejectedError" });
+        // The legacy brief is the file-built capsule.
+        expect(yield* service.identityBrief({ name: "atlas", target: "claude" })).toContain(
+          "you are atlas",
+        );
+        expect(calls).toHaveLength(0);
+      }),
     ),
   );
 
@@ -681,6 +854,7 @@ describe.skipIf(!bunAvailable)("AnimaService with the real CLI (temp HOME)", () 
         Layer.provide(ProcessRunner.layer),
         Layer.provide(projectStore),
         Layer.provide(Layer.succeed(HostProcess.HomeDirectory, home)),
+        Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "" })),
       );
       const service = yield* AnimaService.AnimaService.pipe(Effect.provide(layer));
       const root = NodePath.join(home, ".claude", "anima");
@@ -737,6 +911,7 @@ describe.skipIf(!bunAvailable)("AnimaService.create with the real CLI (temp HOME
         Layer.provide(ProcessRunner.layer),
         Layer.provide(projectStore),
         Layer.provide(Layer.succeed(HostProcess.HomeDirectory, home)),
+        Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "" })),
       );
       const service = yield* AnimaService.AnimaService.pipe(Effect.provide(layer));
       return { fs, home, root, service };

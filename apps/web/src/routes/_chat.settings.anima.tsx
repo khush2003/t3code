@@ -1,14 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { AnimaSettings } from "../components/settings/AnimaSettings";
-import { validateAnimaSearch } from "../components/settings/animaSettings.logic";
+import { validateAnimaSearch } from "../components/anima/anima.logic";
 
-function SettingsAnimaRoute() {
-  const target = Route.useSearch();
-  return <AnimaSettings {...target} />;
-}
-
+// Anima moved out of Settings; old links and bookmarks land on its page.
 export const Route = createFileRoute("/_chat/settings/anima")({
   validateSearch: validateAnimaSearch,
-  component: SettingsAnimaRoute,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/anima", search, replace: true });
+  },
 });

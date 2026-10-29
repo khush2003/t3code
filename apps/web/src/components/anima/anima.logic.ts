@@ -43,14 +43,23 @@ export function isAnimaTab(value: unknown): value is AnimaTab {
   return typeof value === "string" && (ANIMA_TABS as ReadonlyArray<string>).includes(value);
 }
 
-export function validateAnimaSearch(raw: Record<string, unknown>) {
+/** The world is the landing view, so it never appears in the URL. */
+export type AnimaHomeView = "world" | "roster" | "library";
+
+export function validateAnimaSearch(raw: Record<string, unknown>): {
+  readonly environmentId?: EnvironmentId;
+  readonly anima?: string;
+  readonly tab?: AnimaTab;
+  readonly view?: "roster" | "library";
+  readonly entry?: string;
+} {
   return {
     ...(typeof raw.environmentId === "string" && raw.environmentId.trim()
       ? { environmentId: EnvironmentId.make(raw.environmentId) }
       : {}),
     ...(typeof raw.anima === "string" && raw.anima.trim() ? { anima: raw.anima.trim() } : {}),
     ...(isAnimaTab(raw.tab) && raw.tab !== "overview" ? { tab: raw.tab } : {}),
-    ...(raw.view === "library" ? { view: "library" as const } : {}),
+    ...(raw.view === "library" || raw.view === "roster" ? { view: raw.view } : {}),
     ...(raw.view === "library" && typeof raw.entry === "string" && isLibrarySlugValid(raw.entry)
       ? { entry: raw.entry }
       : {}),

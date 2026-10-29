@@ -16,8 +16,9 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as AnimaService from "./AnimaService.ts";
 
 /**
- * Sends the skill's own breathe.md so the request never drifts from it. The overrides cover what
- * made earlier breaths noisy: the bare template run, the wake, and breaths padded with invention.
+ * Sends the CLI's own breathe guide so the request never drifts from it. The overrides cover what
+ * made earlier breaths noisy: the bare template run, the wake, breaths padded with invention, and
+ * retry loops after the CLI refused the input.
  */
 function breathePrompt(name: string, guide: string): string {
   return [
@@ -27,6 +28,10 @@ function breathePrompt(name: string, guide: string): string {
     "- Reflect only on what actually happened in THIS thread. If little happened, say so plainly instead of inventing decisions, friction or lessons, and still record the breath.",
     "- Do not open the anima skill, do not run the wake step or `read --wake` again. The guide below is all you need.",
     "- Skip the bare template run in Step 2. Write the full breathe command yourself from your Step 1 answers and run it once.",
+    "- If the CLI prints validation problems, nothing was saved: fix exactly the fields it names and rerun once. Do not change fields it accepted.",
+    "- If it prints a template instead of saving, you left out the hsl, note or shape: supply them and rerun.",
+    "- Never invent values to get past validation, and never reuse values from an earlier breath. Every value comes from this thread.",
+    "- Do not pass the deprecated --files or --open flags.",
     "",
     "<breathe-guide>",
     guide.replaceAll("<name>", name).trim(),
@@ -87,7 +92,7 @@ const make = Effect.gen(function* () {
       if (guide.trim() === "")
         return yield* new AnimaCommandRejectedError({
           operation: "breathe",
-          reason: "The anima skill on this environment has no breathe.md.",
+          reason: "The anima CLI on this environment has no breathe guide.",
         });
       // Fails with AnimaNotFoundError when the anima was deleted after the thread started.
       const { breathCount } = yield* animas.summary(name);

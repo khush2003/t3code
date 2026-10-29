@@ -62,11 +62,14 @@ export class ThreadAnimaWake extends Context.Service<
     readonly prepare: (input: ThreadAnimaWakeInput) => Effect.Effect<ThreadAnimaWakeOutcome>;
     readonly take: (input: ThreadAnimaWakeInput) => Effect.Effect<ThreadAnimaWakeOutcome>;
     /**
-     * A compact identity capsule for a later turn, or "" when one was injected in the last 15
-     * minutes. Reads files only (no wake, clock-in or inbox consumption) and never fails.
+     * A compact identity refresh for a later turn, or "" when one was injected in the last 15
+     * minutes. Never wakes, clocks in or consumes the inbox, and never fails.
      */
     readonly refresh: (
-      input: Pick<ThreadAnimaWakeInput, "threadId" | "name">,
+      input: Pick<ThreadAnimaWakeInput, "threadId" | "name"> & {
+        /** Host the brief is formatted for; defaults to claude. */
+        readonly target?: AnimaService.AnimaBriefTarget | undefined;
+      },
     ) => Effect.Effect<string>;
   }
 >()("t3/orchestration-v2/ThreadAnimaWake") {}
@@ -136,10 +139,13 @@ const make = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;
       const last = (yield* Ref.get(injectedAt)).get(input.threadId);
       if (last !== undefined && now - last < REFRESH_INTERVAL_MS) return "";
-      const capsule = yield* anima.capsule(input.name);
-      if (capsule === "") return "";
+      const brief = yield* anima.identityBrief({
+        name: input.name,
+        target: input.target ?? "claude",
+      });
+      if (brief === "") return "";
       yield* markInjected(input.threadId);
-      return `${capsule}\n(This is a periodic refresh of your identity, not a new task.)`;
+      return `${brief}\n(This is a periodic refresh of your identity, not a new task.)`;
     },
     Effect.catchCause(() => Effect.succeed("")),
   );

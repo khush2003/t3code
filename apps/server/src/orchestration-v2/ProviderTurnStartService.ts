@@ -878,7 +878,11 @@ export const layer: Layer.Layer<
         wake?.status === "woke"
           ? wake.context
           : animaName !== null && animaLocked
-            ? yield* animaWake.refresh({ threadId: projection.thread.id, name: animaName })
+            ? yield* animaWake.refresh({
+                threadId: projection.thread.id,
+                name: animaName,
+                target: session.driver === "codex" ? "codex" : "claude",
+              })
             : "";
       const activeAnima =
         animaName !== null && (animaLocked || wake?.status === "woke") ? animaName : null;

@@ -3,11 +3,11 @@ import { ArrowLeftIcon, BookOpenIcon, BookPlusIcon, FileTextIcon } from "lucide-
 import { useContext, useState } from "react";
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
 
-import { formatBytes } from "../../../lib/formatBytes";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { useEnvironmentQuery } from "../../../state/query";
-import ChatMarkdown from "../../ChatMarkdown";
-import { Button } from "../../ui/button";
+import { formatBytes } from "../../lib/formatBytes";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { useEnvironmentQuery } from "../../state/query";
+import ChatMarkdown from "../ChatMarkdown";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogClose,
@@ -17,14 +17,14 @@ import {
   DialogPanel,
   DialogPopup,
   DialogTitle,
-} from "../../ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
-import { Input } from "../../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { Skeleton } from "../../ui/skeleton";
-import { Textarea } from "../../ui/textarea";
-import { SettingsGroup } from "../SettingsGroup";
-import { filterLibrary, isLibrarySlugValid } from "../animaSettings.logic";
+} from "../ui/dialog";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
+import { Textarea } from "../ui/textarea";
+import { SettingsGroup } from "../settings/SettingsGroup";
+import { filterLibrary, isLibrarySlugValid } from "./anima.logic";
 import { Field, RelativeTime, useAnimaMutation } from "./AnimaBits";
 
 const SHARED = "__shared__";
