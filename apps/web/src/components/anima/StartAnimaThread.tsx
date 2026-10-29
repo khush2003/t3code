@@ -28,7 +28,7 @@ export function StartAnimaThreadMenu({
   readonly environmentId: EnvironmentId;
   readonly animaName: string;
   readonly label?: string;
-  readonly variant?: "outline" | "ghost";
+  readonly variant?: "default" | "outline" | "ghost";
 }) {
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const start = useStartAnimaThread(environmentId);
