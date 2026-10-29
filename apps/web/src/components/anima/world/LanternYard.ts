@@ -39,6 +39,14 @@ export interface WorldAgent {
   readonly label: string;
   /** Short status for the floating label, e.g. "Live" or "2h ago". */
   readonly status: string;
+  /** What a live or recently active anima is working on, shown as a thought bubble in its town. */
+  readonly thought?: string | null;
+}
+
+export interface WorldTown {
+  readonly id: string;
+  readonly name: string;
+  readonly residentIds: ReadonlyArray<string>;
 }
 
 export type CameraPreset = "campus" | "district" | "follow";
@@ -131,13 +139,20 @@ export class LanternYard {
   private height = 1;
   private clickStart = { x: 0, y: 0 };
   private frameRequest = 0;
+  private reportedFocus = "";
 
   constructor(
     private readonly host: HTMLElement,
     private readonly onSelect: (id: string | null) => void,
     private readonly onOpen: (id: string) => void,
+    private readonly onFocus: (town: WorldTown | null) => void = () => {},
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "low-power" });
+    // Transparent, so the page's dusk gradient shows through as the sky.
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: "low-power",
+    });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -153,8 +168,6 @@ export class LanternYard {
     );
     host.prepend(canvas);
 
-    this.scene.background = new THREE.Color("#193d42");
-    this.scene.fog = new THREE.Fog("#193d42", 140, 420);
     this.scene.add(new THREE.HemisphereLight("#d6e9db", "#65775f", 2.05));
     this.sun = new THREE.DirectionalLight("#ffe2b2", 3);
     this.sun.castShadow = true;
@@ -297,7 +310,7 @@ export class LanternYard {
         const label = document.createElement("button");
         label.type = "button";
         label.className =
-          "pointer-events-auto absolute flex -translate-x-1/2 -translate-y-full items-center gap-1.5 whitespace-nowrap rounded-md border-l-4 bg-white/90 px-2 py-0.5 text-xs font-medium text-neutral-900 shadow-md dark:bg-neutral-900/90 dark:text-neutral-100";
+          "pointer-events-auto absolute flex -translate-x-1/2 -translate-y-full flex-col items-start gap-0.5 whitespace-nowrap rounded-lg border-l-4 bg-white/92 px-2.5 py-1 text-xs font-medium text-neutral-900 shadow-lg transition-transform hover:scale-105 dark:bg-neutral-900/90 dark:text-neutral-100";
         label.addEventListener("click", () => this.onSelect(agent.id));
         label.addEventListener("dblclick", () => this.onOpen(agent.id));
         this.labels.append(label);
@@ -341,11 +354,20 @@ export class LanternYard {
       }
       Object.assign(occupant, { agent, sectionId: section.id, slot: placement.slot, center });
       occupant.label.style.borderLeftColor = agent.look.accent;
-      occupant.label.replaceChildren(document.createTextNode(agent.label));
+      const heading = document.createElement("span");
+      heading.className = "flex items-center gap-1.5";
       const status = document.createElement("span");
       status.className = "font-normal opacity-60";
       status.textContent = agent.status;
-      occupant.label.append(status);
+      heading.append(document.createTextNode(agent.label), status);
+      occupant.label.replaceChildren(heading);
+      if (agent.thought) {
+        const thought = document.createElement("span");
+        thought.className =
+          "line-clamp-2 max-w-56 whitespace-normal text-left font-normal opacity-80";
+        thought.textContent = agent.thought;
+        occupant.label.append(thought);
+      }
     }
     const selected = selectedId ? this.occupants.get(selectedId) : undefined;
     const changed = this.selectedId !== selectedId;
@@ -484,8 +506,37 @@ export class LanternYard {
     });
   };
 
+  /** Every town, busiest first, for the town switcher. */
+  towns(): Array<WorldTown> {
+    return [...this.sections.values()].map(({ section }) => ({
+      id: section.id,
+      name: sectionName(section),
+      residentIds: section.entryIds,
+    }));
+  }
+
+  focusTown(id: string) {
+    if (!this.sections.has(id)) return;
+    this.focusSection = id;
+    this.focusDetails();
+    this.setCamera("district");
+  }
+
   private focusDetails() {
     const view = this.sections.get(this.focusSection);
+    const focusKey = view ? `${view.section.id}:${view.section.entryIds.join(",")}` : "";
+    if (focusKey !== this.reportedFocus) {
+      this.reportedFocus = focusKey;
+      this.onFocus(
+        view
+          ? {
+              id: view.section.id,
+              name: sectionName(view.section),
+              residentIds: view.section.entryIds,
+            }
+          : null,
+      );
+    }
     if (view && this.yardKey !== view.section.id) {
       if (this.yard) {
         this.scene.remove(this.yard.root);

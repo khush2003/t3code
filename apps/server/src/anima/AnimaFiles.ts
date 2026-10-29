@@ -652,7 +652,8 @@ function parseKalmanProfile(value: string): ReadonlyArray<KalmanEntry> {
   return [...profile.values()];
 }
 
-function parseTensionAges(value: string): ReadonlyArray<number> {
+/** `# tension: slug:age,...`; a slug may itself contain colons, so the age is after the last one. */
+export function parseTensions(value: string): ReadonlyArray<{ slug: string; age: number }> {
   const ages = new Map<string, number>();
   for (const pair of value.split(",")) {
     const colon = pair.lastIndexOf(":");
@@ -660,7 +661,11 @@ function parseTensionAges(value: string): ReadonlyArray<number> {
     const age = Number.parseInt(pair.slice(colon + 1), 10);
     if (!Number.isNaN(age)) ages.set(pair.slice(0, colon).trim(), age);
   }
-  return [...ages.values()];
+  return [...ages].map(([slug, age]) => ({ slug, age }));
+}
+
+function parseTensionAges(value: string): ReadonlyArray<number> {
+  return parseTensions(value).map((tension) => tension.age);
 }
 
 const isTimestampedRow = (parts: ReadonlyArray<string>) =>
@@ -1041,6 +1046,9 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     voice: parseIdentityVoice(input.identity),
     projects: agent.projects,
     team: agent.team,
+    tensions: parseTensions(
+      agent.header.find((line) => line.key === "tension")?.value ?? "",
+    ).toSorted((a, b) => b.age - a.age),
     homeProject: agent.projectPath
       ? (agent.projectPath.split("/").findLast(Boolean) ?? null)
       : null,

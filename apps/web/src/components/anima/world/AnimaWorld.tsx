@@ -1,6 +1,8 @@
 import type { AnimaName, AnimaSummary } from "@t3tools/contracts";
 import {
   ArrowUpRightIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CrosshairIcon,
   MapIcon,
   MinusIcon,
@@ -18,13 +20,15 @@ import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { AnimaLiveDot, RelativeTime } from "../AnimaBits";
+import { CreatureAvatar } from "../AnimaSoul";
 import { AnimaSigil, animaColor } from "../AnimaVisuals";
-import { FORM_ORDER } from "./clay";
-import type { CameraPreset, LanternYard } from "./LanternYard";
+import { FORM_ORDER, type CreatureMode } from "./clay";
+import type { CameraPreset, LanternYard, WorldTown } from "./LanternYard";
 import { MODE_DESCRIPTIONS, creatureMode, formIndex, toWorldAgents } from "./worldAgents";
 
 const PAUSE_KEY = "t3code:anima-world-paused";
-const SKY = "#193d42";
+// A lantern-lit dusk: deep teal overhead warming toward the horizon.
+const SKY = "linear-gradient(to bottom, #0b2530 0%, #16424a 42%, #3d6b62 70%, #b98a5c 100%)";
 
 function readPaused() {
   try {
@@ -135,6 +139,7 @@ export function AnimaWorld({
   const [selected, setSelected] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
   const [camera, setCamera] = useState<CameraPreset>("district");
+  const [town, setTown] = useState<WorldTown | null>(null);
   const now = Date.parse(useNowMinute());
   const agents = toWorldAgents(animas, now);
   const towns = new Set(agents.map((agent) => agent.districtId)).size;
@@ -153,7 +158,7 @@ export function AnimaWorld({
     void import("./LanternYard")
       .then(({ LanternYard: Yard }) => {
         if (disposed) return;
-        created = new Yard(host, setSelected, openFromWorld);
+        created = new Yard(host, setSelected, openFromWorld, setTown);
         setYard(created);
       })
       .catch(() => setFailed(true));
@@ -191,7 +196,7 @@ export function AnimaWorld({
   return (
     <div
       className="relative isolate min-h-0 flex-1 overflow-hidden"
-      style={{ backgroundColor: SKY }}
+      style={{ backgroundImage: SKY }}
     >
       <div ref={hostRef} className="absolute inset-0" />
       <div
@@ -263,6 +268,26 @@ export function AnimaWorld({
           </GlassButton>
         </div>
       </div>
+      {town && yard ? (
+        <TownPanel
+          town={town}
+          animas={animas}
+          selected={selected}
+          onSelect={(name) => {
+            setSelected(name);
+            setCamera("follow");
+          }}
+          onStep={(direction) => {
+            const towns = yard.towns();
+            const index = towns.findIndex((entry) => entry.id === town.id);
+            const next = towns[(index + direction + towns.length) % towns.length];
+            if (!next) return;
+            setSelected(null);
+            setCamera("district");
+            yard.focusTown(next.id);
+          }}
+        />
+      ) : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-4">
         {selectedAnima ? (
           <SelectedCard
@@ -275,18 +300,112 @@ export function AnimaWorld({
             Click a creature to meet it · double-click to open
           </p>
         )}
-        <ul className="hidden flex-col gap-1 rounded-xl bg-black/45 px-3 py-2 text-xs text-white/70 backdrop-blur-md sm:flex">
-          <li className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-success" /> At a desk: live session
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-warning" /> Wandering: resting
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-white/40" /> Head down: asleep
-          </li>
-        </ul>
       </div>
     </div>
   );
 }
+
+const MODE_DOT: Readonly<Record<CreatureMode, string>> = {
+  running: "bg-success",
+  recent: "bg-warning",
+  idle: "bg-white/50",
+  asleep: "bg-white/20",
+};
+
+/** Who lives in the focused town, with a way to walk between towns. */
+function TownPanel({
+  town,
+  animas,
+  selected,
+  onSelect,
+  onStep,
+}: {
+  readonly town: WorldTown;
+  readonly animas: ReadonlyArray<AnimaSummary>;
+  readonly selected: string | null;
+  readonly onSelect: (name: string) => void;
+  readonly onStep: (direction: 1 | -1) => void;
+}) {
+  const now = Date.parse(useNowMinute());
+  const byName = new Map(animas.map((anima) => [anima.name, anima]));
+  const residents = town.residentIds
+    .flatMap((id) => {
+      const anima = byName.get(id);
+      return anima ? [anima] : [];
+    })
+    .toSorted(
+      (a, b) =>
+        MODE_RANK[creatureMode(a, now)] - MODE_RANK[creatureMode(b, now)] ||
+        a.name.localeCompare(b.name),
+    );
+  return (
+    <aside className="pointer-events-auto absolute top-20 right-4 bottom-20 hidden w-72 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/50 text-white shadow-2xl backdrop-blur-md md:flex">
+      <header className="flex items-center gap-1 border-b border-white/10 px-2 py-2">
+        <GlassButton label="Previous town" onClick={() => onStep(-1)}>
+          <ChevronLeftIcon />
+        </GlassButton>
+        <div className="min-w-0 flex-1 text-center">
+          <p className="truncate text-sm font-semibold">{town.name}</p>
+          <p className="text-2xs text-white/60">
+            {residents.length} {residents.length === 1 ? "resident" : "residents"}
+          </p>
+        </div>
+        <GlassButton label="Next town" onClick={() => onStep(1)}>
+          <ChevronRightIcon />
+        </GlassButton>
+      </header>
+      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
+        {residents.map((anima) => {
+          const mode = creatureMode(anima, now);
+          return (
+            <li key={anima.name}>
+              <button
+                type="button"
+                onClick={() => onSelect(anima.name)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                  selected === anima.name && "bg-white/15",
+                )}
+              >
+                <CreatureAvatar anima={anima} size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <span className="truncate">{anima.name}</span>
+                    <span
+                      aria-hidden
+                      className={cn("size-1.5 shrink-0 rounded-full", MODE_DOT[mode])}
+                    />
+                  </span>
+                  <span className="line-clamp-1 text-2xs text-white/60">
+                    {anima.aim ?? MODE_DESCRIPTIONS[mode]}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <footer className="flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 px-3 py-2 text-2xs text-white/60">
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full bg-success" /> live
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full bg-warning" /> just now
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full bg-white/50" /> resting
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full bg-white/20" /> asleep
+        </span>
+      </footer>
+    </aside>
+  );
+}
+
+const MODE_RANK: Readonly<Record<CreatureMode, number>> = {
+  running: 0,
+  recent: 1,
+  idle: 2,
+  asleep: 3,
+};

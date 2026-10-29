@@ -199,13 +199,16 @@ describe("AnimaService files", () => {
   it.effect("reads detail with a breath window and hides dedicated header keys", () =>
     withService({}, ({ service, root }) =>
       Effect.gen(function* () {
-        yield* seed(root, "atlas", "id-atlas", 4, { extraHeader: "# tension: a:1\n" });
+        yield* seed(root, "atlas", "id-atlas", 4, {
+          extraHeader: "# tension: a:1\n# user: direct=.9±.1\n",
+        });
         const detail = yield* service.get({ name: "atlas", breathLimit: 2 });
         expect(detail.breaths.map((b) => [b.index, b.hash, b.decisions])).toEqual([
           [3, "h3", ["d3"]],
           [4, "h4", ["d4"]],
         ]);
         expect(detail.header.map((h) => h.key)).toContain("tension");
+        expect(detail.header.map((h) => h.key)).toContain("user");
         expect(detail.header.map((h) => h.key)).not.toContain("memo");
         expect(detail.policy.cap).toBe(40);
         expect(detail.skills[0]?.name).toBe("typescript");

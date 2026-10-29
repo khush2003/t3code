@@ -56,6 +56,10 @@ export const AnimaSummary = Schema.Struct({
   projects: Schema.Array(Schema.String),
   /** Members, when this anima leads a team. */
   team: Schema.optional(Schema.Array(Schema.String)),
+  /** Unresolved tensions from the `# tension:` header; age counts breaths since it opened. */
+  tensions: Schema.optional(
+    Schema.Array(Schema.Struct({ slug: Schema.String, age: Schema.Number })),
+  ),
   /** Directory name of the `# project:` home, if the anima has one. */
   homeProject: Schema.optional(Schema.NullOr(Schema.String)),
   topSkills: Schema.Array(AnimaTrait),
