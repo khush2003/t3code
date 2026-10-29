@@ -4,7 +4,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { AnimaName, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
+import type { AnimaBreath, AnimaName, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -15,7 +15,7 @@ import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/time";
 import { animaEnvironment, describeAnimaError, useAnimaList } from "../../state/anima";
-import { animaHealthLabel } from "../../state/anima-presentation";
+import { animaColor, animaHealthLabel } from "../../state/anima-presentation";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { AnimaDot } from "../threads/ThreadAnimaSettings";
@@ -175,15 +175,88 @@ function TextSection(props: { readonly title: string; readonly text: string | nu
   );
 }
 
+function SoulHero(props: { readonly summary: AnimaSummary }) {
+  const { summary } = props;
+  const color = animaColor(summary);
+  return (
+    <View className="items-center gap-3 px-4 pt-2 pb-1">
+      <View
+        className={cn("size-24 rounded-full", color === null && "bg-subtle-strong")}
+        style={
+          color === null
+            ? undefined
+            : {
+                backgroundColor: color,
+                shadowColor: color,
+                shadowOpacity: 0.65,
+                shadowRadius: 28,
+                shadowOffset: { width: 0, height: 0 },
+                elevation: 12,
+              }
+        }
+      />
+      <View className="items-center gap-1">
+        <Text textRole="display" className="font-semibold text-foreground">
+          {summary.name}
+        </Text>
+        <Text textRole="footnote" className="text-foreground-muted">
+          {[animaSubtitle(summary), `${summary.breathCount} breaths`].filter(Boolean).join(" · ")}
+          {summary.enabled ? "" : " · Disabled"}
+        </Text>
+      </View>
+      {summary.aim ? (
+        <Text textRole="headline" className="text-center text-foreground">
+          {summary.aim}
+        </Text>
+      ) : null}
+      {summary.vow ? (
+        <Text textRole="footnote" className="text-center text-foreground-muted italic">
+          “{summary.vow}”
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** One bar per breath in that breath's colour, oldest first, like the web page. */
+function LifeStrip(props: {
+  readonly breaths: ReadonlyArray<AnimaBreath>;
+  readonly accent: string | null;
+}) {
+  if (props.breaths.length < 2) return null;
+  return (
+    <SettingsSection title="Life in colour" footer={`${props.breaths.length} most recent breaths`}>
+      <View className="h-14 flex-row items-end gap-0.5 px-4 py-3">
+        {props.breaths.map((breath, index) => {
+          const color = animaColor({ hsl: breath.hsl, accent: props.accent });
+          return (
+            <View
+              key={breath.index}
+              className={cn("flex-1 rounded-sm", color === null && "bg-subtle-strong")}
+              style={{
+                height: index === props.breaths.length - 1 ? "100%" : "70%",
+                ...(color === null ? {} : { backgroundColor: color }),
+              }}
+            />
+          );
+        })}
+      </View>
+    </SettingsSection>
+  );
+}
+
+function breathHeadline(breath: AnimaBreath): string {
+  return breath.aim ?? (breath.decisions.length > 0 ? breath.decisions.join("; ") : breath.note);
+}
+
 export function SettingsAnimaDetailRouteScreen({ route }: StaticScreenProps<AnimaTarget>) {
   const insets = useSafeAreaInsets();
   const { environmentId, name } = route.params;
-  const query = useEnvironmentQuery(
-    animaEnvironment.detail({ environmentId, input: { name, breathLimit: RECENT_BREATHS } }),
-  );
+  const query = useEnvironmentQuery(animaEnvironment.detail({ environmentId, input: { name } }));
   const detail = query.data;
   const summary = detail?.summary ?? null;
-  const breaths = detail ? [...detail.breaths].reverse() : [];
+  const ordered = detail ? [...detail.breaths].sort((a, b) => a.index - b.index) : [];
+  const recent = ordered.slice(-RECENT_BREATHS).reverse();
   return (
     <SettingsScreen title={name}>
       <ScrollView
@@ -197,29 +270,13 @@ export function SettingsAnimaDetailRouteScreen({ route }: StaticScreenProps<Anim
           <Text className="px-2 text-base text-foreground-muted">{query.error ?? "Loading…"}</Text>
         ) : (
           <>
-            <SettingsSection>
-              <View className="min-h-14 flex-row items-center gap-3 px-4 py-3">
-                <AnimaDot anima={summary} />
-                <View className="min-w-0 flex-1 gap-0.5">
-                  <Text textRole="body" className="text-foreground">
-                    {animaSubtitle(summary)}
-                  </Text>
-                  <Text textRole="footnote" className="text-foreground-muted">
-                    {summary.breathCount} breaths
-                    {summary.lastBreathAt
-                      ? ` · last ${relativeTime(summary.lastBreathAt)} ago`
-                      : ""}
-                    {summary.enabled ? "" : " · Disabled"}
-                  </Text>
-                </View>
-              </View>
-            </SettingsSection>
-            <TextSection title="Aim" text={summary.aim} />
+            <SoulHero summary={summary} />
+            <LifeStrip breaths={ordered} accent={summary.accent} />
             <TextSection title="Voice" text={summary.voice} />
             <TextSection title="Memo" text={summary.memo} />
-            {breaths.length > 0 ? (
+            {recent.length > 0 ? (
               <SettingsSection title="Recent breaths">
-                {breaths.map((breath, index) => (
+                {recent.map((breath, index) => (
                   <View
                     key={breath.index}
                     className={cn(
@@ -232,8 +289,17 @@ export function SettingsAnimaDetailRouteScreen({ route }: StaticScreenProps<Anim
                     </View>
                     <View className="min-w-0 flex-1 gap-0.5">
                       <Text textRole="body" className="text-foreground" numberOfLines={4}>
-                        {breath.note}
+                        {breathHeadline(breath)}
                       </Text>
+                      {breath.friction ? (
+                        <Text
+                          textRole="footnote"
+                          className="text-foreground-muted"
+                          numberOfLines={3}
+                        >
+                          Friction: {breath.friction}
+                        </Text>
+                      ) : null}
                       <Text textRole="footnote" className="text-foreground-muted">
                         #{breath.index} · {relativeTime(breath.ts)} ago
                       </Text>
