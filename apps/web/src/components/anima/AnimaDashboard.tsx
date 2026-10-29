@@ -20,7 +20,14 @@ import { FamilyConstellation } from "./AnimaFamily";
 import { AlertsBanner, AnimaSearch, HealthPanel } from "./AnimaPool";
 import { AnimaRoster } from "./AnimaRoster";
 import { animaSoulColors } from "./AnimaSoul";
-import { PULSE_BUCKETS, pulseBuckets, tensionBoard } from "./animaDashboard.logic";
+import {
+  PULSE_BUCKETS,
+  PULSE_TICK_HOURS,
+  PULSE_WINDOW_HOURS,
+  pulseBuckets,
+  recentPulse,
+  tensionBoard,
+} from "./animaDashboard.logic";
 
 function lastSeen(anima: AnimaSummary): string | null {
   return anima.lastActiveAt ?? anima.lastBreathAt;
@@ -124,61 +131,125 @@ function Pulse({
     animas.map((anima) => ({ anima, at: lastSeen(anima) })),
     now,
   );
+  const recent = recentPulse(
+    animas.map((anima) => ({ anima, at: lastSeen(anima) })),
+    now,
+  );
   return (
-    <div className="grid grid-cols-2 overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs sm:grid-cols-3 xl:grid-cols-6">
-      {PULSE_BUCKETS.map((bucket, index) => {
-        const entries = buckets[index]!;
-        return (
-          <div
-            key={bucket.label}
-            className="flex min-w-0 flex-col gap-3 border-border/60 p-4 not-last:border-r max-xl:border-b"
-          >
-            <div className="flex items-baseline justify-between gap-2 text-xs">
-              <span className="font-medium text-foreground/80">{bucket.label}</span>
-              <span className="text-muted-foreground tabular-nums">{entries.length}</span>
-            </div>
-            {entries.length > 0 ? (
-              <ul className="flex flex-wrap gap-1.5">
-                {entries.map(({ anima }) => {
-                  const { core, glow } = animaSoulColors(anima);
-                  const size = Math.round(Math.min(18, 8 + Math.sqrt(anima.breathCount) * 1.4));
-                  return (
-                    <li key={anima.name} className="grid size-5 place-items-center">
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={anima.name}
-                              onClick={() => onOpen(anima.name)}
-                              className="rounded-full outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                              style={{
-                                width: size,
-                                height: size,
-                                backgroundColor: core,
-                                boxShadow: anima.live
-                                  ? `0 0 0 2px var(--success), 0 0 10px ${glow}`
-                                  : `0 0 6px ${glow}`,
-                              }}
-                            />
-                          }
-                        />
-                        <TooltipPopup>
-                          <span className="font-medium">{anima.name}</span> · {anima.breathCount}{" "}
-                          {anima.breathCount === 1 ? "breath" : "breaths"} ·{" "}
-                          <RelativeTime value={lastSeen(anima)} />
-                        </TooltipPopup>
-                      </Tooltip>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <span className="text-xs text-muted-foreground/60">Quiet</span>
-            )}
+    <div className="space-y-3">
+      {recent.length > 0 ? (
+        <div className="space-y-2 rounded-3xl border border-border/60 bg-card p-5 shadow-xs">
+          <p className="text-2xs font-medium tracking-widest text-muted-foreground uppercase">
+            Last 48 hours
+          </p>
+          <ul className="space-y-1.5">
+            {recent.map(({ entry, x, hoursAgo }) => {
+              const { core, glow } = animaSoulColors(entry.anima);
+              return (
+                <li
+                  key={entry.anima.name}
+                  className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-3"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpen(entry.anima.name)}
+                    className="truncate rounded-sm text-left text-xs outline-none hover:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    {entry.anima.name}
+                  </button>
+                  <span className="relative h-4">
+                    <span aria-hidden className="absolute inset-x-0 top-1/2 h-px bg-border" />
+                    <span
+                      role="img"
+                      aria-label={`${entry.anima.name}, ${Math.round(hoursAgo)} hours ago`}
+                      className={cn(
+                        "absolute top-1/2 size-3 -translate-1/2 rounded-full",
+                        hoursAgo > 24 && "opacity-50",
+                      )}
+                      style={{
+                        left: `${x * 100}%`,
+                        backgroundColor: core,
+                        boxShadow: entry.anima.live
+                          ? `0 0 0 2px var(--success), 0 0 10px ${glow}`
+                          : `0 0 8px ${glow}`,
+                      }}
+                    />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3">
+            <span />
+            <span className="relative h-4 text-2xs text-muted-foreground">
+              {PULSE_TICK_HOURS.map((hours) => (
+                <span
+                  key={hours}
+                  className="absolute -translate-x-1/2"
+                  style={{ left: `${(1 - hours / PULSE_WINDOW_HOURS) * 100}%` }}
+                >
+                  {hours === 0 ? "now" : `${hours}h`}
+                </span>
+              ))}
+            </span>
           </div>
-        );
-      })}
+        </div>
+      ) : null}
+      <div className="grid grid-cols-2 overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs sm:grid-cols-3 xl:grid-cols-6">
+        {PULSE_BUCKETS.map((bucket, index) => {
+          const entries = buckets[index]!;
+          return (
+            <div
+              key={bucket.label}
+              className="flex min-w-0 flex-col gap-3 border-border/60 p-4 not-last:border-r max-xl:border-b"
+            >
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="font-medium text-foreground/80">{bucket.label}</span>
+                <span className="text-muted-foreground tabular-nums">{entries.length}</span>
+              </div>
+              {entries.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5">
+                  {entries.map(({ anima }) => {
+                    const { core, glow } = animaSoulColors(anima);
+                    const size = Math.round(Math.min(18, 8 + Math.sqrt(anima.breathCount) * 1.4));
+                    return (
+                      <li key={anima.name} className="grid size-5 place-items-center">
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label={anima.name}
+                                onClick={() => onOpen(anima.name)}
+                                className="rounded-full outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                                style={{
+                                  width: size,
+                                  height: size,
+                                  backgroundColor: core,
+                                  boxShadow: anima.live
+                                    ? `0 0 0 2px var(--success), 0 0 10px ${glow}`
+                                    : `0 0 6px ${glow}`,
+                                }}
+                              />
+                            }
+                          />
+                          <TooltipPopup>
+                            <span className="font-medium">{anima.name}</span> · {anima.breathCount}{" "}
+                            {anima.breathCount === 1 ? "breath" : "breaths"} ·{" "}
+                            <RelativeTime value={lastSeen(anima)} />
+                          </TooltipPopup>
+                        </Tooltip>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <span className="text-xs text-muted-foreground/60">Quiet</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
