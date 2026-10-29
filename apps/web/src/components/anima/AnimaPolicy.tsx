@@ -16,15 +16,50 @@ import {
   keyedLines,
   policyFireRows,
 } from "./anima.logic";
+import { cn } from "../../lib/utils";
+import { parsePolicyRule } from "./animaPortrait.logic";
 import {
   AnimaBlock,
   AnimaEmptyNote,
   AnimaStat,
+  PageHeading,
   Field,
   Meter,
   RelativeTime,
   useAnimaMutation,
 } from "./AnimaBits";
+
+const KEYWORD = "font-semibold tracking-wide";
+
+/** A rule with its keywords lit by kind: WHEN/THEN in blue, ALWAYS in green, NEVER in red. */
+function RuleText({ text }: { readonly text: string }) {
+  const rule = parsePolicyRule(text);
+  return (
+    <p className="text-sm leading-relaxed">
+      {rule.kind === "when" ? (
+        <>
+          <span className={cn(KEYWORD, "text-info")}>WHEN</span> {rule.condition}{" "}
+          <span className={cn(KEYWORD, "text-info")}>THEN</span> {rule.action}
+        </>
+      ) : rule.kind === "always" ? (
+        <>
+          <span className={cn(KEYWORD, "text-success")}>ALWAYS</span> {rule.action}
+        </>
+      ) : rule.kind === "never" ? (
+        <>
+          <span className={cn(KEYWORD, "text-destructive")}>NEVER</span> {rule.action}
+        </>
+      ) : (
+        rule.action
+      )}
+      {rule.tag ? (
+        <Badge size="sm" variant="outline" className="ml-2">
+          {rule.tag}
+        </Badge>
+      ) : null}
+    </p>
+  );
+}
 
 function PolicyRuleRow({
   row,
@@ -62,8 +97,8 @@ function PolicyRuleRow({
     await policy({ environmentId, input: { name, action: { type: "remove", index: rule.index } } });
   };
   return (
-    <li className="flex items-start gap-2 px-3 py-2.5 sm:px-4">
-      <span className="mt-0.5 w-5 shrink-0 text-right text-2xs tabular-nums text-muted-foreground">
+    <li className="group flex items-start gap-4 py-4">
+      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold tabular-nums text-muted-foreground">
         {rule.index}
       </span>
       <div className="min-w-0 flex-1 space-y-1.5">
@@ -80,7 +115,7 @@ function PolicyRuleRow({
             }}
           />
         ) : (
-          <p className="text-sm">{rule.text}</p>
+          <RuleText text={rule.text} />
         )}
         {pending ? (
           <p className="text-2xs text-muted-foreground">Waiting for approval</p>
@@ -194,8 +229,12 @@ export function PolicyTab({
     if (result) setRule("");
   };
   return (
-    <div className="space-y-5 py-3">
-      <div className="grid grid-cols-3 gap-2 px-3 sm:px-4">
+    <div className="space-y-10">
+      <PageHeading
+        eyebrow="Policy"
+        title={`Revision ${policy.revision} · ${policy.operational.length} ${policy.operational.length === 1 ? "rule" : "rules"} shaping how it works`}
+      />
+      <div className="grid grid-cols-3 gap-6">
         <AnimaStat
           label="Rules"
           value={`${policy.operational.length}/${policy.cap}`}
@@ -208,9 +247,9 @@ export function PolicyTab({
           tone={neverFired > 0 ? "warning" : "default"}
         />
       </div>
-      <div className="px-3 sm:px-4">
+      <div>
         <AnimaBlock
-          title={`Operational · rev ${policy.revision}`}
+          title="Operational"
           action={
             <ToggleGroup
               aria-label="Sort rules"
@@ -233,7 +272,7 @@ export function PolicyTab({
               Rules shape what this anima does at runtime. Add one below.
             </AnimaEmptyNote>
           ) : (
-            <ul className="-mx-3 divide-y divide-border/50 sm:-mx-4">
+            <ul className="divide-y divide-border/50">
               {operational.map((row) => (
                 <PolicyRuleRow
                   key={row.rule.index}
@@ -248,7 +287,7 @@ export function PolicyTab({
           )}
         </AnimaBlock>
       </div>
-      <div className="px-3 sm:px-4">
+      <div>
         <AnimaBlock
           title="Pending"
           count={pending.length}
@@ -268,7 +307,7 @@ export function PolicyTab({
           {pending.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nothing is waiting for approval.</p>
           ) : (
-            <ul className="-mx-3 divide-y divide-border/50 sm:-mx-4">
+            <ul className="divide-y divide-border/50">
               {pending.map((row) => (
                 <PolicyRuleRow
                   key={row.rule.index}
@@ -283,7 +322,7 @@ export function PolicyTab({
           )}
         </AnimaBlock>
       </div>
-      <div className="space-y-2 px-3 sm:px-4">
+      <div className="space-y-2 rounded-2xl bg-muted/30 p-5">
         <Field
           label="Add a rule"
           hint={atCap && direct ? "At the cap: remove a rule first" : undefined}
@@ -292,7 +331,7 @@ export function PolicyTab({
             <Input
               size="sm"
               value={rule}
-              placeholder="Always run the type checker before committing"
+              placeholder="WHEN ... THEN ... / ALWAYS ... / NEVER ..."
               aria-label="New rule"
               onChange={(event) => setRule(event.target.value)}
               onKeyDown={(event) => {
@@ -313,7 +352,7 @@ export function PolicyTab({
           Apply directly instead of waiting for approval
         </label>
       </div>
-      <div className="space-y-1 px-3 sm:px-4">
+      <div className="space-y-2">
         <Button size="xs" variant="ghost-muted" onClick={() => setShowAudit((value) => !value)}>
           {showAudit ? "Hide audit log" : `Show audit log (${policy.audit.length})`}
         </Button>

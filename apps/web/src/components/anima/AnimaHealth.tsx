@@ -25,7 +25,7 @@ import {
   groupAuditFindings,
   keyedLines,
 } from "./anima.logic";
-import { AnimaBlock, AnimaEmptyNote, Meter, type MeterTone } from "./AnimaBits";
+import { AnimaBlock, AnimaEmptyNote, Meter, PageHeading, type MeterTone } from "./AnimaBits";
 
 const RING_TONES: Readonly<Record<AnimaHealthBucket, string>> = {
   unknown: "text-muted-foreground/40",
@@ -173,9 +173,9 @@ const AUDIT_STYLE = {
 
 function HealthSkeleton() {
   return (
-    <div className="space-y-4 px-3 py-4 sm:px-4">
+    <div className="space-y-4">
       <div className="flex items-center gap-4">
-        <Skeleton shape="pill" className="size-18" />
+        <Skeleton shape="pill" className="size-24" />
         <div className="flex-1 space-y-2">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-3 w-56" />
@@ -197,7 +197,7 @@ export function HealthTab({
   const result = query.data;
   if (!result) {
     return query.error ? (
-      <p className="px-3 py-4 text-xs text-destructive sm:px-4">{query.error}</p>
+      <p className="text-sm text-destructive">{query.error}</p>
     ) : (
       <HealthSkeleton />
     );
@@ -206,12 +206,16 @@ export function HealthTab({
   const circuit = CIRCUIT_COPY[result.circuit];
   const audit = groupAuditFindings(result.audit);
   return (
-    <div className="space-y-6 px-3 py-4 sm:px-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <AnimaHealthRing score={health?.score} size={72} showValue />
+    <div className="space-y-10">
+      <PageHeading
+        eyebrow="Health"
+        title={health ? ACTION_COPY[health.action] : "No breaths to assess yet."}
+      />
+      <div className="flex flex-wrap items-center gap-6 rounded-2xl bg-muted/30 p-6">
+        <AnimaHealthRing score={health?.score} size={104} showValue />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-semibold">
+            <span className="text-2xl font-semibold tracking-tight">
               {ANIMA_HEALTH_LABELS[animaHealthBucket(health?.score)]}
             </span>
             {health ? (
@@ -221,7 +225,8 @@ export function HealthTab({
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
-            {health ? ACTION_COPY[health.action] : "No breaths to assess yet."}
+            Tending rises with uncertainty, losing streaks, stale tensions, colour drift and
+            silence.
           </p>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <Badge size="sm" variant={circuit.variant}>

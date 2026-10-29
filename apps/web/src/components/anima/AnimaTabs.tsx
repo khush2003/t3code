@@ -11,8 +11,14 @@ import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { SettingsGroup } from "../settings/SettingsGroup";
-import { AnimaAccentDot, AnimaBlock, AnimaEmptyNote, RelativeTime, TraitBars } from "./AnimaBits";
+import {
+  AnimaBlock,
+  AnimaEmptyNote,
+  PageHeading,
+  RelativeTime,
+  TraitBars,
+  useAnimaSoul,
+} from "./AnimaBits";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 
 interface TabProps {
@@ -48,7 +54,7 @@ function AnimaCardPanel({ detail }: { readonly detail: AnimaDetail }) {
     );
   }
   return (
-    <div className="space-y-4 rounded-xl border border-border/60 bg-card/60 p-3">
+    <div className="space-y-4 rounded-2xl bg-muted/30 p-5">
       {card ? (
         <>
           <div className="space-y-1.5">
@@ -111,17 +117,20 @@ function AnimaCardPanel({ detail }: { readonly detail: AnimaDetail }) {
 
 export function IdentityTab({ environmentId, detail }: TabProps) {
   return (
-    <div className="grid gap-5 px-3 py-3 sm:px-4 @2xl/anima:grid-cols-[minmax(0,1fr)_16rem]">
-      <div className="min-w-0 @2xl/anima:order-first">
-        {detail.identity.trim() === "" ? (
-          <p className="text-xs text-muted-foreground">This anima has no identity file yet.</p>
-        ) : (
-          <ChatMarkdown text={detail.identity} cwd={undefined} environmentId={environmentId} />
-        )}
+    <div className="space-y-8">
+      <PageHeading eyebrow="Identity" title="Its own words, as it keeps them" />
+      <div className="grid gap-10 @3xl/anima:grid-cols-[minmax(0,1fr)_18rem]">
+        <article className="min-w-0 max-w-3xl">
+          {detail.identity.trim() === "" ? (
+            <p className="text-sm text-muted-foreground">This anima has no identity file yet.</p>
+          ) : (
+            <ChatMarkdown text={detail.identity} cwd={undefined} environmentId={environmentId} />
+          )}
+        </article>
+        <aside className="min-w-0 @3xl/anima:sticky @3xl/anima:top-16 @3xl/anima:self-start">
+          <AnimaCardPanel detail={detail} />
+        </aside>
       </div>
-      <aside className="order-first min-w-0 @2xl/anima:order-none @2xl/anima:sticky @2xl/anima:top-3 @2xl/anima:self-start">
-        <AnimaCardPanel detail={detail} />
-      </aside>
     </div>
   );
 }
@@ -276,47 +285,48 @@ function ThreadLinkRow({
   readonly threadId: ThreadId;
 }) {
   const shell = useThreadShell(scopeThreadRef(environmentId, threadId));
+  const soul = useAnimaSoul();
   return (
-    <li className="px-3 py-2 text-sm sm:px-4">
+    <li>
       {shell ? (
         <Link
           to="/$environmentId/$threadId"
           params={{ environmentId, threadId }}
-          className="flex items-center justify-between gap-3 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex h-full flex-col gap-1.5 rounded-2xl border-l-4 bg-muted/30 px-5 py-4 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          style={{ borderLeftColor: soul?.core ?? "var(--border)" }}
         >
-          <span className="truncate">{shell.title || "Untitled thread"}</span>
-          <RelativeTime value={shell.updatedAt} />
+          <span className="truncate text-base font-medium">{shell.title || "Untitled thread"}</span>
+          <span className="text-xs text-muted-foreground">
+            updated <RelativeTime value={shell.updatedAt} />
+          </span>
         </Link>
       ) : (
-        <span className="text-muted-foreground">{threadId} (not loaded)</span>
+        <span className="block rounded-2xl bg-muted/30 px-5 py-4 text-sm text-muted-foreground">
+          {threadId} (not loaded)
+        </span>
       )}
     </li>
   );
 }
 
 export function ThreadsTab({ environmentId, detail }: TabProps) {
+  const count = detail.threadIds.length;
   return (
-    <div>
-      <div className="flex items-center justify-between border-b border-border/50 px-3 py-2.5 sm:px-4">
-        <span className="text-xs text-muted-foreground">
-          {detail.threadIds.length} {detail.threadIds.length === 1 ? "thread uses" : "threads use"}{" "}
-          <AnimaAccentDot accent={detail.summary.accent} className="mx-1 size-1.5" />
-          {detail.summary.name}
-        </span>
+    <div className="space-y-8">
+      <PageHeading
+        eyebrow="Threads"
+        title={`${count} ${count === 1 ? "thread runs" : "threads run"} with ${detail.summary.name}`}
+      >
         <StartAnimaThreadMenu environmentId={environmentId} animaName={detail.summary.name} />
-      </div>
-      {detail.threadIds.length === 0 ? (
-        <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">
-          No thread uses this anima yet.
-        </p>
+      </PageHeading>
+      {count === 0 ? (
+        <p className="text-sm text-muted-foreground">No thread uses this anima yet.</p>
       ) : (
-        <SettingsGroup variant="plain" divided={false}>
-          <ul className="divide-y divide-border/50">
-            {detail.threadIds.map((threadId) => (
-              <ThreadLinkRow key={threadId} environmentId={environmentId} threadId={threadId} />
-            ))}
-          </ul>
-        </SettingsGroup>
+        <ul className="grid gap-3 md:grid-cols-2">
+          {detail.threadIds.map((threadId) => (
+            <ThreadLinkRow key={threadId} environmentId={environmentId} threadId={threadId} />
+          ))}
+        </ul>
       )}
     </div>
   );

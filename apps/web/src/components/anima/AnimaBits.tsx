@@ -177,6 +177,33 @@ export function AnimaBlock({
   );
 }
 
+/** The heading every detail tab opens with: a soul-coloured eyebrow, a sentence, and actions. */
+export function PageHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  readonly eyebrow: string;
+  readonly title: ReactNode;
+  readonly children?: ReactNode;
+}) {
+  const soul = useAnimaSoul();
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div className="space-y-1.5">
+        <p
+          className="text-xs font-semibold tracking-widest uppercase"
+          style={soul ? { color: soul.core } : undefined}
+        >
+          {eyebrow}
+        </p>
+        <h2 className="text-2xl font-semibold tracking-tight text-balance">{title}</h2>
+      </div>
+      {children}
+    </header>
+  );
+}
+
 const STAT_TONES = {
   default: "text-foreground",
   success: "text-success-foreground",
