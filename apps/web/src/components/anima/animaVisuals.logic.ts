@@ -127,35 +127,6 @@ export function pointsAttr(points: ReadonlyArray<Point>): string {
   return points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 }
 
-export interface TimelineDot {
-  readonly index: number;
-  readonly color: string;
-  readonly radius: number;
-  readonly x: number;
-}
-
-/** One dot per breath, oldest first; radius grows with shape magnitude. */
-export function timelineDots(
-  breaths: ReadonlyArray<{
-    readonly index: number;
-    readonly shape: AnimaShape | null;
-    readonly hsl: string | null;
-  }>,
-  options: { readonly width: number; readonly minRadius: number; readonly maxRadius: number },
-  fallback: string,
-): ReadonlyArray<TimelineDot> {
-  const sorted = breaths.toSorted((a, b) => a.index - b.index);
-  const pad = options.maxRadius + 1;
-  const span = Math.max(0, options.width - pad * 2);
-  return sorted.map((breath, position) => ({
-    index: breath.index,
-    color: breathCss(breath.hsl, fallback),
-    radius:
-      options.minRadius + shapeMagnitude(breath.shape) * (options.maxRadius - options.minRadius),
-    x: sorted.length === 1 ? options.width / 2 : pad + (span * position) / (sorted.length - 1),
-  }));
-}
-
 /** Polygon vertices for values in 0..1 around a centre, starting at the top and going clockwise. */
 export function radarPoints(
   values: ReadonlyArray<number>,

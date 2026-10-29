@@ -54,6 +54,10 @@ export const AnimaSummary = Schema.Struct({
   /** First paragraph of the identity voice section. */
   voice: Schema.NullOr(Schema.String),
   projects: Schema.Array(Schema.String),
+  /** Members, when this anima leads a team. */
+  team: Schema.optional(Schema.Array(Schema.String)),
+  /** Directory name of the `# project:` home, if the anima has one. */
+  homeProject: Schema.optional(Schema.NullOr(Schema.String)),
   topSkills: Schema.Array(AnimaTrait),
   inboxCount: NonNegativeInt,
   policyCount: NonNegativeInt,

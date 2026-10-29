@@ -134,7 +134,7 @@ export function AnimaWorld({
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
-  const [camera, setCamera] = useState<CameraPreset>("campus");
+  const [camera, setCamera] = useState<CameraPreset>("district");
   const now = Date.parse(useNowMinute());
   const agents = toWorldAgents(animas, now);
   const towns = new Set(agents.map((agent) => agent.districtId)).size;

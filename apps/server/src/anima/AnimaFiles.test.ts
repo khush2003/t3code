@@ -131,6 +131,12 @@ describe("identity, breath, policy, inbox, session", () => {
     expect(
       AnimaFiles.parseBreathFile("# breath:4\n# slug-a,slug-b | - | -\n", "004.breath")?.decisions,
     ).toEqual(["slug-a", "slug-b"]);
+    expect(
+      AnimaFiles.parseBreathFile(
+        "# breath:5\n# decisions: Created a.md (philosophy framework); Created b.md (Act 8)\n",
+        "005.breath",
+      )?.decisions,
+    ).toEqual(["Created a.md (philosophy framework)", "Created b.md (Act 8)"]);
   });
 
   it("parses policy sections with numbered rules and hook fire stats", () => {

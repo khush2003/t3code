@@ -3,7 +3,7 @@ import type { AnimaBreath, AnimaSummary, AnimaTrait } from "@t3tools/contracts";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
-import { breathNoteText, safeAnimaAccent } from "./anima.logic";
+import { safeAnimaAccent } from "./anima.logic";
 import {
   constellationNodes,
   cubeGeometry,
@@ -14,7 +14,6 @@ import {
   radarPoints,
   sigilSegments,
   sigilTicks,
-  timelineDots,
   trajectory,
 } from "./animaVisuals.logic";
 
@@ -93,7 +92,7 @@ function latestWithShape(breaths: ReadonlyArray<AnimaBreath>) {
   return breaths.filter((breath) => breath.shape !== null).toSorted((a, b) => b.index - a.index)[0];
 }
 
-function AnimaBodyPanel({
+export function AnimaBodyPanel({
   breaths,
   accent,
 }: {
@@ -214,55 +213,6 @@ function AnimaBodyPanel({
       ) : (
         <p className="text-center text-2xs text-muted-foreground">No body recorded yet.</p>
       )}
-    </div>
-  );
-}
-
-function AnimaTimeline({
-  breaths,
-  accent,
-  onSelect,
-}: {
-  readonly breaths: ReadonlyArray<AnimaBreath>;
-  readonly accent: string | null;
-  readonly onSelect: (index: number) => void;
-}) {
-  const [hovered, setHovered] = useState<number | null>(null);
-  if (breaths.length === 0) {
-    return <p className="text-xs text-muted-foreground">No breaths yet.</p>;
-  }
-  const fallback = safeAnimaAccent(accent) ?? "var(--muted-foreground)";
-  const dots = timelineDots(breaths, { width: 1, minRadius: 4, maxRadius: 9 }, fallback);
-  const active = breaths.find((breath) => breath.index === (hovered ?? dots.at(-1)?.index));
-  const text = active ? (breathNoteText(active.note) ?? active.aim ?? "No note recorded.") : "";
-  return (
-    <div className="space-y-1.5">
-      <div className="flex max-h-24 flex-wrap items-center gap-1 overflow-y-auto" role="list">
-        {dots.map((dot) => (
-          <button
-            key={dot.index}
-            type="button"
-            role="listitem"
-            aria-label={`Breath #${dot.index}`}
-            className="rounded-full outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            style={{
-              width: dot.radius * 2,
-              height: dot.radius * 2,
-              backgroundColor: dot.color,
-            }}
-            onMouseEnter={() => setHovered(dot.index)}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={() => setHovered(dot.index)}
-            onBlur={() => setHovered(null)}
-            onClick={() => onSelect(dot.index)}
-          />
-        ))}
-      </div>
-      {active ? (
-        <p className="line-clamp-2 text-2xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">#{active.index}</span> {text}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -455,30 +405,6 @@ export function AnimaConstellation({
           ? ` ${unplaced.length} without a body yet: ${unplaced.map((anima) => anima.name).join(", ")}.`
           : ""}
       </p>
-    </div>
-  );
-}
-
-export function AnimaHero({
-  summary,
-  breaths,
-  onSelectBreath,
-}: {
-  readonly summary: AnimaSummary;
-  readonly breaths: ReadonlyArray<AnimaBreath>;
-  readonly onSelectBreath: (index: number) => void;
-}) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-[1fr_16rem] sm:items-center">
-      <div className="min-w-0 space-y-2">
-        <h3 className="text-xs font-medium text-foreground/80">Timeline</h3>
-        {breaths.length > 0 ? (
-          <AnimaTimeline breaths={breaths} accent={summary.accent} onSelect={onSelectBreath} />
-        ) : (
-          <p className="text-xs text-muted-foreground">No breaths yet.</p>
-        )}
-      </div>
-      <AnimaBodyPanel breaths={breaths} accent={summary.accent} />
     </div>
   );
 }
