@@ -60,6 +60,16 @@ export const AnimaSummary = Schema.Struct({
   tensions: Schema.optional(
     Schema.Array(Schema.Struct({ slug: Schema.String, age: Schema.Number })),
   ),
+  /** Bonds from the `# kin:` header; strength is null while the bond is unformed. */
+  kin: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        name: Schema.String,
+        label: Schema.String,
+        strength: Schema.NullOr(Schema.Number),
+      }),
+    ),
+  ),
   /** Directory name of the `# project:` home, if the anima has one. */
   homeProject: Schema.optional(Schema.NullOr(Schema.String)),
   topSkills: Schema.Array(AnimaTrait),
