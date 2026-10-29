@@ -21,7 +21,13 @@ the command palette. The page has three views:
 
 Opening an anima shows its portrait: what it is holding now, its voice, who it has
 become, the animas it is tied to, and its shape. Tabs hold its breaths, inbox, opens,
-policy, threads and sync. **Play life** turns its breaths into chords. Click its creature to choose a different form. The choice is
+policy, threads and sync. **Play life** turns its breaths into chords, and the memory
+chapter can download them as a WAV. **Breathe by hand** records a breath through the
+anima CLI; editing the aim or opening and resolving a tension records one too. **Speak**
+reads a short self-report aloud using your browser's voice.
+
+On the anima page, `/` searches, `j` and `k` step through animas, and `Esc` returns to
+the dashboard. Click its creature to choose a different form. The choice is
 saved to the anima, so other apps show the same creature.
 
 The world moves only while it is on screen. Use the pause button to keep it
