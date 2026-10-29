@@ -95,6 +95,12 @@ export function createAnimaEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    record: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:record",
+      tag: WS_METHODS.animaRecord,
+      scheduler,
+      concurrency,
+    }),
     setEnabled: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:set-enabled",
       tag: WS_METHODS.animaSetEnabled,

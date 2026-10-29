@@ -95,15 +95,21 @@ function latestWithShape(breaths: ReadonlyArray<AnimaBreath>) {
 export function AnimaBodyPanel({
   breaths,
   accent,
+  upTo,
+  large = false,
 }: {
   readonly breaths: ReadonlyArray<AnimaBreath>;
   readonly accent: string | null;
+  /** Shows only the first N breaths, for traversing the body one breath at a time. */
+  readonly upTo?: number;
+  readonly large?: boolean;
 }) {
   const width = 240;
   const height = 190;
   const geometry = cubeGeometry(width, height);
   const fallback = safeAnimaAccent(accent) ?? "currentColor";
-  const points = trajectory(breaths, geometry, fallback);
+  const all = trajectory(breaths, geometry, fallback);
+  const points = upTo === undefined ? all : all.slice(0, Math.max(1, upTo));
   const head = points.at(-1);
   const previous = points.at(-2);
   const latest = latestWithShape(breaths);
@@ -148,7 +154,10 @@ export function AnimaBodyPanel({
             viewBox={`0 0 ${width} ${height}`}
             role="img"
             aria-label="Body trajectory in breadth, depth and coupling"
-            className="mx-auto block w-full max-w-[18rem] text-muted-foreground"
+            className={cn(
+              "mx-auto block w-full text-muted-foreground",
+              large ? "max-w-3xl" : "max-w-[18rem]",
+            )}
           >
             <polygon points={pointsAttr(geometry.floor)} fill="currentColor" fillOpacity={0.06} />
             {geometry.edges.map(([from, to]) => (
