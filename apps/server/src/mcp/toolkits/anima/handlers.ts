@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { type AnimaName, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AnimaService from "../../../anima/AnimaService.ts";
@@ -52,6 +52,19 @@ export const layer = McpToolAccess.toLayer(AnimaToolkit, {
       const projectId = yield* resolveProjectId(context, input.projectId);
       const animas = yield* AnimaService.AnimaService;
       return yield* animas.attach({ name: input.name, projectId }).pipe(Effect.mapError(failure));
+    }),
+  ),
+  t3_anima_clinic: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const name = yield* callerAnima(input.name);
+      const animas = yield* AnimaService.AnimaService;
+      return yield* animas
+        .clinic({
+          name: name as AnimaName,
+          form: input.form,
+          ...(input.accent === undefined ? {} : { accent: input.accent }),
+        })
+        .pipe(Effect.mapError(failure));
     }),
   ),
   t3_anima_inbox_read: McpToolAccess.reads((input) =>
