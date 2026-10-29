@@ -56,6 +56,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.animaOpens,
       WS_METHODS.animaLibraryShelve,
       WS_METHODS.animaTeam,
+      WS_METHODS.animaRecord,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
     }
