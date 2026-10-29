@@ -2882,6 +2882,7 @@ export const layerWsRpc = (
         [WS_METHODS.animaAttach]: (input) => anima.attach(input),
         [WS_METHODS.animaSetEnabled]: (input) => anima.setEnabled(input),
         [WS_METHODS.animaClinic]: (input) => anima.clinic(input),
+        [WS_METHODS.animaRecord]: (input) => anima.record(input),
         [WS_METHODS.animaPolicy]: (input) => anima.policy(input),
         [WS_METHODS.animaBreathe]: (input) => animaThreads.breathe(input),
         [WS_METHODS.animaWakePreview]: (input) =>

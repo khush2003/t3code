@@ -133,6 +133,7 @@ import {
   AnimaPolicyInput,
   AnimaSetEnabledInput,
   AnimaClinicInput,
+  AnimaRecordInput,
   AnimaTeamInput,
   AnimaThreadRuntimeStatus,
   AnimaThreadStatusInput,
@@ -469,6 +470,7 @@ export const WS_METHODS = {
   animaAttach: "anima.attach",
   animaSetEnabled: "anima.setEnabled",
   animaClinic: "anima.clinic",
+  animaRecord: "anima.record",
   animaPolicy: "anima.policy",
   animaBreathe: "anima.breathe",
   animaWakePreview: "anima.wakePreview",
@@ -1500,6 +1502,17 @@ const WsAnimaClinicRpc = Rpc.make(WS_METHODS.animaClinic, {
   ]),
 });
 
+const WsAnimaRecordRpc = Rpc.make(WS_METHODS.animaRecord, {
+  payload: AnimaRecordInput,
+  success: AnimaMutationResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsAnimaSetEnabledRpc = Rpc.make(WS_METHODS.animaSetEnabled, {
   payload: AnimaSetEnabledInput,
   success: AnimaMutationResult,
@@ -2417,6 +2430,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaAttachRpc,
   WsAnimaSetEnabledRpc,
   WsAnimaClinicRpc,
+  WsAnimaRecordRpc,
   WsAnimaPolicyRpc,
   WsAnimaBreatheRpc,
   WsAnimaWakePreviewRpc,

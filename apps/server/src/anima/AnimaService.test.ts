@@ -554,6 +554,25 @@ describe("AnimaService CLI invocation", () => {
         });
         expect(yield* service.identityBrief({ name: "atlas", target: "codex" })).toBe("BRIEF");
         expect(yield* service.breatheGuide).toBe("BRIEF");
+        yield* service.record({
+          name: "atlas",
+          hsl: "225.60.55",
+          note: "D4.M.60.1.2.100",
+          shape: "0.2/0.4/0.6",
+          aim: "ship it",
+          tensions: ["speed vs care"],
+          resolves: ["old doubt", "stale plan"],
+        });
+        const comma = yield* Effect.flip(
+          service.record({
+            name: "atlas",
+            hsl: "1.2.3",
+            note: "C.M.1.1",
+            shape: "0/0/0",
+            tensions: ["a, b"],
+          }),
+        );
+        expect(comma._tag).toBe("AnimaCommandRejectedError");
         expect(calls.map((call) => call.args.slice(1))).toEqual([
           [
             "clinic",
@@ -571,6 +590,23 @@ describe("AnimaService CLI invocation", () => {
           ["inbox", "--agent", "atlas", "--ack", "m1", "--ack", "m2"],
           ["brief", "--target", "codex", "--agent", "atlas"],
           ["resource", "read", "breathe"],
+          [
+            "breathe",
+            "--agent",
+            "atlas",
+            "--hsl",
+            "225.60.55",
+            "--note",
+            "D4.M.60.1.2.100",
+            "--shape",
+            "0.2/0.4/0.6",
+            "--aim",
+            "ship it",
+            "--tension",
+            "speed vs care",
+            "--decisions",
+            "old doubt,stale plan",
+          ],
         ]);
       }),
     ),
