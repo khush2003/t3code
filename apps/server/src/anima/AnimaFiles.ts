@@ -664,6 +664,26 @@ export function parseTensions(value: string): ReadonlyArray<{ slug: string; age:
   return [...ages].map(([slug, age]) => ({ slug, age }));
 }
 
+/** `# kin: name=impression.strength,...`; an unformed bond reads `name=impression:?`. */
+export function parseKin(
+  value: string,
+): ReadonlyArray<{ name: string; label: string; strength: number | null }> {
+  return value.split(",").flatMap((entry) => {
+    const equals = entry.indexOf("=");
+    if (equals <= 0) return [];
+    const name = entry.slice(0, equals).trim();
+    const rest = entry.slice(equals + 1).trim();
+    const match = /^(.*?)[.:](\d+|\?)$/.exec(rest);
+    return [
+      {
+        name,
+        label: (match ? match[1]! : rest).replaceAll("-", " ").trim(),
+        strength: match && match[2] !== "?" ? Number(match[2]) : null,
+      },
+    ];
+  });
+}
+
 function parseTensionAges(value: string): ReadonlyArray<number> {
   return parseTensions(value).map((tension) => tension.age);
 }
@@ -1049,6 +1069,7 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     tensions: parseTensions(
       agent.header.find((line) => line.key === "tension")?.value ?? "",
     ).toSorted((a, b) => b.age - a.age),
+    kin: parseKin(agent.header.find((line) => line.key === "kin")?.value ?? ""),
     homeProject: agent.projectPath
       ? (agent.projectPath.split("/").findLast(Boolean) ?? null)
       : null,

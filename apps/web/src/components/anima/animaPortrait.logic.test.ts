@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   animaBonds,
   bondLayout,
+  familyLayout,
   graphNodes,
   groupByDay,
   parseIdentity,
@@ -42,7 +43,13 @@ function anima(name: string, extra: Partial<AnimaSummary> = {}): AnimaSummary {
 
 describe("animaBonds", () => {
   it("collects each tie once, keeping the closest relation", () => {
-    const self = anima("ink", { homeProject: "web" });
+    const self = anima("ink", {
+      homeProject: "web",
+      kin: [
+        { name: "cobalt", label: "quiet builder", strength: 3 },
+        { name: "ghost", label: "sibling", strength: null },
+      ],
+    });
     const animas = [
       self,
       anima("atlas"),
@@ -55,7 +62,6 @@ describe("animaBonds", () => {
         summary: self,
         lead: "atlas",
         team: ["cobalt"],
-        header: [{ key: "kin", value: "cobalt=quiet-builder.3,ghost=sibling:?" }],
       },
       animas,
     );
@@ -73,10 +79,9 @@ describe("animaBonds", () => {
     const layout = bondLayout(
       animaBonds(
         {
-          summary: anima("ink"),
+          summary: anima("ink", { kin: [{ name: "b", label: "x", strength: 2 }] }),
           lead: "atlas",
           team: [],
-          header: [{ key: "kin", value: "b=x.2" }],
         },
         [anima("atlas"), anima("b")],
       ),
@@ -145,5 +150,36 @@ describe("parsePolicyRule", () => {
       action: "Prefer small diffs",
       tag: null,
     });
+  });
+});
+
+describe("familyLayout", () => {
+  it("keeps children beside their parent and links parent, crew and kin once", () => {
+    const animas = [
+      anima("root", { lastActiveAt: "2026-10-01", team: ["crewmate"] }),
+      anima("loner", { lastActiveAt: "2026-10-20" }),
+      anima("child", { parent: "id-root", lastActiveAt: "2026-09-01" }),
+      anima("crewmate", {
+        lastActiveAt: "2026-08-01",
+        kin: [
+          { name: "loner", label: "friend", strength: 4 },
+          { name: "nobody", label: "ghost", strength: 1 },
+        ],
+      }),
+    ];
+    const { nodes, edges, rows } = familyLayout(animas, 3);
+    expect(nodes.map((node) => node.anima.name)).toEqual(["loner", "root", "child", "crewmate"]);
+    expect(nodes.map((node) => [node.col, node.row])).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [0, 1],
+    ]);
+    expect(rows).toBe(2);
+    expect(edges.map((edge) => [edge.from, edge.to, edge.kind])).toEqual([
+      ["root", "crewmate", "crew"],
+      ["root", "child", "parent"],
+      ["crewmate", "loner", "kin"],
+    ]);
   });
 });
