@@ -10,7 +10,6 @@ import {
   radarPoints,
   shapeMagnitude,
   sigilSegments,
-  timelineDots,
   trajectory,
 } from "./animaVisuals.logic";
 
@@ -68,16 +67,6 @@ describe("trajectory and timeline", () => {
     expect(points.map((p) => p.index)).toEqual([0, 2]);
     expect(points[0]!.color).toBe("grey");
     expect(points[1]!.color).toContain("oklch");
-  });
-  it("sizes dots by magnitude and spreads them across the width", () => {
-    const dots = timelineDots(breaths, { width: 100, minRadius: 2, maxRadius: 6 }, "grey");
-    expect(dots.map((d) => d.index)).toEqual([0, 1, 2]);
-    expect(dots[0]!.radius).toBe(2);
-    expect(dots[2]!.radius).toBeCloseTo(6);
-    expect(dots[0]!.x).toBeLessThan(dots[2]!.x);
-    expect(
-      timelineDots(breaths.slice(0, 1), { width: 100, minRadius: 2, maxRadius: 6 }, "g")[0]!.x,
-    ).toBe(50);
   });
   it("magnitude of null is zero", () => expect(shapeMagnitude(null)).toBe(0));
 });

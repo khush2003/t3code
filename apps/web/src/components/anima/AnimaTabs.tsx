@@ -25,7 +25,7 @@ import {
 } from "./AnimaBits";
 import { AnimaTeamSection } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
-import { AnimaHero, TraitRadar } from "./AnimaVisuals";
+import { AnimaBodyPanel, TraitRadar } from "./AnimaVisuals";
 
 interface TabProps {
   readonly environmentId: EnvironmentId;
@@ -69,55 +69,37 @@ export function OverviewTab({
   });
   const selected = projects.find((project) => project.id === projectId);
   return (
-    <div className="space-y-5 px-3 py-3 sm:px-4">
-      <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
-      <AnimaHero summary={summary} breaths={detail.breaths} onSelectBreath={onSelectBreath} />
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-muted-foreground">
-          {summary.live ? "A session is running with this anima." : "No active session."} Born{" "}
-          <RelativeTime value={summary.born} />, active{" "}
-          <RelativeTime value={summary.lastActiveAt} />.
-        </div>
-      </div>
-      <AnimaTeamSection environmentId={environmentId} detail={detail} onOpenAnima={onOpenAnima} />
+    <div className="grid gap-4 @3xl/anima:grid-cols-3">
+      <BentoCard className="@3xl/anima:col-span-2">
+        <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
+      </BentoCard>
+      <BentoCard title="Body" hint="Breadth, depth and coupling of every breath">
+        <AnimaBodyPanel breaths={detail.breaths} accent={summary.accent} />
+      </BentoCard>
       {summary.voice ? (
-        <AnimaBlock title="Voice">
-          <p className="text-sm text-foreground/90">{summary.voice}</p>
-        </AnimaBlock>
-      ) : null}
-      {summary.vow ? (
-        <AnimaBlock title="Vow">
-          <p className="text-sm text-foreground/90">{summary.vow}</p>
-        </AnimaBlock>
+        <BentoCard
+          title="Voice"
+          className={summary.memo ? "@3xl/anima:col-span-2" : "@3xl/anima:col-span-3"}
+        >
+          <p className="text-base leading-relaxed text-foreground/90">{summary.voice}</p>
+        </BentoCard>
       ) : null}
       {summary.memo ? (
-        <AnimaBlock title="Memo">
-          <p className="whitespace-pre-wrap text-sm text-foreground/90">{summary.memo}</p>
-        </AnimaBlock>
+        <BentoCard title="Memo" className={summary.voice ? "" : "@3xl/anima:col-span-3"}>
+          <p className="line-clamp-6 break-words whitespace-pre-wrap text-sm text-foreground/85">
+            {summary.memo}
+          </p>
+        </BentoCard>
       ) : null}
-      <div className="grid gap-5 @xl/anima:grid-cols-2">
-        <AnimaBlock title="Traits">
-          <TraitRadar traits={detail.traits} />
-          <TraitBars traits={detail.traits} empty="No traits recorded yet." />
-        </AnimaBlock>
-        <AnimaBlock title="Skills">
-          <TraitRadar traits={detail.skills} />
-          <TraitBars traits={detail.skills} empty="No skills recorded yet." />
-        </AnimaBlock>
-      </div>
-      {detail.header.length > 0 ? (
-        <AnimaBlock title="Header">
-          <dl className="grid grid-cols-[minmax(0,8rem)_1fr] gap-x-3 gap-y-1 text-xs">
-            {detail.header.map((entry) => (
-              <div key={entry.key} className="contents">
-                <dt className="truncate text-muted-foreground">{entry.key}</dt>
-                <dd className="min-w-0 break-words">{entry.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </AnimaBlock>
-      ) : null}
-      <AnimaBlock title="Projects">
+      <BentoCard title="Traits">
+        <TraitRadar traits={detail.traits} />
+        <TraitBars traits={detail.traits} empty="No traits recorded yet." />
+      </BentoCard>
+      <BentoCard title="Skills">
+        <TraitRadar traits={detail.skills} />
+        <TraitBars traits={detail.skills} empty="No skills recorded yet." />
+      </BentoCard>
+      <BentoCard title="Projects">
         <div className="flex flex-wrap gap-1.5">
           {summary.projects.length === 0 ? (
             <span className="text-xs text-muted-foreground">Not attached to any project.</span>
@@ -154,14 +136,64 @@ export function OverviewTab({
             Attach
           </Button>
         </div>
-      </AnimaBlock>
-      <AnimaBlock title="Wake payload">
+      </BentoCard>
+      {detail.team.length > 0 || detail.lead !== null || summary.role === "lead" ? (
+        <BentoCard className="@3xl/anima:col-span-3">
+          <AnimaTeamSection
+            environmentId={environmentId}
+            detail={detail}
+            onOpenAnima={onOpenAnima}
+          />
+        </BentoCard>
+      ) : null}
+      <BentoCard title="Wake payload" className="@3xl/anima:col-span-2">
         <Button size="xs" variant="ghost-muted" onClick={() => setShowWake((value) => !value)}>
           {showWake ? "Hide" : "Preview what a new thread receives"}
         </Button>
         {showWake ? <WakePreview environmentId={environmentId} name={summary.name} /> : null}
-      </AnimaBlock>
+      </BentoCard>
+      {detail.header.length > 0 ? (
+        <BentoCard title="Header">
+          <dl className="grid grid-cols-[minmax(0,6rem)_1fr] gap-x-3 gap-y-1 text-xs">
+            {detail.header.map((entry) => (
+              <div key={entry.key} className="contents">
+                <dt className="truncate text-muted-foreground">{entry.key}</dt>
+                <dd className="line-clamp-3 min-w-0 break-words">{entry.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </BentoCard>
+      ) : null}
     </div>
+  );
+}
+
+function BentoCard({
+  title,
+  hint,
+  className,
+  children,
+}: {
+  readonly title?: string;
+  readonly hint?: string;
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "min-w-0 space-y-3 rounded-2xl border border-border/60 bg-card/70 p-4 shadow-xs",
+        className,
+      )}
+    >
+      {title ? (
+        <header className="space-y-0.5">
+          <h3 className="text-xs font-medium text-foreground/80">{title}</h3>
+          {hint ? <p className="text-2xs text-muted-foreground">{hint}</p> : null}
+        </header>
+      ) : null}
+      {children}
+    </section>
   );
 }
 
