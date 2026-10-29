@@ -48,8 +48,8 @@ describe("anima settings logic", () => {
       view: "library",
       entry: "notes.md",
     });
-    expect(validateAnimaSearch({ view: "roster", entry: "x" })).toEqual({ view: "roster" });
-    expect(validateAnimaSearch({ view: "world" })).toEqual({});
+    expect(validateAnimaSearch({ view: "world", entry: "x" })).toEqual({ view: "world" });
+    expect(validateAnimaSearch({ view: "roster" })).toEqual({});
     expect(validateAnimaSearch({ view: "library", entry: "../etc" })).toEqual({ view: "library" });
   });
 
