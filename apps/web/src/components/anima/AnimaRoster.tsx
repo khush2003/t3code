@@ -3,18 +3,18 @@ import { ListIcon, MailIcon, OrbitIcon, PlusIcon, UsersIcon } from "lucide-react
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
-import { cn } from "../../../lib/utils";
-import { animaEnvironment, useAnimaList } from "../../../state/anima";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../../ui/empty";
-import { Button } from "../../ui/button";
-import { Badge } from "../../ui/badge";
-import { Input } from "../../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { Skeleton } from "../../ui/skeleton";
-import { Switch } from "../../ui/switch";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
-import { Toggle, ToggleGroup } from "../../ui/toggle-group";
-import { SettingsGroup } from "../SettingsGroup";
+import { cn } from "../../lib/utils";
+import { animaEnvironment, useAnimaList } from "../../state/anima";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
+import { Switch } from "../ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { SettingsGroup } from "../settings/SettingsGroup";
 import {
   ANIMA_HEALTH_LABELS,
   ANIMA_SORT_LABELS,
@@ -23,7 +23,7 @@ import {
   animaNeedsAttention,
   filterAnimas,
   sortAnimas,
-} from "../animaSettings.logic";
+} from "./anima.logic";
 import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
 import { AnimaHealthRing } from "./AnimaHealth";
 import { AnimaConstellation, AnimaSigil, animaColor } from "./AnimaVisuals";

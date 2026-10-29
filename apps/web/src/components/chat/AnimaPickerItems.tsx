@@ -1,8 +1,8 @@
 import type { AnimaName, AnimaSummary } from "@t3tools/contracts";
 
-import { AnimaLiveDot } from "../settings/anima/AnimaBits";
-import { AnimaHealthBadge } from "../settings/anima/AnimaHealth";
-import { AnimaSigil } from "../settings/anima/AnimaVisuals";
+import { AnimaLiveDot } from "../anima/AnimaBits";
+import { AnimaHealthBadge } from "../anima/AnimaHealth";
+import { AnimaSigil } from "../anima/AnimaVisuals";
 import { MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../ui/menu";
 
 const NONE = "";
