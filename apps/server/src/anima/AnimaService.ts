@@ -9,6 +9,7 @@ import {
   ANIMA_BUNDLE_VERSION,
   type AnimaAttachInput,
   type AnimaClinicInput,
+  type AnimaRecordInput,
   type AnimaBundle,
   type AnimaBundleFile,
   type AnimaCompareResult,
@@ -141,6 +142,7 @@ export class AnimaService extends Context.Service<
     readonly team: (input: AnimaTeamInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     /** Writes the anima's self-chosen creature form (and optional accent) to appearance.json. */
     readonly clinic: (input: AnimaClinicInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    readonly record: (input: AnimaRecordInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     /** The wake payload without clocking in or consuming the inbox. */
     readonly wakePreview: (name: string) => Effect.Effect<string, AnimaFailure>;
     /** Runs a real wake (clock-in, inbox consumption); never cached. */
@@ -735,6 +737,33 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const record: AnimaService["Service"]["record"] = Effect.fn("AnimaService.record")(
+    function* (input) {
+      yield* requireAnima(input.name);
+      const tensions = input.tensions ?? [];
+      const resolves = input.resolves ?? [];
+      // The CLI splits both flags on commas, so a comma would silently become two tensions.
+      if ([...tensions, ...resolves].some((entry) => entry.includes(",")))
+        return yield* rejected("record", "Tensions cannot contain commas.");
+      const result = yield* runCli("record", [
+        "breathe",
+        "--agent",
+        input.name,
+        "--hsl",
+        input.hsl,
+        "--note",
+        input.note,
+        "--shape",
+        input.shape,
+        ...(input.aim === undefined ? [] : ["--aim", input.aim]),
+        ...(input.memo === undefined ? [] : ["--memo", input.memo]),
+        ...(tensions.length === 0 ? [] : ["--tension", tensions.join(",")]),
+        ...(resolves.length === 0 ? [] : ["--decisions", resolves.join(",")]),
+      ]);
+      return yield* mutationResult(input.name, result.stdout);
+    },
+  );
+
   const policyArgs = (input: AnimaPolicyInput): ReadonlyArray<string> => {
     const { action } = input;
     switch (action.type) {
@@ -1232,6 +1261,7 @@ const make = Effect.gen(function* () {
     create,
     attach,
     setEnabled,
+    record,
     clinic,
     policy,
     inbox,
