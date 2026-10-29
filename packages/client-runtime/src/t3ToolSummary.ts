@@ -364,6 +364,9 @@ export function summarizeT3ToolCalls(
     case "anima-clinic":
       label = phrase("Chose", "choose", `an anima's look ${times}`);
       break;
+    case "anima-record":
+      label = phrase("Recorded", "record", `anima breaths ${times}`);
+      break;
     case "anima-inbox-read":
       label = phrase("Read", "read", `anima inboxes ${times}`);
       break;
