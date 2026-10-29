@@ -65,7 +65,30 @@ interface SectionView {
 }
 
 const FRAME_MS = 32;
-const LABEL_ZOOM = 1.5;
+const SECTION_SUFFIXES = [
+  "",
+  "East",
+  "West",
+  "North",
+  "South",
+  "Glen",
+  "Rise",
+  "Vale",
+  "Reach",
+  "Ford",
+];
+const MODE_PRIORITY: Readonly<Record<CreatureMode, number>> = {
+  running: 0,
+  recent: 1,
+  idle: 2,
+  asleep: 3,
+};
+
+function sectionName(section: CampusSection) {
+  const suffix = SECTION_SUFFIXES[section.number - 1] ?? String(section.number);
+  return suffix ? `${section.name} ${suffix}` : section.name;
+}
+const LABEL_ZOOM = 1.1;
 const STROLLING: ReadonlySet<CreatureMode> = new Set(["idle", "recent"]);
 
 /**
@@ -107,6 +130,7 @@ export class LanternYard {
   private width = 1;
   private height = 1;
   private clickStart = { x: 0, y: 0 };
+  private frameRequest = 0;
 
   constructor(
     private readonly host: HTMLElement,
@@ -251,7 +275,7 @@ export class LanternYard {
       view.section = section;
       view.button.style.borderColor =
         DISTRICT_COLORS[districtTheme(section.districtId, section.name)]!;
-      view.button.textContent = `${section.name}${section.number > 1 ? ` ${section.number}` : ""} · ${section.entryIds.length}`;
+      view.button.textContent = `${sectionName(section)} · ${section.entryIds.length}`;
     }
     const sectionById = new Map(sections.map((section) => [section.id, section]));
     for (const agent of agents) {
@@ -326,14 +350,19 @@ export class LanternYard {
     const selected = selectedId ? this.occupants.get(selectedId) : undefined;
     const changed = this.selectedId !== selectedId;
     this.selectedId = selected ? selectedId : null;
+    const liveliest = agents.toSorted((a, b) => MODE_PRIORITY[a.mode] - MODE_PRIORITY[b.mode])[0];
     const nextFocus =
       selected?.sectionId ??
-      (this.sections.has(this.focusSection) ? this.focusSection : (sections[0]?.id ?? ""));
+      (this.sections.has(this.focusSection)
+        ? this.focusSection
+        : ((liveliest ? placements.get(liveliest.id)?.sectionId : undefined) ??
+          sections[0]?.id ??
+          ""));
     if (nextFocus !== this.focusSection) this.focusSection = nextFocus;
     this.focusDetails();
     if (!this.fitted && sections.length > 0) {
       this.fitted = true;
-      this.setCamera(selected ? "follow" : "campus");
+      this.setCamera(selected ? "follow" : "district");
     } else if (changed && selected) {
       this.setCamera("follow");
     }
@@ -369,12 +398,7 @@ export class LanternYard {
       return;
     }
     const focused = this.sections.get(this.focusSection);
-    const fitting =
-      preset === "district" && focused
-        ? [...this.sections.values()].filter(
-            (view) => view.section.districtId === focused.section.districtId,
-          )
-        : [...this.sections.values()];
+    const fitting = preset === "district" && focused ? [focused] : [...this.sections.values()];
     const bounds = new THREE.Box3();
     for (const view of fitting) {
       const center = new THREE.Vector3(...view.section.center);
@@ -431,6 +455,7 @@ export class LanternYard {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    cancelAnimationFrame(this.frameRequest);
     this.renderer.setAnimationLoop(null);
     this.stopResize();
     this.visibilityObserver.disconnect();
@@ -451,7 +476,12 @@ export class LanternYard {
 
   private readonly invalidate = () => {
     this.dirty = true;
-    if (!this.running) this.draw();
+    if (this.running || this.frameRequest !== 0 || this.disposed) return;
+    // Coalesce bursts (orbit drags, roster updates) into one frame.
+    this.frameRequest = requestAnimationFrame(() => {
+      this.frameRequest = 0;
+      this.draw();
+    });
   };
 
   private focusDetails() {
@@ -550,6 +580,7 @@ export class LanternYard {
           .sub(this.controls.target);
         this.controls.target.add(offset);
         this.camera.position.add(offset);
+        this.controls.update();
       }
     }
     if (this.yard) {
@@ -660,9 +691,8 @@ export class LanternYard {
 
   private draw() {
     if (this.disposed || !this.dirty) return;
-    this.controls.update();
     this.camera.updateMatrixWorld();
-    const zoomed = this.camera.zoom > LABEL_ZOOM || this.preset === "follow";
+    const zoomed = this.camera.zoom > LABEL_ZOOM || this.preset !== "campus";
     for (const occupant of this.occupants.values()) {
       const show = zoomed
         ? occupant.sectionId === this.focusSection || this.camera.zoom > 2.5

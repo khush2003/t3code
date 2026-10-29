@@ -67,18 +67,32 @@ export const MODE_DESCRIPTIONS: Readonly<Record<CreatureMode, string>> = {
   asleep: "Asleep: inactive for two weeks or paused",
 };
 
-/** Animas live in the town of their home project; those without one share the commons. */
+/** Crews live with their lead; others in their home project's town, the commons, or the hollow when asleep. */
 export function toWorldAgents(animas: ReadonlyArray<AnimaSummary>, now: number): Array<WorldAgent> {
+  const leadOf = new Map<string, string>();
+  for (const anima of animas) {
+    for (const member of anima.team ?? []) {
+      if (member !== anima.name && !leadOf.has(member)) leadOf.set(member, anima.name);
+    }
+  }
   return animas.map((anima) => {
-    const home = anima.projects[0]?.trim();
     const mode = creatureMode(anima, now);
+    const lead = (anima.team?.length ?? 0) > 0 ? anima.name : leadOf.get(anima.name);
+    const home = anima.homeProject?.trim() || anima.projects[0]?.trim();
+    const [districtId, districtName] = lead
+      ? [`crew:${lead}`, `${lead}${lead.endsWith("s") ? "'" : "'s"} crew`]
+      : home
+        ? [`project:${home}`, home]
+        : mode === "asleep"
+          ? ["hollow", "Quiet Hollow"]
+          : ["commons", "Commons"];
     return {
       id: anima.name,
       formIndex: formIndex(anima),
       look: creatureLook(anima, now),
       mode,
-      districtId: home ? `project:${home}` : "commons",
-      districtName: home || "Commons",
+      districtId,
+      districtName,
       label: anima.name,
       status: MODE_STATUS[mode],
     };
