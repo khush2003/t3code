@@ -1,7 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { AnimaName, EnvironmentId } from "@t3tools/contracts";
-import { LibraryBigIcon, PlusIcon, SparklesIcon, TentTreeIcon, UsersIcon } from "lucide-react";
+import {
+  LayoutDashboardIcon,
+  LibraryBigIcon,
+  PlusIcon,
+  SparklesIcon,
+  TentTreeIcon,
+  UsersIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 import { isElectron } from "~/env";
@@ -22,7 +29,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { AnimaDetailView } from "./AnimaDetailView";
 import { AnimaLibrary } from "./AnimaLibrary";
-import { AnimaRoster } from "./AnimaRoster";
+import { AnimaDashboard } from "./AnimaDashboard";
 import { NewAnimaDialog } from "./NewAnimaDialog";
 import type { AnimaHomeView, AnimaTab } from "./anima.logic";
 import { AnimaWorld } from "./world/AnimaWorld";
@@ -32,8 +39,8 @@ const VIEWS: ReadonlyArray<{
   readonly label: string;
   readonly icon: typeof UsersIcon;
 }> = [
+  { value: "dashboard", label: "Dashboard", icon: LayoutDashboardIcon },
   { value: "world", label: "World", icon: TentTreeIcon },
-  { value: "roster", label: "Roster", icon: UsersIcon },
   { value: "library", label: "Library", icon: LibraryBigIcon },
 ];
 
@@ -41,7 +48,7 @@ export function AnimaPage(target: {
   readonly environmentId?: EnvironmentId;
   readonly anima?: string;
   readonly tab?: AnimaTab;
-  readonly view?: "roster" | "library";
+  readonly view?: "world" | "library";
   readonly entry?: string;
 }) {
   const navigate = useNavigate();
@@ -61,7 +68,7 @@ export function AnimaPage(target: {
     : !cliAvailable
       ? "The anima CLI is not installed on this environment."
       : null;
-  const view: AnimaHomeView = target.view ?? "world";
+  const view: AnimaHomeView = target.view ?? "dashboard";
   const scope = target.environmentId ? { environmentId: target.environmentId } : {};
 
   const open = (anima: string | undefined, tab?: AnimaTab) =>
@@ -69,7 +76,7 @@ export function AnimaPage(target: {
       to: "/anima",
       search: {
         ...scope,
-        ...(anima ? { anima } : view === "world" ? {} : { view }),
+        ...(anima ? { anima } : view === "dashboard" ? {} : { view }),
         ...(tab && tab !== "overview" ? { tab } : {}),
       },
     });
@@ -78,7 +85,7 @@ export function AnimaPage(target: {
       to: "/anima",
       search: {
         ...scope,
-        ...(next === "world" ? {} : { view: next }),
+        ...(next === "dashboard" ? {} : { view: next }),
         ...(next === "library" && entry ? { entry } : {}),
       },
     });
@@ -218,8 +225,9 @@ export function AnimaPage(target: {
                   onEntry={(entry) => showView("library", entry)}
                 />
               ) : (
-                <AnimaRoster
+                <AnimaDashboard
                   environmentId={environmentId}
+                  animas={animas}
                   onOpen={(name) => open(name)}
                   onCreate={() => setCreating(true)}
                   createDisabledReason={createDisabledReason}

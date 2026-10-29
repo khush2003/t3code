@@ -95,6 +95,7 @@ export function toWorldAgents(animas: ReadonlyArray<AnimaSummary>, now: number):
       districtName,
       label: anima.name,
       status: MODE_STATUS[mode],
+      thought: mode === "running" || mode === "recent" ? anima.aim : null,
     };
   });
 }

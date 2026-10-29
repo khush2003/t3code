@@ -139,6 +139,13 @@ describe("identity, breath, policy, inbox, session", () => {
     ).toEqual(["Created a.md (philosophy framework)", "Created b.md (Act 8)"]);
   });
 
+  it("reads tensions whose slugs contain colons", () => {
+    expect(AnimaFiles.parseTensions("fix-shipped:needs-restart:10,house(4):9,bad")).toEqual([
+      { slug: "fix-shipped:needs-restart", age: 10 },
+      { slug: "house(4)", age: 9 },
+    ]);
+  });
+
   it("parses policy sections with numbered rules and hook fire stats", () => {
     // `1phfl5w` is hook.ts's hashOf("WHEN a THEN b"); pending rules never count fires.
     const fires = [
