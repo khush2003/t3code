@@ -18,7 +18,7 @@ import { animaNeedsAttention } from "./anima.logic";
 import { RelativeTime } from "./AnimaBits";
 import { AnimaRoster } from "./AnimaRoster";
 import { SoulOrb, animaSoulColors } from "./AnimaSoul";
-import { PULSE_BUCKETS, pulseBuckets, tensionBoard } from "./animaDashboard.logic";
+import { animaOrder, PULSE_BUCKETS, pulseBuckets, tensionBoard } from "./animaDashboard.logic";
 
 const CONSTELLATION_LIMIT = 15;
 
@@ -301,12 +301,7 @@ export function AnimaDashboard({
   readonly onCreate: () => void;
   readonly createDisabledReason: string | null;
 }) {
-  const recent = animas
-    .toSorted(
-      (a, b) =>
-        Number(b.live) - Number(a.live) || (lastSeen(b) ?? "").localeCompare(lastSeen(a) ?? ""),
-    )
-    .slice(0, CONSTELLATION_LIMIT);
+  const recent = animaOrder(animas).slice(0, CONSTELLATION_LIMIT);
   const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
   const live = animas.filter((anima) => anima.live).length;
   const tending = animas.filter(animaNeedsAttention).length;
