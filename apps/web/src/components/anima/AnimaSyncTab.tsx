@@ -187,6 +187,14 @@ function SyncDirection({
     sourceList.refresh();
     destinationList.refresh();
   };
+  const ports = () =>
+    createAnimaSyncPorts(registry, (environmentId) =>
+      environmentId === source.environmentId
+        ? source.label
+        : environmentId === destination.environmentId
+          ? destination.label
+          : environmentId,
+    );
   const fail = (title: string, error: unknown) => {
     setState({ phase: "idle" });
     notify("error", title, describeAnimaError(error));
@@ -195,7 +203,7 @@ function SyncDirection({
   const check = async () => {
     setState({ phase: "working" });
     try {
-      const { compare } = await compareAnimaAcross(request, createAnimaSyncPorts(registry));
+      const { compare } = await compareAnimaAcross(request, ports());
       setState({ phase: "checked", compare });
     } catch (error) {
       fail("Could not compare", error);
@@ -204,7 +212,7 @@ function SyncDirection({
   const run = async () => {
     setState({ phase: "working" });
     try {
-      const outcome = await syncAnima(request, createAnimaSyncPorts(registry));
+      const outcome = await syncAnima(request, ports());
       if (outcome.status === "needs-choice") {
         setState({ phase: "choice", ...outcome });
         return;
@@ -228,7 +236,7 @@ function SyncDirection({
     if (!confirmed) return;
     setState({ phase: "working" });
     try {
-      await resolveAnimaSync({ kind: "replace" }, request, bundle, createAnimaSyncPorts(registry));
+      await resolveAnimaSync({ kind: "replace" }, request, bundle, ports());
       setState({ phase: "done", message: `Replaced on ${destination.label}.` });
       notify("success", `${name} replaced on ${destination.label}`);
       refreshLists();
@@ -243,7 +251,7 @@ function SyncDirection({
         { kind: "merge", projectId: projectId as ProjectId },
         request,
         bundle,
-        createAnimaSyncPorts(registry),
+        ports(),
       );
       if (started.kind === "merging") {
         setState({ phase: "merging", mergeId: started.mergeId, threadId: started.threadId });
