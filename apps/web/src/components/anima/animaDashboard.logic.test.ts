@@ -4,6 +4,7 @@ import {
   parseUserModel,
   parseVoiceSamples,
   pulseBuckets,
+  recentPulse,
   searchAnimas,
   soulMeaning,
   tensionBoard,
@@ -113,5 +114,23 @@ describe("searchAnimas", () => {
       expect.arrayContaining(["canvas:tension", "canvas:skill", "ink:aim"]),
     );
     expect(searchAnimas(animas, "c")).toEqual([]);
+  });
+});
+
+describe("recentPulse", () => {
+  it("keeps the last 48 hours, newest first, placed from 48h ago to now", () => {
+    const pulse = recentPulse(
+      [
+        { id: "day", at: "2026-10-28T12:00:00Z" },
+        { id: "now", at: "2026-10-29T12:00:00Z" },
+        { id: "old", at: "2026-10-20T12:00:00Z" },
+        { id: "never", at: null },
+      ],
+      NOW,
+    );
+    expect(pulse.map((dot) => [dot.entry.id, dot.x])).toEqual([
+      ["now", 1],
+      ["day", 0.5],
+    ]);
   });
 });
