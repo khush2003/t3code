@@ -1044,7 +1044,9 @@ function makeLocalCommandHarness(input: {
           resolve: resolveRuntimePolicy,
         }),
         Layer.mock(ThreadAnimaWake.ThreadAnimaWake)(
-          input.anima === undefined ? {} : { refresh: () => Effect.succeed("") },
+          input.anima === undefined
+            ? {}
+            : { refresh: () => Effect.succeed(""), recall: () => Effect.succeed("") },
         ),
         Layer.mock(AnimaRuntime.AnimaRuntime)(input.anima ?? {}),
       ),

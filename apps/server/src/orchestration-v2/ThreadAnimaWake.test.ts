@@ -29,6 +29,7 @@ it.effect("fences the payload so any provider can tell it from the user message"
   Effect.sync(() => {
     const context = ThreadAnimaWake.renderAnimaWakeContext("iris", "  identity\n  ");
     assert.match(context, /never breathe on your own after trivial turns/);
+    assert.match(context, /do not run recall yourself/);
     assert.notMatch(context, /anima-voice/);
     assert.match(context, /<anima-wake name="iris">\nidentity\n<\/anima-wake>$/);
   }),
@@ -126,6 +127,30 @@ it.effect("never fails the turn when the capsule cannot be built", () =>
       ThreadAnimaWake.layer.pipe(
         Layer.provide(
           Layer.mock(AnimaService.AnimaService)({ identityBrief: () => Effect.die("boom") }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("fences recall matches and adds nothing when none apply", () =>
+  Effect.gen(function* () {
+    const service = yield* ThreadAnimaWake.ThreadAnimaWake;
+    assert.equal(
+      yield* service.recall({ name: "iris", message: "fix the flaky test" }),
+      '<anima-recall name="iris">\n- prefer the failing test first\n</anima-recall>',
+    );
+    assert.equal(yield* service.recall({ name: "iris", message: "hello" }), "");
+  }).pipe(
+    Effect.provide(
+      ThreadAnimaWake.layer.pipe(
+        Layer.provide(
+          Layer.mock(AnimaService.AnimaService)({
+            recall: (input) =>
+              Effect.succeed(
+                input.message.includes("test") ? "- prefer the failing test first" : "",
+              ),
+          }),
         ),
       ),
     ),
