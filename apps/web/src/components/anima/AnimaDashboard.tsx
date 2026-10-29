@@ -14,13 +14,13 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { animaNeedsAttention } from "./anima.logic";
+import { animaNeedsAttention, type AnimaTab } from "./anima.logic";
 import { RelativeTime } from "./AnimaBits";
+import { FamilyConstellation } from "./AnimaFamily";
+import { AlertsBanner, AnimaSearch, HealthPanel } from "./AnimaPool";
 import { AnimaRoster } from "./AnimaRoster";
-import { SoulOrb, animaSoulColors } from "./AnimaSoul";
-import { animaOrder, PULSE_BUCKETS, pulseBuckets, tensionBoard } from "./animaDashboard.logic";
-
-const CONSTELLATION_LIMIT = 15;
+import { animaSoulColors } from "./AnimaSoul";
+import { PULSE_BUCKETS, pulseBuckets, tensionBoard } from "./animaDashboard.logic";
 
 function lastSeen(anima: AnimaSummary): string | null {
   return anima.lastActiveAt ?? anima.lastBreathAt;
@@ -108,58 +108,6 @@ function StatTile({
     </button>
   ) : (
     <div className={className}>{body}</div>
-  );
-}
-
-/** The original dashboard's constellation: soul orbs sized by how much each anima has lived. */
-function Constellation({
-  animas,
-  onOpen,
-}: {
-  readonly animas: ReadonlyArray<AnimaSummary>;
-  readonly onOpen: (name: string) => void;
-}) {
-  return (
-    <ul className="grid grid-cols-2 gap-x-3 gap-y-6 rounded-3xl border border-border/60 bg-card px-4 py-6 shadow-xs sm:grid-cols-3 lg:grid-cols-5">
-      {animas.map((anima) => {
-        const size = Math.round(Math.min(92, 40 + Math.sqrt(anima.breathCount) * 7));
-        const { glow } = animaSoulColors(anima);
-        return (
-          <li key={anima.name}>
-            <button
-              type="button"
-              onClick={() => onOpen(anima.name)}
-              className="group flex w-full flex-col items-center gap-2 rounded-2xl px-2 py-3 text-center outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <span className="grid size-24 place-items-center">
-                <span
-                  className={cn(
-                    "rounded-full transition-transform duration-300 group-hover:scale-110",
-                    anima.live && "ring-2 ring-success ring-offset-4 ring-offset-card",
-                  )}
-                  style={{ boxShadow: `0 0 28px ${glow}` }}
-                >
-                  <SoulOrb anima={anima} size={size} />
-                </span>
-              </span>
-              <span className="flex max-w-full items-center gap-1.5 text-sm font-semibold">
-                <span className="truncate">{anima.name}</span>
-                {anima.live ? <span className="size-1.5 shrink-0 rounded-full bg-success" /> : null}
-              </span>
-              <span className="text-2xs text-muted-foreground tabular-nums">
-                {anima.breathCount} {anima.breathCount === 1 ? "breath" : "breaths"} ·{" "}
-                <RelativeTime value={lastSeen(anima)} />
-              </span>
-              {anima.aim ? (
-                <span className="line-clamp-2 text-xs leading-snug text-foreground/70">
-                  {anima.aim}
-                </span>
-              ) : null}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
@@ -297,11 +245,10 @@ export function AnimaDashboard({
 }: {
   readonly environmentId: EnvironmentId;
   readonly animas: ReadonlyArray<AnimaSummary>;
-  readonly onOpen: (name: string) => void;
+  readonly onOpen: (name: string, tab?: AnimaTab) => void;
   readonly onCreate: () => void;
   readonly createDisabledReason: string | null;
 }) {
-  const recent = animaOrder(animas).slice(0, CONSTELLATION_LIMIT);
   const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
   const live = animas.filter((anima) => anima.live).length;
   const tending = animas.filter(animaNeedsAttention).length;
@@ -311,6 +258,10 @@ export function AnimaDashboard({
     document.getElementById("anima-roster")?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
     <div className="space-y-10">
+      <div className="space-y-3">
+        <AnimaSearch animas={animas} onOpen={onOpen} />
+        <AlertsBanner animas={animas} onOpen={onOpen} />
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatTile icon={<SparklesIcon />} label="Animas" value={animas.length} tone="neutral" />
         <StatTile icon={<WindIcon />} label="Breaths taken" value={breaths} tone="info" />
@@ -331,13 +282,13 @@ export function AnimaDashboard({
         />
       </div>
 
-      {recent.length > 0 ? (
+      {animas.length > 0 ? (
         <Section
           icon={<SparklesIcon />}
           title="Constellation"
-          hint="The most recently active animas. Bigger orbs have lived more; colour is the latest breath."
+          hint="Every anima and the bonds between them: parents and children, leads and crews, and kin."
         >
-          <Constellation animas={recent} onOpen={onOpen} />
+          <FamilyConstellation animas={animas} onOpen={onOpen} />
         </Section>
       ) : null}
 
@@ -358,6 +309,16 @@ export function AnimaDashboard({
           hint="Unresolved questions animas are carrying, oldest first."
         >
           <Tensions animas={animas} onOpen={onOpen} />
+        </Section>
+      ) : null}
+
+      {animas.length > 0 ? (
+        <Section
+          icon={<HeartPulseIcon />}
+          title="Health"
+          hint="Animas the CLI would tend, most in need first. Fuller rings are healthier."
+        >
+          <HealthPanel animas={animas} onOpen={onOpen} />
         </Section>
       ) : null}
 
