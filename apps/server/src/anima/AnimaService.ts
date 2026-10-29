@@ -1,12 +1,14 @@
 import {
   AnimaCommandRejectedError,
   AnimaError,
+  AnimaForm,
   AnimaLibrarySlug,
   AnimaName,
   AnimaNotFoundError,
   AnimaSetEnabledInput,
   ANIMA_BUNDLE_VERSION,
   type AnimaAttachInput,
+  type AnimaClinicInput,
   type AnimaBundle,
   type AnimaBundleFile,
   type AnimaCompareResult,
@@ -37,6 +39,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -83,6 +86,24 @@ export interface AnimaWakeInput {
   readonly cwd: string;
 }
 
+/** The host whose instructions format the identity brief. */
+export type AnimaBriefTarget = "claude" | "codex";
+
+export interface AnimaCliInfo {
+  /** True for the packaged CLI (`anima version --json` answers); false for the legacy skill script. */
+  readonly modern: boolean;
+  readonly version: string | null;
+}
+
+interface CliCommand {
+  readonly command: string;
+  readonly prefixArgs: ReadonlyArray<string>;
+  /** Passed as ANIMA_CLI so the command lines the CLI embeds in its output name the CLI in use. */
+  readonly envValue: string;
+  /** Checked on every call: absent until the user installs it. */
+  readonly checkPath: string | null;
+}
+
 export interface AnimaInstallInput {
   readonly name: string;
   readonly files: ReadonlyArray<AnimaBundleFile>;
@@ -117,6 +138,8 @@ export class AnimaService extends Context.Service<
       input: AnimaLibraryShelveInput,
     ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     readonly team: (input: AnimaTeamInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    /** Writes the anima's self-chosen creature form (and optional accent) to appearance.json. */
+    readonly clinic: (input: AnimaClinicInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     /** The wake payload without clocking in or consuming the inbox. */
     readonly wakePreview: (name: string) => Effect.Effect<string, AnimaFailure>;
     /** Runs a real wake (clock-in, inbox consumption); never cached. */
@@ -129,12 +152,22 @@ export class AnimaService extends Context.Service<
     readonly summary: (name: string) => Effect.Effect<AnimaSummary, AnimaFailure>;
     readonly rootPath: Effect.Effect<string>;
     readonly cliAvailable: Effect.Effect<boolean>;
-    /** The skill's own breathe.md, or "" when the skill does not ship one. */
+    /** Probed once per service lifetime; legacy when the CLI is missing or does not answer. */
+    readonly cliInfo: Effect.Effect<AnimaCliInfo>;
+    /** The CLI's breathe guide (`resource read breathe`, or the skill's breathe.md), or "" when absent. */
     readonly breatheGuide: Effect.Effect<string>;
     /** The anima's generated output-style text (frontmatter stripped), or "" when absent. */
     readonly voice: (name: string) => Effect.Effect<string>;
     /** Compact identity refresh built from files only: no wake, no clock-in, no inbox. */
     readonly capsule: (name: string) => Effect.Effect<string>;
+    /**
+     * Periodic identity refresh: the CLI's `brief` for the host when it has one, else `capsule`.
+     * Writes nothing and never fails; "" when there is nothing to inject.
+     */
+    readonly identityBrief: (input: {
+      readonly name: string;
+      readonly target: AnimaBriefTarget;
+    }) => Effect.Effect<string>;
     /** Validates the tree, moves the current anima into `.backups/`, and installs the files. */
     readonly install: (
       input: AnimaInstallInput,
@@ -143,6 +176,17 @@ export class AnimaService extends Context.Service<
 >()("t3/anima/AnimaService") {}
 
 const isAnimaName = Schema.is(AnimaName);
+/** `appearance.json` as the packaged CLI's `clinic check-in` writes it. */
+const encodeAppearance = Schema.encodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      version: Schema.Literal(1),
+      form: AnimaForm,
+      accent: Schema.String,
+      checkedInAt: Schema.String,
+    }),
+  ),
+);
 const isLibrarySlug = Schema.is(AnimaLibrarySlug);
 
 const stripTerminalControls = (text: string) =>
@@ -163,16 +207,85 @@ const timestampSlug = (ms: number) =>
 const byteLength = (files: ReadonlyArray<AnimaBundleFile>) =>
   files.reduce((total, file) => total + Buffer.byteLength(file.content), 0);
 
+const parseVersionEnvelope = (stdout: string): Option.Option<string> => {
+  try {
+    const value: unknown = JSON.parse(stdout);
+    if (typeof value !== "object" || value === null) return Option.none();
+    const envelope = value as { cliVersion?: unknown; data?: { version?: unknown } };
+    const version = envelope.data?.version ?? envelope.cliVersion;
+    return typeof version === "string" ? Option.some(version) : Option.none();
+  } catch {
+    return Option.none();
+  }
+};
+
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const runner = yield* ProcessRunner.ProcessRunner;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const home = yield* HostProcess.HomeDirectory;
+  const environment = yield* HostProcess.Environment;
+  const pathDelimiter = (yield* HostProcess.isWindows) ? ";" : ":";
 
-  const root = path.join(home, ".claude", "anima");
+  const root = environment.ANIMA_HOME?.trim() || path.join(home, ".claude", "anima");
   const libraryDir = path.join(root, "library");
-  const cliPath = path.join(home, ".claude", "skills", "anima", "anima.ts");
+  const legacyCliPath = path.join(home, ".claude", "skills", "anima", "anima.ts");
+  const outputStylesDir = path.join(home, ".claude", "output-styles");
+
+  const isExecutableFile = (candidate: string) =>
+    fs.stat(candidate).pipe(
+      Effect.map((info) => info.type === "File" && (info.mode & 0o111) !== 0),
+      Effect.orElseSucceed(() => false),
+    );
+
+  const findOnPath = Effect.fn("AnimaService.findOnPath")(function* (command: string) {
+    for (const dir of (environment.PATH ?? "").split(pathDelimiter)) {
+      if (dir === "") continue;
+      const candidate = path.join(dir, command);
+      if (yield* isExecutableFile(candidate)) return Option.some(candidate);
+    }
+    return Option.none<string>();
+  });
+
+  const scriptCommand = (script: string): CliCommand => ({
+    command: "bun",
+    prefixArgs: [script],
+    envValue: script,
+    checkPath: script,
+  });
+
+  // Same order as the CLI's own resolveAnimaCli: ANIMA_CLI, `anima` on PATH, the legacy script.
+  const overrideCli = environment.ANIMA_CLI?.trim();
+  const cli: CliCommand =
+    overrideCli !== undefined && overrideCli !== ""
+      ? overrideCli.endsWith(".ts")
+        ? scriptCommand(overrideCli)
+        : {
+            command: overrideCli,
+            prefixArgs: [],
+            envValue: overrideCli,
+            checkPath: path.isAbsolute(overrideCli) ? overrideCli : null,
+          }
+      : yield* findOnPath("anima").pipe(
+          Effect.map(
+            Option.match({
+              onNone: () => scriptCommand(legacyCliPath),
+              onSome: (found): CliCommand => ({
+                command: found,
+                prefixArgs: [],
+                envValue: found,
+                checkPath: null,
+              }),
+            }),
+          ),
+        );
+  const cliEnv = {
+    HOME: home,
+    ANIMA_HOME: root,
+    ANIMA_CLI: cli.envValue,
+    ANIMA_OUTPUT_STYLES_DIR: outputStylesDir,
+  };
 
   const failed = (operation: string) => (cause: unknown) => new AnimaError({ operation, cause });
   const rejected = (operation: string, reason: string) =>
@@ -195,8 +308,7 @@ const make = Effect.gen(function* () {
   const readOptional = (target: string) =>
     fs.readFileString(target).pipe(Effect.orElseSucceed(() => ""));
 
-  const cliAvailable = exists(cliPath);
-  const breatheGuide = readOptional(path.join(path.dirname(cliPath), "breathe.md"));
+  const cliAvailable = cli.checkPath === null ? Effect.succeed(true) : exists(cli.checkPath);
 
   interface CliResult {
     readonly stdout: string;
@@ -216,10 +328,10 @@ const make = Effect.gen(function* () {
       return yield* rejected(operation, "The anima CLI is not installed on this environment.");
     const result = yield* runner
       .run({
-        command: "bun",
-        args: [cliPath, ...args],
+        command: cli.command,
+        args: [...cli.prefixArgs, ...args],
         spawnCwd: options?.cwd ?? root,
-        env: { HOME: home },
+        env: cliEnv,
         timeout: CLI_TIMEOUT,
         maxOutputBytes: options?.maxOutputBytes ?? 1024 * 1024,
         outputMode: "truncate",
@@ -237,6 +349,38 @@ const make = Effect.gen(function* () {
     }
     if (stdout === "" && stderr !== "") return yield* rejected(operation, firstLine(stderr));
     return { stdout, stderr } satisfies CliResult;
+  });
+
+  const LEGACY_CLI: AnimaCliInfo = { modern: false, version: null };
+  const probedCli = yield* Ref.make(Option.none<AnimaCliInfo>());
+
+  /** The legacy script has no `version` command and prints its help instead. */
+  const cliInfo: AnimaService["Service"]["cliInfo"] = Effect.gen(function* () {
+    const cached = yield* Ref.get(probedCli);
+    if (Option.isSome(cached)) return cached.value;
+    if (!(yield* cliAvailable)) return LEGACY_CLI;
+    const info = yield* runCli("version", ["version", "--json"]).pipe(
+      Effect.map((result) =>
+        Option.match(parseVersionEnvelope(result.stdout), {
+          onNone: () => LEGACY_CLI,
+          onSome: (version): AnimaCliInfo => ({ modern: true, version }),
+        }),
+      ),
+      Effect.orElseSucceed(() => LEGACY_CLI),
+    );
+    yield* Ref.set(probedCli, Option.some(info));
+    return info;
+  }).pipe(Effect.withSpan("AnimaService.cliInfo"));
+
+  const isModern = cliInfo.pipe(Effect.map((info) => info.modern));
+
+  const breatheGuide: AnimaService["Service"]["breatheGuide"] = Effect.gen(function* () {
+    if (yield* isModern)
+      return yield* runCli("breatheGuide", ["resource", "read", "breathe"]).pipe(
+        Effect.map((result) => result.stdout),
+        Effect.orElseSucceed(() => ""),
+      );
+    return yield* readOptional(path.join(path.dirname(legacyCliPath), "breathe.md"));
   });
 
   /** Architect-only commands (`birth`, `activate`, ...) need the architect as caller. */
@@ -300,6 +444,7 @@ const make = Effect.gen(function* () {
       readOptional(path.join(dir, "inbox")),
       readOptional(path.join(dir, "session")),
     ]);
+    const appearance = AnimaFiles.parseAppearance(byPath.get("appearance.json") ?? "");
     const agentContent = byPath.get("agent.anima") ?? "";
     const agent = AnimaFiles.parseAgentFile(agentContent);
     const assessment = AnimaFiles.assessHealth({
@@ -315,6 +460,7 @@ const make = Effect.gen(function* () {
         policy: AnimaFiles.parsePolicy(byPath.get("policy.md") ?? ""),
         inbox: AnimaFiles.parseInbox(inbox),
         session: AnimaFiles.parseSession(session, nowMs),
+        appearance,
         digest: AnimaFiles.digestFiles(files),
         health: assessment?.score ?? null,
       }),
@@ -345,6 +491,7 @@ const make = Effect.gen(function* () {
       animas: animas.flatMap((entry) => (Option.isSome(entry) ? [entry.value] : [])),
       cliAvailable: yield* cliAvailable,
       rootPath: root,
+      cliVersion: (yield* cliInfo).version,
     };
   });
 
@@ -522,6 +669,63 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const writeAtomically = Effect.fn("AnimaService.writeAtomically")(function* (
+    target: string,
+    content: string,
+  ) {
+    const nowMs = yield* Clock.currentTimeMillis;
+    const temporary = path.join(path.dirname(target), `.${path.basename(target)}-${nowMs}.tmp`);
+    yield* fs.writeFileString(temporary, content);
+    yield* fs
+      .rename(temporary, target)
+      .pipe(Effect.tapError(() => fs.remove(temporary, { force: true }).pipe(Effect.ignore)));
+  });
+
+  const clinic: AnimaService["Service"]["clinic"] = Effect.fn("AnimaService.clinic")(
+    function* (input) {
+      const dir = yield* requireAnima(input.name);
+      if (yield* isModern) {
+        const caller = yield* callerFor(input.name);
+        const result = yield* runCli("clinic", [
+          "clinic",
+          "check-in",
+          "--agent",
+          input.name,
+          "--form",
+          input.form,
+          ...(input.accent === undefined ? [] : ["--accent", input.accent]),
+          "--as",
+          caller,
+        ]);
+        return yield* mutationResult(input.name, result.stdout);
+      }
+      // The legacy script has no clinic command; the file shape is the packaged CLI's.
+      const [current, header] = yield* Effect.all([
+        readOptional(path.join(dir, "appearance.json")),
+        readOptional(path.join(dir, "agent.anima")),
+      ]);
+      const fallback =
+        AnimaFiles.parseAppearance(current)?.accent ?? AnimaFiles.parseAgentFile(header).accent;
+      const accent = input.accent ?? fallback;
+      if (accent === null || !/^#[0-9a-fA-F]{6}$/.test(accent))
+        return yield* rejected("clinic", `${input.name} has no accent color yet; choose one.`);
+      const nowMs = yield* Clock.currentTimeMillis;
+      yield* encodeAppearance({
+        version: 1,
+        form: input.form,
+        accent,
+        checkedInAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs)),
+      }).pipe(
+        Effect.flatMap((json) => writeAtomically(path.join(dir, "appearance.json"), `${json}\n`)),
+        Effect.mapError(failed("clinic")),
+      );
+      return yield* mutationResult(
+        input.name,
+        `${input.name} chose ${input.form} with accent ${accent}.`,
+      );
+    },
+  );
+
   const policyArgs = (input: AnimaPolicyInput): ReadonlyArray<string> => {
     const { action } = input;
     switch (action.type) {
@@ -575,15 +779,46 @@ const make = Effect.gen(function* () {
         return ["reply", "--to", action.messageId, "--as", input.name, action.body];
       case "clear":
         return ["inbox", "--agent", input.name, "--clear"];
+      case "ack":
+        return [
+          "inbox",
+          "--agent",
+          input.name,
+          ...action.messageIds.flatMap((id) => ["--ack", id]),
+        ];
     }
   };
 
+  /** The legacy script has no `--ack`, so drop exactly those messages from the file. */
+  const ackLegacy = Effect.fn("AnimaService.ackLegacy")(function* (
+    dir: string,
+    messageIds: ReadonlyArray<string>,
+  ) {
+    const target = path.join(dir, "inbox");
+    const content = yield* readOptional(target);
+    const wanted = new Set(messageIds);
+    const lines = content.split("\n").filter((line) => line.trim() !== "");
+    const kept = lines.filter((line) => {
+      const [message] = AnimaFiles.parseInbox(line);
+      return message === undefined || !wanted.has(message.id);
+    });
+    const removed = lines.length - kept.length;
+    if (removed === 0) return yield* rejected("inbox", "None of those messages are in the inbox.");
+    yield* writeAtomically(target, kept.map((line) => `${line}\n`).join("")).pipe(
+      Effect.mapError(failed("inbox")),
+    );
+    return `Acknowledged ${removed} message${removed === 1 ? "" : "s"}.`;
+  });
+
   const inboxAction: AnimaService["Service"]["inboxAction"] = Effect.fn("AnimaService.inboxAction")(
     function* (input) {
-      yield* requireAnima(input.name);
+      const dir = yield* requireAnima(input.name);
+      const { action } = input;
       // The CLI takes the first argument without a leading `--` as the body.
-      if (input.action.type !== "clear" && input.action.body.startsWith("--"))
+      if ((action.type === "send" || action.type === "reply") && action.body.startsWith("--"))
         return yield* rejected("inbox", "A message cannot start with '--'.");
+      if (action.type === "ack" && !(yield* isModern))
+        return yield* mutationResult(input.name, yield* ackLegacy(dir, action.messageIds));
       const result = yield* runCli("inbox", inboxArgs(input));
       return yield* mutationResult(input.name, result.stdout);
     },
@@ -766,11 +1001,14 @@ const make = Effect.gen(function* () {
     peek: boolean,
   ) {
     yield* requireAnima(name);
-    const result = yield* runCli(
-      operation,
-      ["read", "--wake", "--agent", name, ...(peek ? ["--peek"] : [])],
-      { cwd, maxOutputBytes: MAX_WAKE_BYTES },
-    );
+    const modern = yield* isModern;
+    // The packaged CLI dropped `--peek` (it now ignores it and clocks in) for `--no-clock-in`,
+    // and only records the session project from an explicit `--project` or a marker above cwd.
+    const extra = peek ? [modern ? "--no-clock-in" : "--peek"] : modern ? ["--project", cwd] : [];
+    const result = yield* runCli(operation, ["read", "--wake", "--agent", name, ...extra], {
+      cwd,
+      maxOutputBytes: MAX_WAKE_BYTES,
+    });
     return result.stdout;
   });
 
@@ -803,6 +1041,25 @@ const make = Effect.gen(function* () {
       ]);
       return AnimaFiles.buildIdentityCapsule(name, agent, identity);
     },
+  );
+
+  const identityBrief: AnimaService["Service"]["identityBrief"] = Effect.fn(
+    "AnimaService.identityBrief",
+  )(
+    function* (input) {
+      if (!isAnimaName(input.name)) return "";
+      if (!(yield* isModern)) return yield* capsule(input.name);
+      yield* requireAnima(input.name);
+      const result = yield* runCli("brief", [
+        "brief",
+        "--target",
+        input.target,
+        "--agent",
+        input.name,
+      ]);
+      return result.stdout;
+    },
+    Effect.orElseSucceed(() => ""),
   );
 
   const comparable = (
@@ -950,6 +1207,7 @@ const make = Effect.gen(function* () {
     create,
     attach,
     setEnabled,
+    clinic,
     policy,
     inbox,
     inboxAction,
@@ -968,9 +1226,11 @@ const make = Effect.gen(function* () {
     summary,
     rootPath: Effect.succeed(root),
     cliAvailable,
+    cliInfo,
     breatheGuide,
     voice,
     capsule,
+    identityBrief,
     install,
   });
 });

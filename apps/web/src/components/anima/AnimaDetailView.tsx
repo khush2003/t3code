@@ -1,19 +1,19 @@
 import { useState } from "react";
 import type { AnimaDetail, AnimaName, EnvironmentId } from "@t3tools/contracts";
 
-import { animaEnvironment } from "../../../state/anima";
-import { useEnvironmentQuery } from "../../../state/query";
-import { Badge } from "../../ui/badge";
-import { Skeleton } from "../../ui/skeleton";
-import { cn } from "../../../lib/utils";
-import { SettingsGroup } from "../SettingsGroup";
+import { animaEnvironment } from "../../state/anima";
+import { useEnvironmentQuery } from "../../state/query";
+import { Badge } from "../ui/badge";
+import { Skeleton } from "../ui/skeleton";
+import { cn } from "../../lib/utils";
+import { SettingsGroup } from "../settings/SettingsGroup";
 import {
   ANIMA_TABS,
   ANIMA_TAB_LABELS,
   type AnimaTab,
   groupOpens,
   isInboxMessageSettled,
-} from "../animaSettings.logic";
+} from "./anima.logic";
 import { AnimaDetailBanner } from "./AnimaDash";
 import { AnimaHealthRing, HealthTab } from "./AnimaHealth";
 import { InboxTab } from "./AnimaInbox";

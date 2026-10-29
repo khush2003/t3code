@@ -3,11 +3,11 @@ import type { CSSProperties } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import type { AnimaDetail, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
-import { animaEnvironment } from "../../../state/anima";
-import { Button } from "../../ui/button";
-import { Skeleton } from "../../ui/skeleton";
-import { Switch } from "../../ui/switch";
-import { ANIMA_HEALTH_LABELS, animaHealthBucket } from "../animaSettings.logic";
+import { animaEnvironment } from "../../state/anima";
+import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
+import { Switch } from "../ui/switch";
+import { ANIMA_HEALTH_LABELS, animaHealthBucket } from "./anima.logic";
 import { AnimaLiveDot, AnimaRoleBadge, RelativeTime, useAnimaMutation } from "./AnimaBits";
 import { AnimaHealthRing } from "./AnimaHealth";
 import { AnimaTeamChip } from "./AnimaTeam";

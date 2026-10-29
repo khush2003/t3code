@@ -12,11 +12,11 @@ import type {
   EnvironmentId,
 } from "@t3tools/contracts";
 
-import { cn } from "../../../lib/utils";
-import { animaEnvironment } from "../../../state/anima";
-import { useEnvironmentQuery } from "../../../state/query";
-import { Badge } from "../../ui/badge";
-import { Skeleton } from "../../ui/skeleton";
+import { cn } from "../../lib/utils";
+import { animaEnvironment } from "../../state/anima";
+import { useEnvironmentQuery } from "../../state/query";
+import { Badge } from "../ui/badge";
+import { Skeleton } from "../ui/skeleton";
 import {
   ANIMA_HEALTH_LABELS,
   type AnimaHealthBucket,
@@ -24,7 +24,7 @@ import {
   animaWellness,
   groupAuditFindings,
   keyedLines,
-} from "../animaSettings.logic";
+} from "./anima.logic";
 import { AnimaBlock, AnimaEmptyNote, Meter, type MeterTone } from "./AnimaBits";
 
 const RING_TONES: Readonly<Record<AnimaHealthBucket, string>> = {

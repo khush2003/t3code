@@ -22,8 +22,8 @@ import { useState, type ReactNode } from "react";
 import type { DraftId } from "../../composerDraftStore";
 import { animaEnvironment, useAnimaList } from "../../state/anima";
 import { useEnvironmentQuery } from "../../state/query";
-import { AnimaLiveDot, RelativeTime } from "../settings/anima/AnimaBits";
-import { AnimaSigil } from "../settings/anima/AnimaVisuals";
+import { AnimaLiveDot, RelativeTime } from "../anima/AnimaBits";
+import { AnimaSigil } from "../anima/AnimaVisuals";
 import { Badge } from "../ui/badge";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import {
@@ -233,7 +233,7 @@ export function ThreadAnimaRows({
 
   const openSettings = (name: AnimaName, tab?: "inbox") =>
     void navigate({
-      to: "/settings/anima",
+      to: "/anima",
       search: { environmentId, anima: name, ...(tab ? { tab } : {}) },
     });
 

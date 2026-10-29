@@ -1,20 +1,22 @@
 // @effect-diagnostics nodeBuiltinImport:off -- synchronous sha256 over many small files; no Effect API fits a pure digest
 import * as NodeCrypto from "node:crypto";
-import type {
-  AnimaAuditFinding,
-  AnimaBreath,
-  AnimaBundleFile,
-  AnimaCard,
-  AnimaCompareResult,
-  AnimaHealthAssessment,
-  AnimaHealthResult,
-  AnimaInboxMessage,
-  AnimaOpen,
-  AnimaPolicy,
-  AnimaShape,
-  AnimaSummary,
-  AnimaSyncRelation,
-  AnimaTrait,
+import {
+  ANIMA_FORMS,
+  type AnimaForm,
+  type AnimaAuditFinding,
+  type AnimaBreath,
+  type AnimaBundleFile,
+  type AnimaCard,
+  type AnimaCompareResult,
+  type AnimaHealthAssessment,
+  type AnimaHealthResult,
+  type AnimaInboxMessage,
+  type AnimaOpen,
+  type AnimaPolicy,
+  type AnimaShape,
+  type AnimaSummary,
+  type AnimaSyncRelation,
+  type AnimaTrait,
 } from "@t3tools/contracts";
 
 import { hashOf } from "./AnimaPolicyMatch.ts";
@@ -473,6 +475,21 @@ export function localTimestampMs(value: string): number {
   return new Date(value).getTime();
 }
 
+/** The packaged CLI stores `encodeURIComponent(JSON)` project metadata where the skill script stored a bare cwd. */
+function sessionProjectPath(field: string): string | null {
+  if (!field.startsWith("%7B") && !field.startsWith("{")) return nonEmpty(field);
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(field));
+    const projectPath =
+      typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>).projectPath
+        : undefined;
+    return typeof projectPath === "string" ? nonEmpty(projectPath) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseSession(content: string, nowMs: number): ParsedSession | null {
   const [clockedIn = "", lastActive = "", ...cwd] = content.trim().split("|");
   if (lastActive === "") return null;
@@ -480,7 +497,7 @@ export function parseSession(content: string, nowMs: number): ParsedSession | nu
   return {
     clockedIn,
     lastActive,
-    cwd: nonEmpty(cwd.join("|")),
+    cwd: sessionProjectPath(cwd.join("|")),
     live: Number.isFinite(last) && nowMs - last <= ANIMA_SESSION_STALE_MS,
   };
 }
@@ -549,6 +566,29 @@ export function parseCard(content: string): AnimaCard | null {
       : [],
     status: stringOrNull(card.status),
   };
+}
+
+export interface ParsedAppearance {
+  readonly form: AnimaForm;
+  readonly accent: string;
+}
+
+const isAnimaForm = (value: unknown): value is AnimaForm =>
+  ANIMA_FORMS.some((form) => form === value);
+
+/** Reads the clinic check-in (`appearance.json`); anything malformed counts as no check-in. */
+export function parseAppearance(content: string): ParsedAppearance | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { version, form, accent } = value as Record<string, unknown>;
+  if (version !== 1 || !isAnimaForm(form)) return null;
+  if (typeof accent !== "string" || !/^#[0-9a-fA-F]{6}$/.test(accent)) return null;
+  return { form, accent };
 }
 
 /** First `# ` heading of a library entry, as `library list` shows it. */
@@ -815,6 +855,7 @@ export function isBundlePath(path: string): boolean {
     path === "identity.md" ||
     path === "policy.md" ||
     path === "constitution.json" ||
+    path === "appearance.json" ||
     /^breaths\/[^/]+\.breath$/.test(path) ||
     /^skills\/.+\.md$/.test(path)
   );
@@ -961,6 +1002,7 @@ export interface SummaryInput {
   readonly policy: ParsedPolicy;
   readonly inbox: ReadonlyArray<AnimaInboxMessage>;
   readonly session: ParsedSession | null;
+  readonly appearance: ParsedAppearance | null;
   readonly digest: string;
   readonly health: number | null;
 }
@@ -976,7 +1018,8 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     role: agent.role,
     born: agent.born,
     parent: agent.parent,
-    accent: agent.accent,
+    accent: input.appearance?.accent ?? agent.accent,
+    form: input.appearance?.form ?? null,
     breathCount: agent.breaths,
     enabled: agent.enabled,
     live: input.session?.live ?? false,

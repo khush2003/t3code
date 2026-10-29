@@ -3,8 +3,8 @@ import { ChevronDownIcon, SparklesIcon, TriangleAlertIcon, WindIcon } from "luci
 
 import type { DraftId } from "../../composerDraftStore";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
-import { AnimaLiveDot } from "../settings/anima/AnimaBits";
-import { AnimaSigil } from "../settings/anima/AnimaVisuals";
+import { AnimaLiveDot } from "../anima/AnimaBits";
+import { AnimaSigil } from "../anima/AnimaVisuals";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { PopoverTrigger, type PopoverCreateHandle } from "../ui/popover";

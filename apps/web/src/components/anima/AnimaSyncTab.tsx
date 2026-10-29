@@ -18,21 +18,21 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 
-import { requestConfirmDialog } from "../../../confirmDialog";
+import { requestConfirmDialog } from "../../confirmDialog";
 import {
   animaEnvironment,
   createAnimaSyncPorts,
   describeAnimaError,
   useAnimaList,
-} from "../../../state/anima";
-import { useProjects } from "../../../state/entities";
-import { useEnvironmentQuery } from "../../../state/query";
-import { Badge } from "../../ui/badge";
-import { Button } from "../../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
-import { stackedThreadToast, toastManager } from "../../ui/toast";
-import { useSettingsScope } from "../SettingsScopeContext";
-import { mergeStatusLabel } from "../animaSettings.logic";
+} from "../../state/anima";
+import { useProjects } from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { stackedThreadToast, toastManager } from "../ui/toast";
+import { useSettingsScope } from "../settings/SettingsScopeContext";
+import { mergeStatusLabel } from "./anima.logic";
 import { useAnimaMutation } from "./AnimaBits";
 
 type EnvironmentOption = { readonly environmentId: EnvironmentId; readonly label: string };
