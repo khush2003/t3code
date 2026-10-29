@@ -29,10 +29,23 @@ export function useAnimaList(environmentId: EnvironmentId | null) {
   };
 }
 
+const UNKNOWN_REQUEST = /Unknown request tag: \S+/;
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : typeof error === "string" ? error : "";
+}
+
+/** An older T3 server rejects requests it does not know as a defect carrying this text. */
+export function isUnsupportedAnimaRequest(error: unknown): boolean {
+  return UNKNOWN_REQUEST.test(errorText(error));
+}
+
 export function describeAnimaError(error: unknown): string {
-  return error instanceof Error && error.message.trim() !== ""
-    ? error.message
-    : "The anima request failed.";
+  if (isUnsupportedAnimaRequest(error)) {
+    return "That environment runs an older T3 server without this anima feature. Update T3 there and try again.";
+  }
+  const text = errorText(error).trim();
+  return text !== "" ? text : "The anima request failed.";
 }
 
 async function unwrap<A, E>(result: AtomCommandResult<A, E>): Promise<A> {
@@ -41,9 +54,22 @@ async function unwrap<A, E>(result: AtomCommandResult<A, E>): Promise<A> {
 }
 
 /** Addresses two environments at once for sync; failures reject so the flow can stop at the first one. */
-export function createAnimaSyncPorts(registry: AtomRegistry.AtomRegistry): AnimaSyncPorts {
-  const run = <W, A, E>(command: AtomCommand<W, A, E>, input: W) =>
-    runAtomCommand(registry, command, input, { reportFailure: false }).then(unwrap);
+export function createAnimaSyncPorts(
+  registry: AtomRegistry.AtomRegistry,
+  labelOf: (environmentId: EnvironmentId) => string = (environmentId) => environmentId,
+): AnimaSyncPorts {
+  const run = <W extends { readonly environmentId: EnvironmentId }, A, E>(
+    command: AtomCommand<W, A, E>,
+    input: W,
+  ) =>
+    runAtomCommand(registry, command, input, { reportFailure: false })
+      .then(unwrap)
+      .catch((error: unknown) => {
+        if (!isUnsupportedAnimaRequest(error)) throw error;
+        throw new Error(
+          `${labelOf(input.environmentId)} runs an older T3 server without anima sync. Update T3 there and try again.`,
+        );
+      });
   return {
     exportBundle: (environmentId, name) =>
       run(animaEnvironment.exportBundle, { environmentId, input: { name } }),
