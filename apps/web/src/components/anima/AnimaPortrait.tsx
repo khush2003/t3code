@@ -2,6 +2,12 @@ import { useAtomValue } from "@effect/atom-react";
 import type { AnimaDetail, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 import {
   BookOpenIcon,
+  CheckIcon,
+  PencilIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
+  SquareIcon,
+  Volume2Icon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CompassIcon,
@@ -11,12 +17,13 @@ import {
   TriangleAlertIcon,
   WindIcon,
 } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { animaEnvironment, useAnimaList } from "../../state/anima";
 import { useProjects } from "../../state/entities";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Skeleton } from "../ui/skeleton";
@@ -37,12 +44,16 @@ import {
   parseIdentity,
   starfield,
   type BondKind,
+  type GraphStatus,
+  graphNodes,
   type IdentityBlock,
 } from "./animaPortrait.logic";
 import { CreaturePortrait, LifeStrip, SoulOrb, animaSoulColors } from "./AnimaSoul";
 import { BreathNarrative, WakePreview } from "./AnimaTabs";
+import { AnimaBreatheDialog, useRecordBreath } from "./AnimaBreatheDialog";
+import { BodyExplorer, MemoryPanel } from "./AnimaMemory";
 import { AnimaTeamChip, AnimaTeamSection } from "./AnimaTeam";
-import { AnimaBodyPanel, TraitRadar } from "./AnimaVisuals";
+import { TraitRadar } from "./AnimaVisuals";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 
 type Soul = ReturnType<typeof animaSoulColors>;
@@ -57,6 +68,32 @@ function latestBreath(detail: AnimaDetail) {
     (best, breath) => (best === null || breath.index > best.index ? breath : best),
     null,
   );
+}
+
+/** A spoken self-report built from the anima's own state, in the original dashboard's voice. */
+function reflection(detail: AnimaDetail): string {
+  const { summary } = detail;
+  const meaning = soulMeaning(summary.hsl);
+  const latest = latestBreath(detail);
+  const energy = meaning
+    ? meaning.vitality > 60
+      ? "My energy is strong"
+      : meaning.vitality > 40
+        ? "My energy is steady"
+        : "My energy is low"
+    : null;
+  const tensions = summary.tensions ?? [];
+  return [
+    `I am ${summary.name}, ${summary.breathCount} breaths in.`,
+    meaning ? `${energy}, and I am ${meaning.focusLabel}, working in ${meaning.domain}.` : null,
+    latest?.decisions[0] ? `Last time I decided to ${latest.decisions[0]}.` : null,
+    summary.aim ? `Next, I mean to ${summary.aim}.` : "I have no aim yet.",
+    tensions.length > 0
+      ? `I am holding ${tensions.length} ${tensions.length === 1 ? "tension" : "tensions"}, the oldest being ${tensionText(tensions[0]!.slug)}.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function SoulReading({
@@ -105,6 +142,31 @@ export function PortraitHero({
   readonly onSelectBreath: (index: number) => void;
 }) {
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
+  const canRecord = useAtomValue(animaEnvironment.record.permissionAtom(environmentId));
+  const [breathing, setBreathing] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops browser speech, an external resource, when the page closes
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  const toggleSpeak = (current: AnimaDetail) => {
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(reflection(current));
+    const voice = window.speechSynthesis
+      .getVoices()
+      .find(
+        (entry) => /daniel|james|aaron|oliver/i.test(entry.name) && entry.lang.startsWith("en"),
+      );
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.95;
+    utterance.pitch = 0.9;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
   const setEnabled = useAnimaMutation(animaEnvironment.setEnabled, {
     failureTitle: `Could not update ${name}`,
   });
@@ -282,6 +344,18 @@ export function PortraitHero({
                 Start a thread to breathe
               </span>
             )}
+            {detail && canRecord ? (
+              <Button size="sm" variant="ghost" onClick={() => setBreathing(true)}>
+                <SlidersHorizontalIcon />
+                Breathe by hand
+              </Button>
+            ) : null}
+            {detail ? (
+              <Button size="sm" variant="ghost" onClick={() => toggleSpeak(detail)}>
+                {speaking ? <SquareIcon /> : <Volume2Icon />}
+                {speaking ? "Stop" : "Speak"}
+              </Button>
+            ) : null}
             <label className="ml-auto flex items-center gap-2 text-xs">
               Enabled
               <Switch
@@ -293,6 +367,13 @@ export function PortraitHero({
               />
             </label>
           </div>
+        ) : null}
+        {breathing && detail ? (
+          <AnimaBreatheDialog
+            environmentId={environmentId}
+            detail={detail}
+            onClose={() => setBreathing(false)}
+          />
         ) : null}
         {detail && detail.breaths.length > 0 ? (
           <div className="mt-5">
@@ -396,11 +477,21 @@ function Blocks({
   );
 }
 
+const GRAPH_TONES: Record<GraphStatus, string> = {
+  done: "bg-success/12 text-success",
+  active: "bg-info/12 text-info",
+  next: "bg-muted text-foreground/80",
+  open: "bg-warning/12 text-warning",
+  blocked: "bg-destructive/12 text-destructive",
+};
+
 function NowChapter({
+  environmentId,
   detail,
   soul,
   onSelectBreath,
 }: {
+  readonly environmentId: EnvironmentId;
   readonly detail: AnimaDetail;
   readonly soul: Soul;
   readonly onSelectBreath: (index: number) => void;
@@ -408,8 +499,76 @@ function NowChapter({
   const latest = latestBreath(detail);
   const tensions = detail.summary.tensions ?? [];
   const { memo } = detail.summary;
+  const canRecord = useAtomValue(animaEnvironment.record.permissionAtom(environmentId));
+  const recordBreath = useRecordBreath(environmentId, detail);
+  const [aimDraft, setAimDraft] = useState<string | null>(null);
+  const [tensionDraft, setTensionDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const run = async (extra: Parameters<typeof recordBreath>[0]) => {
+    setBusy(true);
+    const result = await recordBreath(extra);
+    setBusy(false);
+    return result !== null;
+  };
+  const saveAim = async () => {
+    const aim = aimDraft?.trim();
+    if (!aim || aim === detail.summary.aim) return setAimDraft(null);
+    if (await run({ aim })) setAimDraft(null);
+  };
+  const addTension = async () => {
+    const tension = tensionDraft.trim();
+    if (tension && (await run({ tensions: [tension] }))) setTensionDraft("");
+  };
+  const nodes = graphNodes(latest?.graph ?? null);
   return (
     <Chapter id="now" eyebrow="Now" soul={soul} title="What it is holding">
+      <div className="space-y-2">
+        <Label>Aim</Label>
+        {aimDraft === null ? (
+          <div className="group flex items-start gap-2">
+            <p className="max-w-3xl text-xl leading-snug text-balance">
+              <span style={{ color: soul.core }}>→ </span>
+              {detail.summary.aim ?? <span className="text-muted-foreground">No aim yet.</span>}
+            </p>
+            {canRecord ? (
+              <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label="Change the aim"
+                  onClick={() => setAimDraft(detail.summary.aim ?? "")}
+                >
+                  <PencilIcon />
+                </Button>
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex max-w-3xl items-center gap-2">
+            <Input
+              autoFocus
+              value={aimDraft}
+              aria-label="New aim"
+              onChange={(event) => setAimDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveAim();
+                if (event.key === "Escape") setAimDraft(null);
+              }}
+            />
+            <Button size="sm" disabled={busy} onClick={() => void saveAim()}>
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAimDraft(null)}>
+              Cancel
+            </Button>
+          </div>
+        )}
+        {aimDraft !== null ? (
+          <p className="text-2xs text-muted-foreground">
+            Saved as a breath through the anima CLI, keeping its latest colour and shape.
+          </p>
+        ) : null}
+      </div>
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-3">
           {latest ? (
@@ -425,9 +584,22 @@ function NowChapter({
                     backgroundColor: animaSoulColors({ hsl: latest.hsl, accent: null }).core,
                   }}
                 />
-                Breath #{latest.index} · <RelativeTime value={latest.ts} />
+                Latest breath #{latest.index} · <RelativeTime value={latest.ts} />
               </button>
-              <BreathNarrative breath={latest} />
+              <BreathNarrative breath={{ ...latest, aim: null }} />
+              {nodes.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {nodes.map((node) => (
+                    <span
+                      key={`${node.name}:${node.status}`}
+                      className={cn("rounded-full px-2.5 py-0.5 text-xs", GRAPH_TONES[node.status])}
+                    >
+                      {node.name ?? `${node.count} ${node.status}`}
+                      {node.name ? <span className="opacity-60"> · {node.status}</span> : null}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">It has not breathed yet.</p>
@@ -435,11 +607,14 @@ function NowChapter({
         </div>
         <div className="min-w-0 space-y-5">
           <div className="space-y-2.5">
-            <Label>Tensions</Label>
+            <Label>Tensions held</Label>
             {tensions.length > 0 ? (
-              <ul className="space-y-2">
+              <ul className="space-y-1.5">
                 {tensions.map((tension) => (
-                  <li key={tension.slug} className="flex items-start gap-2.5 text-sm leading-snug">
+                  <li
+                    key={tension.slug}
+                    className="group flex items-start gap-2.5 text-sm leading-snug"
+                  >
                     <span
                       className={cn(
                         "mt-0.5 shrink-0 rounded-full px-1.5 text-2xs font-medium tabular-nums",
@@ -450,13 +625,49 @@ function NowChapter({
                     >
                       {tension.age}
                     </span>
-                    <span className="min-w-0 break-words">{tensionText(tension.slug)}</span>
+                    <span className="min-w-0 flex-1 break-words">{tensionText(tension.slug)}</span>
+                    {canRecord ? (
+                      <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          aria-label={`Resolve ${tensionText(tension.slug)}`}
+                          disabled={busy}
+                          onClick={() => void run({ resolves: [tension.slug] })}
+                        >
+                          <CheckIcon />
+                        </Button>
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">Nothing held open.</p>
             )}
+            {canRecord ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  size="sm"
+                  value={tensionDraft}
+                  placeholder="Open a tension..."
+                  aria-label="New tension"
+                  onChange={(event) => setTensionDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void addTension();
+                  }}
+                />
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={busy || tensionDraft.trim() === ""}
+                  onClick={() => void addTension()}
+                >
+                  <PlusIcon />
+                  Add
+                </Button>
+              </div>
+            ) : null}
           </div>
           {memo ? (
             <div className="space-y-1.5 rounded-2xl p-4" style={{ backgroundColor: soul.haze }}>
@@ -468,6 +679,14 @@ function NowChapter({
           ) : null}
         </div>
       </div>
+    </Chapter>
+  );
+}
+
+function MemoryChapter({ detail, soul }: { readonly detail: AnimaDetail; readonly soul: Soul }) {
+  return (
+    <Chapter id="memory" eyebrow="Memory" soul={soul} title="Its life as music">
+      <MemoryPanel detail={detail} />
     </Chapter>
   );
 }
@@ -795,7 +1014,7 @@ function ShapeChapter({ detail, soul }: { readonly detail: AnimaDetail; readonly
       <div className="grid gap-10 md:grid-cols-3">
         <div className="min-w-0 space-y-2">
           <Label>Body</Label>
-          <AnimaBodyPanel breaths={detail.breaths} accent={detail.summary.accent} />
+          <BodyExplorer detail={detail} />
         </div>
         <div className="min-w-0 space-y-2">
           <Label>Self</Label>
@@ -953,6 +1172,7 @@ export function Portrait({
     identity.origin.length > 0 || identity.sections.length > 0 || headerValue(detail, "arc");
   const chapters = [
     { id: "now", label: "Now", show: true },
+    { id: "memory", label: "Memory", show: true },
     { id: "voice", label: "Voice", show: hasVoice },
     { id: "identity", label: "Identity", show: hasIdentity },
     { id: "constellation", label: "Constellation", show: true },
@@ -981,7 +1201,13 @@ export function Portrait({
         </ol>
       </nav>
       <div className="min-w-0 space-y-12">
-        <NowChapter detail={detail} soul={soul} onSelectBreath={onSelectBreath} />
+        <NowChapter
+          environmentId={environmentId}
+          detail={detail}
+          soul={soul}
+          onSelectBreath={onSelectBreath}
+        />
+        <MemoryChapter detail={detail} soul={soul} />
         {hasVoice ? <VoiceChapter detail={detail} voice={voice} soul={soul} /> : null}
         {hasIdentity ? <IdentityChapter detail={detail} soul={soul} identity={identity} /> : null}
         <ConstellationChapter

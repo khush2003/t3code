@@ -258,6 +258,24 @@ export const AnimaClinicInput = Schema.Struct({
 });
 export type AnimaClinicInput = typeof AnimaClinicInput.Type;
 
+/** A breath recorded by hand through `anima breathe`, in the CLI's own codec. */
+export const AnimaRecordInput = Schema.Struct({
+  name: AnimaName,
+  /** `hue.focus.vitality`, e.g. `225.60.55`. */
+  hsl: Schema.String.check(Schema.isPattern(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/)),
+  /** `pitch.mode.velocity.duration.tension.tempo`, e.g. `D4.M.60.1.2.100`. */
+  note: Schema.String.check(Schema.isPattern(/^[A-G][#b]?\d?\.[Mmd7](\.\d+){2,4}$/)),
+  /** `breadth/depth/coupling`, each 0..1. */
+  shape: Schema.String.check(Schema.isPattern(/^[01](\.\d+)?\/[01](\.\d+)?\/[01](\.\d+)?$/)),
+  aim: Schema.optional(TrimmedNonEmptyString),
+  memo: Schema.optional(TrimmedNonEmptyString),
+  /** Tensions to open or reinforce. */
+  tensions: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** Tensions this breath resolves; the CLI closes a tension named among the decisions. */
+  resolves: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+export type AnimaRecordInput = typeof AnimaRecordInput.Type;
+
 export const AnimaSetEnabledInput = Schema.Struct({
   name: AnimaName,
   enabled: Schema.Boolean,

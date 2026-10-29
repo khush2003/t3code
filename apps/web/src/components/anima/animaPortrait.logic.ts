@@ -139,3 +139,69 @@ export function starfield(count: number): Array<{ x: number; y: number; r: numbe
     };
   });
 }
+
+/** Buckets items by local calendar day, newest day first, keeping each day's order. */
+export function groupByDay<T>(
+  items: ReadonlyArray<T>,
+  timeOf: (item: T) => string | null,
+  now: number,
+): Array<{ readonly key: string; readonly label: string; readonly items: Array<T> }> {
+  const dayKey = (time: number) => {
+    const date = new Date(time);
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  };
+  const today = dayKey(now);
+  const yesterday = dayKey(now - 86_400_000);
+  const format = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const groups: Array<{ key: string; label: string; items: Array<T> }> = [];
+  for (const item of items) {
+    const raw = timeOf(item);
+    const time = raw === null ? Number.NaN : Date.parse(raw);
+    const key = Number.isFinite(time) ? dayKey(time) : "undated";
+    const label =
+      key === "undated"
+        ? "Undated"
+        : key === today
+          ? "Today"
+          : key === yesterday
+            ? "Yesterday"
+            : format.format(time);
+    const last = groups.at(-1);
+    if (last?.key === key) last.items.push(item);
+    else groups.push({ key, label, items: [item] });
+  }
+  return groups;
+}
+
+export type GraphStatus = "done" | "active" | "next" | "open" | "blocked";
+const GRAPH_STATUS: Record<string, GraphStatus> = {
+  D: "done",
+  A: "active",
+  N: "next",
+  "?": "open",
+  B: "blocked",
+};
+
+/**
+ * A breath's goal graph: legacy rows list `slug:STATUS` nodes, newer rows only count them (`6D`).
+ * Counted graphs come back as one unnamed node per status with its count.
+ */
+export function graphNodes(
+  graph: string | null,
+): Array<{ readonly name: string | null; readonly status: GraphStatus; readonly count: number }> {
+  if (!graph) return [];
+  const counted = /^(\d+)([DAN?B])$/.exec(graph.trim());
+  if (counted) {
+    return [{ name: null, status: GRAPH_STATUS[counted[2]!]!, count: Number(counted[1]) }];
+  }
+  return graph.split(",").flatMap((entry) => {
+    const at = entry.lastIndexOf(":");
+    const status = GRAPH_STATUS[entry.slice(at + 1).trim()];
+    if (at <= 0 || !status) return [];
+    return [{ name: entry.slice(0, at).trim().replaceAll("-", " "), status, count: 1 }];
+  });
+}
