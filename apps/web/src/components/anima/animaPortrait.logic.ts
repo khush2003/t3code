@@ -205,3 +205,27 @@ export function graphNodes(
     return [{ name: entry.slice(0, at).trim().replaceAll("-", " "), status, count: 1 }];
   });
 }
+
+export type PolicyRule =
+  | {
+      readonly kind: "when";
+      readonly condition: string;
+      readonly action: string;
+      readonly tag: string | null;
+    }
+  | { readonly kind: "always" | "never"; readonly action: string; readonly tag: string | null }
+  | { readonly kind: "plain"; readonly action: string; readonly tag: string | null };
+
+/** Splits a policy rule into its keyword form: WHEN … THEN …, ALWAYS …, NEVER …, plus a trailing `[tag]`. */
+export function parsePolicyRule(text: string): PolicyRule {
+  const tagged = /^(.*?)\s*\[([^\]]+)\]\s*$/.exec(text.trim());
+  const body = tagged ? tagged[1]! : text.trim();
+  const tag = tagged ? tagged[2]!.trim() : null;
+  const when = /^WHEN\s+(.+?)\s+THEN\s+(.+)$/is.exec(body);
+  if (when) return { kind: "when", condition: when[1]!, action: when[2]!, tag };
+  const absolute = /^(ALWAYS|NEVER)\s+(.+)$/is.exec(body);
+  if (absolute) {
+    return { kind: absolute[1]!.toLowerCase() as "always" | "never", action: absolute[2]!, tag };
+  }
+  return { kind: "plain", action: body, tag };
+}

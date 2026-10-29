@@ -19,7 +19,8 @@ import {
   isReplyableMessageId,
   threadInbox,
 } from "./anima.logic";
-import { RelativeTime, useAnimaMutation } from "./AnimaBits";
+import { PageHeading, RelativeTime, useAnimaMutation, useAnimaSoul } from "./AnimaBits";
+import { SoulOrb } from "./AnimaSoul";
 
 const TYPE_VARIANTS: Readonly<
   Record<string, "error" | "warning" | "info" | "success" | "secondary" | "outline">
@@ -36,12 +37,14 @@ const SELF = "__user__";
 const LONG_BODY = 480;
 
 function MessageBubble({
+  environmentId,
   message,
   owner,
   reply,
   canReply,
   onReply,
 }: {
+  readonly environmentId: EnvironmentId;
   readonly message: AnimaInboxMessage;
   readonly owner: string;
   readonly reply: boolean;
@@ -51,63 +54,76 @@ function MessageBubble({
   const [expanded, setExpanded] = useState(false);
   const settled = isInboxMessageSettled(message);
   const long = message.body.length > LONG_BODY;
+  const soul = useAnimaSoul();
+  const sender = useAnimaList(environmentId).animas.find((anima) => anima.name === message.from);
   return (
-    <div
-      className={cn(
-        "space-y-1 rounded-lg border px-3 py-2",
-        settled ? "border-border/40 bg-transparent" : "border-border/70 bg-card",
-        reply && "ms-5",
-      )}
-    >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
-        {reply ? <CornerDownRightIcon className="size-3" /> : null}
-        <Badge size="sm" variant={TYPE_VARIANTS[message.type] ?? "outline"}>
-          {message.type}
-        </Badge>
-        <span className="font-medium text-foreground/80">{message.from || "unknown"}</span>
-        {message.to && message.to !== owner ? <span>to {message.to}</span> : null}
-        <RelativeTime value={message.ts || null} />
-        {message.status ? (
-          <Badge size="sm" variant="outline">
-            {message.status}
-          </Badge>
+    <div className={cn("flex items-start gap-3", reply && "ms-10")}>
+      <span className="mt-0.5 shrink-0">
+        {sender ? (
+          <SoulOrb anima={sender} size={28} />
         ) : (
-          <span className="inline-flex items-center gap-1 text-primary">
-            <span aria-hidden className="size-1.5 rounded-full bg-primary" />
-            new
+          <span className="grid size-7 place-items-center rounded-full bg-muted text-2xs font-semibold text-muted-foreground uppercase">
+            {(message.from || "?").slice(0, 2)}
           </span>
         )}
-        {canReply ? (
-          <Button
-            size="micro"
-            variant="ghost-muted"
-            className="ms-auto"
-            aria-label={`Reply to ${message.from}`}
-            onClick={onReply}
+      </span>
+      <div
+        className={cn(
+          "min-w-0 flex-1 space-y-1.5 rounded-2xl rounded-tl-sm px-4 py-3",
+          settled && "bg-muted/40",
+        )}
+        style={settled ? undefined : { backgroundColor: soul?.haze ?? "var(--muted)" }}
+      >
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+          {reply ? <CornerDownRightIcon className="size-3" /> : null}
+          <Badge size="sm" variant={TYPE_VARIANTS[message.type] ?? "outline"}>
+            {message.type}
+          </Badge>
+          <span className="font-medium text-foreground/80">{message.from || "unknown"}</span>
+          {message.to && message.to !== owner ? <span>to {message.to}</span> : null}
+          <RelativeTime value={message.ts || null} />
+          {message.status ? (
+            <Badge size="sm" variant="outline">
+              {message.status}
+            </Badge>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-primary">
+              <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+              new
+            </span>
+          )}
+          {canReply ? (
+            <Button
+              size="micro"
+              variant="ghost-muted"
+              className="ms-auto"
+              aria-label={`Reply to ${message.from}`}
+              onClick={onReply}
+            >
+              <ReplyIcon />
+              Reply
+            </Button>
+          ) : null}
+        </div>
+        <p
+          className={cn(
+            "whitespace-pre-wrap break-words text-sm",
+            settled && "text-foreground/70",
+            long && !expanded && "line-clamp-6",
+          )}
+        >
+          {message.body}
+        </p>
+        {long ? (
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline"
+            onClick={() => setExpanded((value) => !value)}
           >
-            <ReplyIcon />
-            Reply
-          </Button>
+            {expanded ? "Show less" : "Show more"}
+          </button>
         ) : null}
       </div>
-      <p
-        className={cn(
-          "whitespace-pre-wrap break-words text-sm",
-          settled && "text-foreground/70",
-          long && !expanded && "line-clamp-6",
-        )}
-      >
-        {message.body}
-      </p>
-      {long ? (
-        <button
-          type="button"
-          className="text-xs text-primary hover:underline"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -145,7 +161,7 @@ function InboxThread({
     }
   };
   return (
-    <li className="space-y-1.5">
+    <li className="space-y-2">
       {thread.answers ? (
         <p className="text-2xs text-muted-foreground">
           In reply to <span className="font-mono">{thread.answers}</span>
@@ -154,6 +170,7 @@ function InboxThread({
       {thread.messages.map((message, index) => (
         <MessageBubble
           key={message.id || `${message.ts}:${index}`}
+          environmentId={environmentId}
           message={message}
           owner={owner}
           reply={index > 0}
@@ -167,7 +184,7 @@ function InboxThread({
         />
       ))}
       {replyingTo ? (
-        <div className="ms-5 space-y-1.5">
+        <div className="ms-10 space-y-1.5">
           <Textarea
             size="sm"
             autoFocus
@@ -237,7 +254,7 @@ function Composer({
     if (result) setBody("");
   };
   return (
-    <div className="space-y-2 border-b border-border/50 px-3 py-3 sm:px-4">
+    <div className="space-y-2 rounded-2xl bg-muted/30 p-4">
       <Textarea
         size="sm"
         value={body}
@@ -321,23 +338,28 @@ export function InboxTab({
     await clear({ environmentId, input: { name: owner, action: { type: "clear" } } });
   };
   return (
-    <div>
-      <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2.5 sm:px-4">
-        <span className="text-xs text-muted-foreground">
-          {detail.inbox.length} {detail.inbox.length === 1 ? "message" : "messages"}
-          {unsettled > 0 ? ` · ${unsettled} new` : ""}
-        </span>
+    <div className="space-y-8">
+      <PageHeading
+        eyebrow="Inbox"
+        title={
+          <>
+            {detail.inbox.length} {detail.inbox.length === 1 ? "message" : "messages"}
+            {unsettled > 0 ? (
+              <span className="text-muted-foreground"> · {unsettled} new</span>
+            ) : null}
+          </>
+        }
+      >
         <Button
-          size="xs"
+          size="sm"
           variant="ghost-destructive"
-          className="ms-auto"
           disabled={!canOperate || detail.inbox.length === 0}
           onClick={() => void confirmClear()}
         >
           <Trash2Icon />
           Clear
         </Button>
-      </div>
+      </PageHeading>
       <Composer environmentId={environmentId} owner={owner} canOperate={canOperate} />
       {threads.length === 0 ? (
         <Empty size="compact">
@@ -352,7 +374,7 @@ export function InboxTab({
           </EmptyHeader>
         </Empty>
       ) : (
-        <ul className="space-y-3 px-3 py-3 sm:px-4">
+        <ul className="space-y-6">
           {threads.map((thread) => (
             <InboxThread
               key={thread.key}
