@@ -74,7 +74,6 @@ const DEDICATED_HEADER_KEYS = new Set([
   "active",
   "hue",
   "schema",
-  "user",
   "project",
   "team",
   "offers",
