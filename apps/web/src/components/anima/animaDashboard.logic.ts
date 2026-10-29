@@ -2,6 +2,16 @@ import type { AnimaSummary } from "@t3tools/contracts";
 
 const HOUR = 3_600_000;
 
+/** Live animas first, then by most recent activity; the order the dashboard and detail page share. */
+export function animaOrder<T extends Pick<AnimaSummary, "live" | "lastActiveAt" | "lastBreathAt">>(
+  animas: ReadonlyArray<T>,
+): Array<T> {
+  const seen = (anima: T) => anima.lastActiveAt ?? anima.lastBreathAt ?? "";
+  return animas.toSorted(
+    (a, b) => Number(b.live) - Number(a.live) || seen(b).localeCompare(seen(a)),
+  );
+}
+
 export const PULSE_BUCKETS = [
   { label: "Last hour", maxHours: 1 },
   { label: "Today", maxHours: 24 },
@@ -33,6 +43,16 @@ export interface BoardTension {
   readonly age: number;
 }
 
+/** Reads a `# tension:` slug as a sentence, dropping age markers that leak in from commas in the text. */
+export function tensionText(slug: string): string {
+  return slug
+    .replace(/\(\d+\)$/, "")
+    .replace(/:\d+$/, "")
+    .replaceAll(/[-_]+/g, " ")
+    .replaceAll(/\s*:\s*/g, ": ")
+    .trim();
+}
+
 /** Every anima's open tensions, oldest first, with slugs read as sentences. */
 export function tensionBoard(
   animas: ReadonlyArray<Pick<AnimaSummary, "name" | "tensions">>,
@@ -43,11 +63,7 @@ export function tensionBoard(
         anima: anima.name,
         slug: tension.slug,
         age: tension.age,
-        text: tension.slug
-          .replace(/\(\d+\)$/, "")
-          .replaceAll(/[-_]+/g, " ")
-          .replaceAll(/\s*:\s*/g, ": ")
-          .trim(),
+        text: tensionText(tension.slug),
       })),
     )
     .toSorted((a, b) => b.age - a.age || a.anima.localeCompare(b.anima));
