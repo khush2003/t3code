@@ -1439,6 +1439,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "anima-clinic": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Chose an anima's look {count} time} other {Chose an anima's look {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to choose an anima's look {count} time} other {Tried to choose an anima's look {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "anima-inbox-read": {
       const count = selected.length;
       label = done

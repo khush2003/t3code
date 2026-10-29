@@ -1,5 +1,6 @@
 import {
   AnimaDetail,
+  AnimaForm,
   AnimaHealthResult,
   AnimaInboxMessage,
   AnimaInboxReplyAction,
@@ -64,6 +65,17 @@ const AnimaAttachTool = Tool.make("t3_anima_attach", {
   description:
     "Attach an anima to a project so its project instructions reference the anima. projectId defaults to the calling thread's project.",
   parameters: Schema.Struct({ name: AnimaName, projectId: Schema.optional(ProjectId) }),
+  success: AnimaMutationResult,
+}).annotate(Tool.Destructive, false);
+const AnimaClinicTool = Tool.make("t3_anima_clinic", {
+  ...shared,
+  description:
+    "Choose how an anima appears in T3 Code's Lantern Yard: form is one of fox, owl, axolotl, frog, moth or raccoon, and accent is an optional #rrggbb colour. Use it when the user asks an anima to pick or change its look. name defaults to the calling thread's anima.",
+  parameters: Schema.Struct({
+    name: Schema.optional(AnimaName),
+    form: AnimaForm,
+    accent: Schema.optional(Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/))),
+  }),
   success: AnimaMutationResult,
 }).annotate(Tool.Destructive, false);
 const AnimaInboxReadTool = Tool.make("t3_anima_inbox_read", {
@@ -131,6 +143,7 @@ export const AnimaToolkit = Toolkit.make(
   AnimaReadTool,
   AnimaPolicyTool,
   AnimaAttachTool,
+  AnimaClinicTool,
   AnimaInboxReadTool,
   AnimaInboxSendTool,
   AnimaOpensListTool,
