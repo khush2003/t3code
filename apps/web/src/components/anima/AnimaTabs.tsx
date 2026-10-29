@@ -6,8 +6,8 @@ import { useState, type ReactNode } from "react";
 import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
-import { animaEnvironment, useAnimaList } from "../../state/anima";
-import { useProjects, useThreadShell } from "../../state/entities";
+import { animaEnvironment } from "../../state/anima";
+import { useThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
@@ -23,27 +23,14 @@ import {
   TraitBars,
   useAnimaMutation,
 } from "./AnimaBits";
-import { AnimaTeamSection } from "./AnimaTeam";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
-import {
-  ArcCard,
-  BondsCard,
-  hasArc,
-  hasBonds,
-  hasVoice,
-  MindCard,
-  PERSONA_HEADER_KEYS,
-  SoulCard,
-  VoiceCard,
-} from "./AnimaPersona";
-import { AnimaBodyPanel, TraitRadar } from "./AnimaVisuals";
 
 interface TabProps {
   readonly environmentId: EnvironmentId;
   readonly detail: AnimaDetail;
 }
 
-function WakePreview({
+export function WakePreview({
   environmentId,
   name,
 }: {
@@ -57,185 +44,6 @@ function WakePreview({
     <pre className="max-h-72 overflow-auto rounded-md bg-muted/40 p-2 text-2xs whitespace-pre-wrap">
       {query.data?.payload ?? query.error ?? "Loading..."}
     </pre>
-  );
-}
-
-export function OverviewTab({
-  environmentId,
-  detail,
-  onSelectBreath,
-  onOpenAnima,
-}: TabProps & {
-  readonly onSelectBreath: (index: number) => void;
-  readonly onOpenAnima: (name: string) => void;
-}) {
-  const { summary } = detail;
-  const canOperate = useAtomValue(animaEnvironment.attach.permissionAtom(environmentId));
-  const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const [projectId, setProjectId] = useState("");
-  const [showWake, setShowWake] = useState(false);
-  const attach = useAnimaMutation(animaEnvironment.attach, {
-    failureTitle: "Could not attach project",
-    successTitle: "Project attached",
-  });
-  const selected = projects.find((project) => project.id === projectId);
-  const knownAnimas = new Set(useAnimaList(environmentId).animas.map((anima) => anima.name));
-  const arc = hasArc(detail);
-  const bonds = hasBonds(detail);
-  const otherHeader = detail.header.filter((entry) => !PERSONA_HEADER_KEYS.has(entry.key));
-  return (
-    <div className="grid gap-4 @3xl/anima:grid-cols-3">
-      <BentoCard className="@3xl/anima:col-span-2">
-        <LatestBreath breaths={detail.breaths} onSelectBreath={onSelectBreath} />
-      </BentoCard>
-      <div className="grid min-w-0 content-start gap-4">
-        <BentoCard title="Soul" hint="Hue is the work domain, saturation focus, lightness vitality">
-          <SoulCard detail={detail} />
-        </BentoCard>
-        <BentoCard
-          title="Mind"
-          hint={
-            summary.tensions?.length
-              ? "Tensions held open, with breaths since they began"
-              : undefined
-          }
-        >
-          <MindCard detail={detail} />
-        </BentoCard>
-      </div>
-      {hasVoice(detail) ? (
-        <BentoCard title="Voice" className="@3xl/anima:col-span-2">
-          <VoiceCard detail={detail} />
-        </BentoCard>
-      ) : null}
-      <BentoCard
-        title="Body"
-        hint="Breadth, depth and coupling of every breath"
-        className={hasVoice(detail) ? "" : "@3xl/anima:col-span-3"}
-      >
-        <AnimaBodyPanel breaths={detail.breaths} accent={summary.accent} />
-      </BentoCard>
-      {arc || bonds ? (
-        <>
-          {arc ? (
-            <BentoCard
-              title="Arc"
-              hint="How it has changed, in its own words"
-              className={bonds ? "@3xl/anima:col-span-2" : "@3xl/anima:col-span-3"}
-            >
-              <ArcCard detail={detail} />
-            </BentoCard>
-          ) : null}
-          {bonds ? (
-            <BentoCard title="Bonds" className={arc ? "" : "@3xl/anima:col-span-3"}>
-              <BondsCard detail={detail} knownAnimas={knownAnimas} onOpenAnima={onOpenAnima} />
-            </BentoCard>
-          ) : null}
-        </>
-      ) : null}
-      <BentoCard title="Traits">
-        <TraitRadar traits={detail.traits} />
-        <TraitBars traits={detail.traits} empty="No traits recorded yet." />
-      </BentoCard>
-      <BentoCard title="Skills">
-        <TraitRadar traits={detail.skills} />
-        <TraitBars traits={detail.skills} empty="No skills recorded yet." />
-      </BentoCard>
-      <BentoCard title="Projects">
-        <div className="flex flex-wrap gap-1.5">
-          {summary.projects.length === 0 ? (
-            <span className="text-xs text-muted-foreground">Not attached to any project.</span>
-          ) : (
-            summary.projects.map((project) => (
-              <Badge key={project} variant="outline" size="sm">
-                {project}
-              </Badge>
-            ))
-          )}
-        </div>
-        <div className="flex items-center gap-2 pt-1.5">
-          <Select value={projectId} onValueChange={(value) => setProjectId(String(value))}>
-            <SelectTrigger size="sm" aria-label="Project to attach">
-              <SelectValue>{selected?.title ?? "Attach to project..."}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {projects.map((project) => (
-                <SelectItem key={project.id} value={project.id} label={project.title}>
-                  {project.title}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={!selected || !canOperate}
-            onClick={() =>
-              selected &&
-              void attach({ environmentId, input: { name: summary.name, projectId: selected.id } })
-            }
-          >
-            Attach
-          </Button>
-        </div>
-      </BentoCard>
-      {detail.team.length > 0 || detail.lead !== null || summary.role === "lead" ? (
-        <BentoCard className="@3xl/anima:col-span-3">
-          <AnimaTeamSection
-            environmentId={environmentId}
-            detail={detail}
-            onOpenAnima={onOpenAnima}
-          />
-        </BentoCard>
-      ) : null}
-      <BentoCard title="Wake payload" className="@3xl/anima:col-span-2">
-        <Button size="xs" variant="ghost-muted" onClick={() => setShowWake((value) => !value)}>
-          {showWake ? "Hide" : "Preview what a new thread receives"}
-        </Button>
-        {showWake ? <WakePreview environmentId={environmentId} name={summary.name} /> : null}
-      </BentoCard>
-      {otherHeader.length > 0 ? (
-        <BentoCard title="Header">
-          <dl className="grid grid-cols-[minmax(0,6rem)_1fr] gap-x-3 gap-y-1 text-xs">
-            {otherHeader.map((entry) => (
-              <div key={entry.key} className="contents">
-                <dt className="truncate text-muted-foreground">{entry.key}</dt>
-                <dd className="line-clamp-3 min-w-0 break-words">{entry.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </BentoCard>
-      ) : null}
-    </div>
-  );
-}
-
-function BentoCard({
-  title,
-  hint,
-  className,
-  children,
-}: {
-  readonly title?: string;
-  readonly hint?: string | undefined;
-  readonly className?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <section
-      className={cn(
-        "min-w-0 space-y-3 rounded-2xl border border-border/60 bg-card/70 p-4 shadow-xs",
-        className,
-      )}
-    >
-      {title ? (
-        <header className="space-y-0.5">
-          <h3 className="text-xs font-medium text-foreground/80">{title}</h3>
-          {hint ? <p className="text-2xs text-muted-foreground">{hint}</p> : null}
-        </header>
-      ) : null}
-      {children}
-    </section>
   );
 }
 
@@ -361,7 +169,7 @@ function NarrativeLine({
 }
 
 /** What a breath recorded: decisions, friction, aim and the rest of its detail file. */
-function BreathNarrative({ breath }: { readonly breath: AnimaDetail["breaths"][number] }) {
+export function BreathNarrative({ breath }: { readonly breath: AnimaDetail["breaths"][number] }) {
   return (
     <div className="space-y-1.5">
       {breath.decisions.length > 0 ? (

@@ -14,14 +14,14 @@ import {
   groupOpens,
   isInboxMessageSettled,
 } from "./anima.logic";
-import { AnimaDetailBanner } from "./AnimaDash";
+import { Portrait, PortraitHero } from "./AnimaPortrait";
 import { AnimaHealthRing, HealthTab } from "./AnimaHealth";
 import { InboxTab } from "./AnimaInbox";
 import { OpensTab } from "./AnimaOpens";
 import { PolicyTab } from "./AnimaPolicy";
 import { SyncTab } from "./AnimaSyncTab";
 import { animaColor } from "./AnimaVisuals";
-import { ActivityTab, BreathsTab, IdentityTab, OverviewTab, ThreadsTab } from "./AnimaTabs";
+import { ActivityTab, BreathsTab, IdentityTab, ThreadsTab } from "./AnimaTabs";
 
 function TabMarker({ tab, detail }: { readonly tab: AnimaTab; readonly detail: AnimaDetail }) {
   switch (tab) {
@@ -96,9 +96,9 @@ export function AnimaDetailView({
   const accent = detail ? animaColor(detail.summary) : null;
   return (
     <div className="@container/anima pb-12">
-      <AnimaDetailBanner
+      <PortraitHero
         environmentId={environmentId}
-        summary={detail?.summary ?? { name }}
+        name={name}
         detail={detail}
         onHealth={() => onTab("health")}
         onBreathe={() => onTab("breaths")}
@@ -138,9 +138,9 @@ export function AnimaDetailView({
           })}
         </div>
       </div>
-      <div className="mx-auto mt-6 max-w-6xl px-5 sm:px-8">
+      <div className="mx-auto mt-8 max-w-6xl px-5 sm:px-8">
         {detail && tab === "overview" ? (
-          <OverviewTab
+          <Portrait
             environmentId={environmentId}
             detail={detail}
             onOpenAnima={onOpenAnima}
@@ -152,17 +152,7 @@ export function AnimaDetailView({
         ) : (
           <SettingsGroup>
             {detail ? (
-              tab === "overview" ? (
-                <OverviewTab
-                  environmentId={environmentId}
-                  detail={detail}
-                  onOpenAnima={onOpenAnima}
-                  onSelectBreath={(index) => {
-                    setFocusIndex(index);
-                    onTab("breaths");
-                  }}
-                />
-              ) : tab === "health" ? (
+              tab === "health" ? (
                 <HealthTab environmentId={environmentId} name={name} />
               ) : tab === "identity" ? (
                 <IdentityTab environmentId={environmentId} detail={detail} />
