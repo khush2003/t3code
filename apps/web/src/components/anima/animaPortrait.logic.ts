@@ -1,7 +1,5 @@
 import type { AnimaDetail, AnimaSummary } from "@t3tools/contracts";
 
-import { parseKin } from "./animaDashboard.logic";
-
 export interface IdentityBlock {
   readonly kind: "paragraph" | "list";
   readonly lines: ReadonlyArray<string>;
@@ -67,7 +65,7 @@ const MAX_NEIGHBOURS = 6;
 
 /** Everyone this anima is tied to, closest ties first; each name appears once. */
 export function animaBonds(
-  detail: Pick<AnimaDetail, "summary" | "team" | "lead" | "header">,
+  detail: Pick<AnimaDetail, "summary" | "team" | "lead">,
   animas: ReadonlyArray<AnimaSummary>,
 ): Array<Bond> {
   const { summary } = detail;
@@ -87,8 +85,7 @@ export function animaBonds(
     if (anima.parent !== null && anima.parent === summary.id)
       add(anima.name, "child", "child", 0.7);
   }
-  const kin = parseKin(detail.header.find((entry) => entry.key === "kin")?.value ?? "");
-  for (const entry of kin) {
+  for (const entry of summary.kin ?? []) {
     add(
       entry.name,
       "kin",
@@ -228,4 +225,87 @@ export function parsePolicyRule(text: string): PolicyRule {
     return { kind: absolute[1]!.toLowerCase() as "always" | "never", action: absolute[2]!, tag };
   }
   return { kind: "plain", action: body, tag };
+}
+
+export type FamilyEdgeKind = "parent" | "crew" | "kin";
+
+export interface FamilyEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: FamilyEdgeKind;
+  /** 0..1, drives line weight. */
+  readonly weight: number;
+}
+
+/**
+ * Every anima on a grid, ordered depth-first from the roots so parents sit beside their children
+ * and leads beside their crews, with the parent, crew and kin bonds between them.
+ */
+export function familyLayout(
+  animas: ReadonlyArray<AnimaSummary>,
+  columns: number,
+): {
+  readonly nodes: Array<{
+    readonly anima: AnimaSummary;
+    readonly col: number;
+    readonly row: number;
+  }>;
+  readonly edges: Array<FamilyEdge>;
+  readonly rows: number;
+} {
+  const byName = new Map(animas.map((anima) => [anima.name, anima]));
+  const byId = new Map(animas.map((anima) => [anima.id, anima]));
+  const children = new Map<string, Array<AnimaSummary>>();
+  for (const anima of animas) {
+    const parent = anima.parent === null ? undefined : byId.get(anima.parent);
+    if (parent) children.set(parent.name, [...(children.get(parent.name) ?? []), anima]);
+  }
+  const recency = (a: AnimaSummary, b: AnimaSummary) =>
+    (b.lastActiveAt ?? b.lastBreathAt ?? "").localeCompare(a.lastActiveAt ?? a.lastBreathAt ?? "");
+  const order: Array<AnimaSummary> = [];
+  const seen = new Set<string>();
+  const visit = (anima: AnimaSummary) => {
+    if (seen.has(anima.name)) return;
+    seen.add(anima.name);
+    order.push(anima);
+    const crew = (anima.team ?? []).flatMap((name) => byName.get(name) ?? []);
+    for (const next of [...(children.get(anima.name) ?? []), ...crew].toSorted(recency))
+      visit(next);
+  };
+  const isRoot = (anima: AnimaSummary) => anima.parent === null || !byId.has(anima.parent);
+  for (const root of animas.filter(isRoot).toSorted(recency)) visit(root);
+  for (const anima of animas.toSorted(recency)) visit(anima);
+
+  const edges: Array<FamilyEdge> = [];
+  const pairs = new Set<string>();
+  const link = (from: string, to: string, kind: FamilyEdgeKind, weight: number) => {
+    const key = [from, to].toSorted().join("\u0000");
+    if (from === to || !byName.has(from) || !byName.has(to) || pairs.has(key)) return;
+    pairs.add(key);
+    edges.push({ from, to, kind, weight });
+  };
+  for (const anima of animas) {
+    const parent = anima.parent === null ? undefined : byId.get(anima.parent);
+    if (parent) link(parent.name, anima.name, "parent", 0.7);
+    for (const member of anima.team ?? []) link(anima.name, member, "crew", 0.6);
+  }
+  for (const anima of animas) {
+    for (const bond of anima.kin ?? []) {
+      link(
+        anima.name,
+        bond.name,
+        "kin",
+        bond.strength === null ? 0.2 : Math.min(1, bond.strength / 8),
+      );
+    }
+  }
+  return {
+    nodes: order.map((anima, index) => ({
+      anima,
+      col: index % columns,
+      row: Math.floor(index / columns),
+    })),
+    edges,
+    rows: Math.ceil(order.length / columns),
+  };
 }

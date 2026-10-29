@@ -146,6 +146,13 @@ describe("identity, breath, policy, inbox, session", () => {
     ]);
   });
 
+  it("reads kin with and without a formed strength", () => {
+    expect(AnimaFiles.parseKin("cobalt=quiet-builder.2,ion=sibling:?,bad")).toEqual([
+      { name: "cobalt", label: "quiet builder", strength: 2 },
+      { name: "ion", label: "sibling", strength: null },
+    ]);
+  });
+
   it("parses policy sections with numbered rules and hook fire stats", () => {
     // `1phfl5w` is hook.ts's hashOf("WHEN a THEN b"); pending rules never count fires.
     const fires = [
