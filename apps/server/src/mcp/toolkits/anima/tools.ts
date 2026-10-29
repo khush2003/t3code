@@ -14,6 +14,7 @@ import {
   AnimaOpen,
   AnimaOpensAction,
   AnimaPolicyAction,
+  AnimaRecordInput,
   NonNegativeInt,
   OrchestratorMcpFailure,
   ProjectId,
@@ -76,6 +77,16 @@ const AnimaClinicTool = Tool.make("t3_anima_clinic", {
     form: AnimaForm,
     accent: Schema.optional(Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/))),
   }),
+  success: AnimaMutationResult,
+}).annotate(Tool.Destructive, false);
+const AnimaRecordTool = Tool.make("t3_anima_record", {
+  ...shared,
+  description:
+    "Record a breath for an anima through `anima breathe`, for when the user asks to set its aim or open or resolve a tension from here. An anima's own end-of-session breath still goes through the anima CLI and its breathe guide. hsl is hue.focus.vitality (e.g. 225.60.55), note is pitch.mode.velocity.duration.tension.tempo (e.g. D4.M.60.1.2.100), and shape is breadth/depth/coupling (e.g. 0.2/0.4/0.6); copy them from the latest breath in t3_anima_read when only the aim or tensions change. tensions open or reinforce tensions; resolves closes tensions by name. Neither may contain commas.",
+  parameters: AnimaRecordInput.mapFields((fields) => ({
+    ...fields,
+    name: Schema.optional(AnimaName),
+  })),
   success: AnimaMutationResult,
 }).annotate(Tool.Destructive, false);
 const AnimaInboxReadTool = Tool.make("t3_anima_inbox_read", {
@@ -144,6 +155,7 @@ export const AnimaToolkit = Toolkit.make(
   AnimaPolicyTool,
   AnimaAttachTool,
   AnimaClinicTool,
+  AnimaRecordTool,
   AnimaInboxReadTool,
   AnimaInboxSendTool,
   AnimaOpensListTool,
