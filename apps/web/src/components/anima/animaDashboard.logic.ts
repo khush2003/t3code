@@ -81,26 +81,6 @@ export function parseVoiceSamples(raw: string): Array<{ tag: string; text: strin
   }));
 }
 
-/** `# kin: name=label.strength,...`; strength is missing for kin like `ion=sibling:?`. */
-export function parseKin(
-  raw: string,
-): Array<{ name: string; label: string; strength: number | null }> {
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.includes("="))
-    .map((entry) => {
-      const [name, rest = ""] = entry.split("=") as [string, string?];
-      const match = /^(.*?)[.:](\d+|\?)$/.exec(rest);
-      const strength = match && match[2] !== "?" ? Number(match[2]) : null;
-      return {
-        name: name.trim(),
-        label: (match ? match[1]! : rest).replaceAll("-", " ").trim(),
-        strength,
-      };
-    });
-}
-
 /** `# user: trait=.95±.15,...`, the anima's model of the person it works with. */
 export function parseUserModel(
   raw: string,
@@ -142,4 +122,66 @@ export function soulMeaning(hsl: string | null) {
     vitality: l,
     vitalityLabel: l > 60 ? "vital" : l > 40 ? "stable" : "fading",
   };
+}
+
+/** The original dashboard's match score: exact 100, prefix 80, substring by position, else word hits. */
+export function matchScore(text: string, query: string): number {
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase().trim();
+  if (!needle || !haystack) return 0;
+  if (haystack === needle) return 100;
+  if (haystack.startsWith(needle)) return 80;
+  const at = haystack.indexOf(needle);
+  if (at >= 0) return 60 - Math.min(at, 30);
+  const words = needle.split(/\s+/).filter((word) => word.length > 1);
+  return words.filter((word) => haystack.includes(word)).length * 40 * (words.length > 1 ? 1 : 0);
+}
+
+export interface AnimaSearchHit {
+  readonly anima: string;
+  readonly kind: "anima" | "aim" | "vow" | "memo" | "tension" | "skill" | "project";
+  readonly text: string;
+  readonly score: number;
+}
+
+const KIND_BONUS: Record<AnimaSearchHit["kind"], number> = {
+  anima: 20,
+  tension: 5,
+  aim: 0,
+  vow: 0,
+  memo: 0,
+  skill: 0,
+  project: -5,
+};
+
+/** Searches what the roster already knows about every anima, best matches first. */
+export function searchAnimas(
+  animas: ReadonlyArray<
+    Pick<AnimaSummary, "name" | "aim" | "vow" | "memo" | "tensions" | "topSkills" | "homeProject">
+  >,
+  query: string,
+  limit = 12,
+): Array<AnimaSearchHit> {
+  if (query.trim().length < 2) return [];
+  const hits: Array<AnimaSearchHit> = [];
+  const consider = (
+    anima: string,
+    kind: AnimaSearchHit["kind"],
+    text: string | null | undefined,
+  ) => {
+    if (!text) return;
+    const score = matchScore(text, query);
+    if (score > 0) hits.push({ anima, kind, text, score: score + KIND_BONUS[kind] });
+  };
+  for (const anima of animas) {
+    consider(anima.name, "anima", anima.name);
+    consider(anima.name, "aim", anima.aim);
+    consider(anima.name, "vow", anima.vow);
+    consider(anima.name, "memo", anima.memo);
+    consider(anima.name, "project", anima.homeProject);
+    for (const tension of anima.tensions ?? [])
+      consider(anima.name, "tension", tensionText(tension.slug));
+    for (const skill of anima.topSkills) consider(anima.name, "skill", skill.name);
+  }
+  return hits.toSorted((a, b) => b.score - a.score).slice(0, limit);
 }
