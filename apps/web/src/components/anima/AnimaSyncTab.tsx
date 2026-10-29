@@ -31,7 +31,8 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { useSettingsScope } from "../settings/SettingsScopeContext";
+import { isConnectedWithConfig } from "../settings/scopedSettings";
+import { useEnvironments } from "../../state/environments";
 import { mergeStatusLabel } from "./anima.logic";
 import { PageHeading, useAnimaMutation } from "./AnimaBits";
 
@@ -365,7 +366,7 @@ export function SyncTab({
   readonly environmentId: EnvironmentId;
   readonly name: AnimaName;
 }) {
-  const { connectedEnvironments } = useSettingsScope();
+  const connectedEnvironments = useEnvironments().environments.filter(isConnectedWithConfig);
   const others = connectedEnvironments.filter((entry) => entry.environmentId !== environmentId);
   const here = connectedEnvironments.find((entry) => entry.environmentId === environmentId);
   const [otherId, setOtherId] = useState<EnvironmentId | null>(null);
