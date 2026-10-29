@@ -40,7 +40,7 @@ describe("tensionBoard", () => {
       tensionBoard([
         { name: "a", tensions: [{ slug: "fix-shipped:needs_restart", age: 3 }] },
         { name: "b", tensions: [{ slug: "house-I-will-inhabit(4)", age: 9 }] },
-        { name: "c" },
+        { name: "c", tensions: [{ slug: "merge load is the real bottleneck:1", age: 2 }] },
       ]),
     ).toEqual([
       { anima: "b", slug: "house-I-will-inhabit(4)", age: 9, text: "house I will inhabit" },
@@ -49,6 +49,12 @@ describe("tensionBoard", () => {
         slug: "fix-shipped:needs_restart",
         age: 3,
         text: "fix shipped: needs restart",
+      },
+      {
+        anima: "c",
+        slug: "merge load is the real bottleneck:1",
+        age: 2,
+        text: "merge load is the real bottleneck",
       },
     ]);
   });
