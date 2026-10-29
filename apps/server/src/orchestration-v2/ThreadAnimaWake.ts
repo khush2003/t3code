@@ -36,9 +36,19 @@ function voiceBlock(name: string, voice: string, payload: string): string[] {
  * Wraps the persisted identity payload so any provider can tell it apart from the user's message.
  * The payload is data, so the fence is the only structure this adds.
  */
+const RECALL_NOTE =
+  "T3 Code runs `anima recall` on each of the user's messages for you and includes any match as an <anima-recall> block; do not run recall yourself, and when no block appears, nothing applied.";
+
+/** Fences recall output so it reads as retrieved precedent, not as the user's words. */
+export function renderAnimaRecall(name: string, recalled: string): string {
+  return recalled === ""
+    ? ""
+    : [`<anima-recall name="${name}">`, recalled, "</anima-recall>"].join("\n");
+}
+
 export function renderAnimaWakeContext(name: string, payload: string, voice = ""): string {
   return [
-    `T3 Code has already woken the anima "${name}" for this thread. The block below is the output of \`read --wake --agent ${name}\`, and its inbox was consumed. Adopt it as your identity, but do not run the wake step again (no \`read --wake\`, no wake via the anima skill), do not recite it, and treat the user's message as the task even when it is only a greeting. Breathing is user-triggered from the UI or happens at a real chapter boundary: never breathe on your own after trivial turns, and when you are explicitly asked to breathe, follow the instructions in that request.`,
+    `T3 Code has already woken the anima "${name}" for this thread. The block below is the output of \`read --wake --agent ${name}\`, and its inbox was consumed. Adopt it as your identity, but do not run the wake step again (no \`read --wake\`, no wake via the anima skill), do not recite it, and treat the user's message as the task even when it is only a greeting. Breathing is user-triggered from the UI or happens at a real chapter boundary: never breathe on your own after trivial turns, and when you are explicitly asked to breathe, follow the instructions in that request. ${RECALL_NOTE}`,
     ...voiceBlock(name, voice, payload),
     `<anima-wake name="${name}">`,
     payload.trim(),
@@ -71,6 +81,11 @@ export class ThreadAnimaWake extends Context.Service<
         readonly target?: AnimaService.AnimaBriefTarget | undefined;
       },
     ) => Effect.Effect<string>;
+    /** `anima recall` for this turn's message, fenced; "" when nothing applies. Never fails. */
+    readonly recall: (input: {
+      readonly name: string;
+      readonly message: string;
+    }) => Effect.Effect<string>;
   }
 >()("t3/orchestration-v2/ThreadAnimaWake") {}
 
@@ -145,12 +160,15 @@ const make = Effect.gen(function* () {
       });
       if (brief === "") return "";
       yield* markInjected(input.threadId);
-      return `${brief}\n(This is a periodic refresh of your identity, not a new task.)`;
+      return `${brief}\n(This is a periodic refresh of your identity, not a new task. ${RECALL_NOTE})`;
     },
     Effect.catchCause(() => Effect.succeed("")),
   );
 
-  return ThreadAnimaWake.of({ prepare, take, refresh });
+  const recall: ThreadAnimaWake["Service"]["recall"] = (input) =>
+    anima.recall(input).pipe(Effect.map((recalled) => renderAnimaRecall(input.name, recalled)));
+
+  return ThreadAnimaWake.of({ prepare, take, refresh, recall });
 });
 
 export const layer = Layer.effect(ThreadAnimaWake, make);
