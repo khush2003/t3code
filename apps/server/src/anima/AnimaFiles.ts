@@ -252,6 +252,15 @@ export function breathFileName(index: number): string {
  * The CLI joins `--decisions` with commas, which only round-trips for slug lists. Prose decisions
  * keep their commas, so they split on the `|` or `;` agents use between them instead.
  */
+/** Old breaths list slugs separated by spaces, or prose decisions separated by semicolons. */
+function legacyDecisions(text: string): ReadonlyArray<string> {
+  const separator = /;/.test(text) ? /;/ : /\s+/;
+  return text
+    .split(separator)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function splitDecisions(text: string): ReadonlyArray<string> {
   const slugs = text.split(",").map((entry) => entry.trim());
   if (!slugs.some((entry) => /\s/.test(entry))) return slugs.filter(Boolean);
@@ -304,9 +313,7 @@ export function parseBreathFile(content: string, fileName: string): ParsedBreath
     parent: parent === undefined || parent === "-" ? null : parent,
     files: field("files").split(/\s+/).filter(Boolean),
     decisions:
-      narrative === undefined
-        ? field("decisions").split(/\s+/).filter(Boolean)
-        : splitDecisions(part(0) ?? ""),
+      narrative === undefined ? legacyDecisions(field("decisions")) : splitDecisions(part(0) ?? ""),
     friction: part(1) ?? nonEmpty(field("friction")),
     narrativeAim: part(2) ?? null,
     self,
@@ -1033,6 +1040,10 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     vow: agent.vow,
     voice: parseIdentityVoice(input.identity),
     projects: agent.projects,
+    team: agent.team,
+    homeProject: agent.projectPath
+      ? (agent.projectPath.split("/").findLast(Boolean) ?? null)
+      : null,
     topSkills: agent.skills.toSorted((left, right) => right.mean - left.mean).slice(0, 5),
     inboxCount: input.inbox.length,
     policyCount: input.policy.operational.length,

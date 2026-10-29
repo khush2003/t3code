@@ -203,7 +203,6 @@ export function AnimaPage(target: {
               name={target.anima as AnimaName}
               tab={target.tab ?? "overview"}
               onTab={(tab) => open(target.anima, tab)}
-              onBack={() => open(undefined)}
               onOpenAnima={(name) => open(name)}
             />
           </div>
