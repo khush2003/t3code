@@ -1558,6 +1558,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "anima-record": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Recorded anima breaths {count} time} other {Recorded anima breaths {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to record anima breaths {count} time} other {Tried to record anima breaths {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "anima-health": {
       const count = countEntities(entityIds("name"));
       label = done
