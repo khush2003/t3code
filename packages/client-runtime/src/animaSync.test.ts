@@ -67,10 +67,12 @@ describe("diffAnimaBundles", () => {
     }) as unknown as AnimaBundle;
 
   it("lists breaths each side lacks, header changes, and file line diffs", () => {
-    const source = exportOf(["0:a", "1:b", "2:c"], {
+    const source = exportOf(["0:a", "1:b", "2:c", "3:d"], {
       "agent.anima":
         "# aim: ship\n# vow: up\n0|t0|1,2,3|C4\n1|t1|4,5,6|C4|s|g|first\n2|t2|7,8,9|C4|s|g|second",
       "breaths/2.breath": "x",
+      "breaths/3.breath":
+        "# breath:3 ts:t3 parent:2 hash:d\n# closed the loop | because\n# self: a=1",
       "identity.md": "a\nb\nc\nd\ne\nf\ng\nh",
       "policy.md": "rule",
     });
@@ -81,6 +83,7 @@ describe("diffAnimaBundles", () => {
     const diff = diffAnimaBundles(source, destination);
     expect(diff.sharedBreaths).toBe(1);
     expect(diff.sourceOnly).toEqual([
+      { index: 3, at: "t3", hsl: null, aim: "closed the loop" },
       { index: 2, at: "t2", hsl: "7,8,9", aim: "second" },
       { index: 1, at: "t1", hsl: "4,5,6", aim: "first" },
     ]);

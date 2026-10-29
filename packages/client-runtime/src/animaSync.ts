@@ -158,6 +158,21 @@ function breathRows(content: string | undefined): Map<number, AnimaBreathRow> {
   return rows;
 }
 
+/** `# breath:N ts:...` then `# <summary>`: the breath file's own account, for rows with no aim. */
+function breathSummaries(files: ReadonlyMap<string, string>): Map<number, AnimaBreathRow> {
+  const summaries = new Map<number, AnimaBreathRow>();
+  for (const [path, content] of files) {
+    if (!BREATH_PATH.test(path)) continue;
+    const [first = "", second = ""] = content.split("\n", 2);
+    const head = /^# breath:(\d+)(?:.*\bts:(\S+))?/.exec(first);
+    if (!head) continue;
+    const summary = /^# (?!\w+:)(.+)$/.exec(second)?.[1]?.split(" | ")[0]?.trim();
+    const index = Number.parseInt(head[1]!, 10);
+    summaries.set(index, { index, at: head[2] ?? null, hsl: null, aim: summary || null });
+  }
+  return summaries;
+}
+
 function lineDiff(before: ReadonlyArray<string>, after: ReadonlyArray<string>) {
   let start = 0;
   while (start < before.length && start < after.length && before[start] === after[start]) {
@@ -268,13 +283,25 @@ export function diffAnimaBundles(
   const destinationFiles = new Map(destination?.files.map((file) => [file.path, file.content]));
   const sourceChain = new Set(source.breathChain);
   const destinationChain = new Set(destination?.breathChain ?? []);
-  const rowsOf = (chain: ReadonlyArray<string>, other: Set<string>, anima: string | undefined) => {
-    const rows = breathRows(anima);
+  const rowsOf = (
+    chain: ReadonlyArray<string>,
+    other: Set<string>,
+    files: ReadonlyMap<string, string>,
+  ) => {
+    const rows = breathRows(files.get(ANIMA_FILE));
+    const summaries = breathSummaries(files);
     return chain
       .filter((entry) => !other.has(entry))
       .map((entry) => {
         const index = Number.parseInt(entry, 10);
-        return rows.get(index) ?? { index, at: null, hsl: null, aim: null };
+        const row = rows.get(index);
+        const summary = summaries.get(index);
+        return {
+          index,
+          at: row?.at ?? summary?.at ?? null,
+          hsl: row?.hsl ?? null,
+          aim: row?.aim ?? summary?.aim ?? null,
+        };
       })
       .reverse();
   };
@@ -298,9 +325,9 @@ export function diffAnimaBundles(
     .map((path) => fileChange(path, sourceFiles.get(path), destinationFiles.get(path)));
   return {
     sharedBreaths: source.breathChain.filter((entry) => destinationChain.has(entry)).length,
-    sourceOnly: rowsOf(source.breathChain, destinationChain, sourceFiles.get(ANIMA_FILE)),
+    sourceOnly: rowsOf(source.breathChain, destinationChain, sourceFiles),
     destinationOnly: destination
-      ? rowsOf(destination.breathChain, sourceChain, destinationFiles.get(ANIMA_FILE))
+      ? rowsOf(destination.breathChain, sourceChain, destinationFiles)
       : [],
     header,
     files,
