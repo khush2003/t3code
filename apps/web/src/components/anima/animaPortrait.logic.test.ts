@@ -1,7 +1,13 @@
 import type { AnimaSummary } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { animaBonds, bondLayout, parseIdentity } from "./animaPortrait.logic";
+import {
+  animaBonds,
+  bondLayout,
+  graphNodes,
+  groupByDay,
+  parseIdentity,
+} from "./animaPortrait.logic";
 
 describe("parseIdentity", () => {
   it("separates the origin story from titled sections and unwraps lines", () => {
@@ -79,5 +85,43 @@ describe("animaBonds", () => {
       return Math.hypot(point.x - 50, point.y - 50);
     };
     expect(distance("atlas")).toBeLessThan(distance("b"));
+  });
+});
+
+describe("groupByDay", () => {
+  it("labels today and yesterday and keeps undated items apart", () => {
+    const now = new Date(2026, 9, 29, 12).getTime();
+    const items = [
+      { id: "a", at: new Date(2026, 9, 29, 9).toISOString() },
+      { id: "b", at: new Date(2026, 9, 29, 1).toISOString() },
+      { id: "c", at: new Date(2026, 9, 28, 20).toISOString() },
+      { id: "d", at: new Date(2026, 8, 1, 10).toISOString() },
+      { id: "e", at: null },
+    ];
+    const groups = groupByDay(items, (item) => item.at, now);
+    expect(
+      groups.map((group) => [
+        group.label === "Today" || group.label === "Yesterday" || group.label === "Undated"
+          ? group.label
+          : "date",
+        group.items.map((item) => item.id),
+      ]),
+    ).toEqual([
+      ["Today", ["a", "b"]],
+      ["Yesterday", ["c"]],
+      ["date", ["d"]],
+      ["Undated", ["e"]],
+    ]);
+  });
+});
+
+describe("graphNodes", () => {
+  it("reads named legacy nodes and counted modern graphs", () => {
+    expect(graphNodes("ship-api:D,write-docs:?,bad")).toEqual([
+      { name: "ship api", status: "done", count: 1 },
+      { name: "write docs", status: "open", count: 1 },
+    ]);
+    expect(graphNodes("6D")).toEqual([{ name: null, status: "done", count: 6 }]);
+    expect(graphNodes(null)).toEqual([]);
   });
 });

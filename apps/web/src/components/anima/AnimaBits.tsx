@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { createContext, use, type ReactNode } from "react";
 import type { AnimaTrait } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -14,6 +14,20 @@ import { Badge } from "../ui/badge";
 import { Label } from "../ui/label";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { safeAnimaAccent, traitPercent } from "./anima.logic";
+
+export interface AnimaSoulTone {
+  readonly core: string;
+  readonly deep: string;
+  readonly glow: string;
+  readonly haze: string;
+}
+
+/** The open anima's soul colours, so every tab can light itself the way the portrait does. */
+export const AnimaSoulContext = createContext<AnimaSoulTone | null>(null);
+
+export function useAnimaSoul(): AnimaSoulTone | null {
+  return use(AnimaSoulContext);
+}
 
 /** Static on purpose: a pulsing live indicator repaints continuously. */
 export function AnimaAccentDot({
@@ -73,26 +87,61 @@ export function TraitBars({
   readonly traits: ReadonlyArray<AnimaTrait>;
   readonly empty: string;
 }) {
+  const soul = useAnimaSoul();
   if (traits.length === 0) return <p className="text-xs text-muted-foreground">{empty}</p>;
   return (
-    <ul className="space-y-1.5">
-      {traits.map((trait) => (
-        <li
-          key={trait.name}
-          className="grid grid-cols-[minmax(0,8rem)_1fr_2.5rem] items-center gap-2"
-        >
-          <span className="truncate text-xs text-foreground/80">{trait.name}</span>
-          <Meter value={trait.mean} label={trait.name} />
-          <span className="text-right text-2xs tabular-nums text-muted-foreground">
-            {traitPercent(trait)}%
-          </span>
-        </li>
-      ))}
+    <ul className="space-y-2">
+      {traits.map((trait) => {
+        const mean = Math.min(1, Math.max(0, trait.mean));
+        const sigma = trait.sigma ?? 0;
+        return (
+          <li
+            key={trait.name}
+            className="grid grid-cols-[minmax(0,8rem)_1fr_3.5rem] items-center gap-2.5"
+          >
+            <span className="truncate text-xs text-foreground/85">{trait.name}</span>
+            <span
+              role="progressbar"
+              aria-label={trait.name}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(mean * 100)}
+              className="relative block h-1.5 rounded-full bg-muted"
+            >
+              {sigma > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute inset-y-0 rounded-full opacity-25"
+                  style={{
+                    left: `${Math.max(0, mean - sigma) * 100}%`,
+                    right: `${(1 - Math.min(1, mean + sigma)) * 100}%`,
+                    backgroundColor: soul?.core ?? "var(--primary)",
+                  }}
+                />
+              ) : null}
+              <span
+                className="absolute inset-y-0 left-0 rounded-full"
+                style={{
+                  width: `${mean * 100}%`,
+                  backgroundColor: soul?.core ?? "var(--primary)",
+                  opacity: 0.85,
+                }}
+              />
+            </span>
+            <span className="text-right text-2xs tabular-nums text-muted-foreground">
+              {traitPercent(trait)}%
+              {trait.sigma !== null ? (
+                <span className="text-muted-foreground/60"> ±{Math.round(trait.sigma * 100)}</span>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-/** Section heading used across the anima tabs; `action` sits on the right. */
+/** Section heading used across the anima tabs, lit in the anima's soul colour; `action` sits on the right. */
 export function AnimaBlock({
   title,
   count,
@@ -106,13 +155,19 @@ export function AnimaBlock({
   readonly children: ReactNode;
   readonly className?: string;
 }) {
+  const soul = useAnimaSoul();
   return (
-    <section className={cn("space-y-2", className)}>
-      <div className="flex min-h-6 items-center justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-xs font-medium text-foreground/80">
+    <section className={cn("space-y-3", className)}>
+      <div className="flex min-h-7 items-center justify-between gap-2">
+        <h3
+          className="flex items-center gap-2 text-xs font-semibold tracking-widest uppercase"
+          style={soul ? { color: soul.core } : undefined}
+        >
           {title}
           {count !== undefined ? (
-            <span className="tabular-nums text-muted-foreground/70">{count}</span>
+            <span className="rounded-full bg-muted px-1.5 text-2xs font-medium tracking-normal tabular-nums text-muted-foreground">
+              {count}
+            </span>
           ) : null}
         </h3>
         {action}
@@ -139,16 +194,18 @@ export function AnimaStat({
   readonly tone?: keyof typeof STAT_TONES;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-border/60 bg-card/60 px-3 py-2">
+    <div className="min-w-0 space-y-0.5">
       <div
         className={cn(
-          "truncate text-lg font-semibold tabular-nums leading-tight",
+          "truncate text-3xl font-semibold tracking-tight tabular-nums leading-none",
           STAT_TONES[tone],
         )}
       >
         {value}
       </div>
-      <div className="truncate text-xs text-muted-foreground">{label}</div>
+      <div className="truncate text-2xs font-medium tracking-widest text-muted-foreground uppercase">
+        {label}
+      </div>
     </div>
   );
 }
@@ -165,8 +222,12 @@ export function AnimaEmptyNote({
   readonly children?: ReactNode;
   readonly action?: ReactNode;
 }) {
+  const soul = useAnimaSoul();
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/70 px-3 py-3 [&>svg]:mt-0.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
+    <div
+      className="flex items-start gap-3 rounded-2xl px-4 py-4 [&>svg]:mt-0.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+      style={{ backgroundColor: soul?.haze ?? "var(--muted)" }}
+    >
       {icon}
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-medium">{title}</p>
@@ -197,6 +258,7 @@ export function Meter({
   readonly label: string;
   readonly tone?: MeterTone;
 }) {
+  const soul = useAnimaSoul();
   const percent = Math.round(Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)) * 100);
   return (
     <span
@@ -209,7 +271,10 @@ export function Meter({
     >
       <span
         className={cn("block h-full rounded-full", METER_TONES[tone])}
-        style={{ width: `${percent}%` }}
+        style={{
+          width: `${percent}%`,
+          ...(tone === "primary" && soul ? { backgroundColor: soul.core } : {}),
+        }}
       />
     </span>
   );

@@ -1,8 +1,7 @@
-import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { IdCardIcon, WindIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { IdCardIcon } from "lucide-react";
+import { type ReactNode } from "react";
 import type { AnimaDetail, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
@@ -12,17 +11,8 @@ import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsGroup } from "../settings/SettingsGroup";
-import { breathNoteText, buildAnimaFeed } from "./anima.logic";
-import {
-  AnimaAccentDot,
-  AnimaBlock,
-  AnimaEmptyNote,
-  RelativeTime,
-  TraitBars,
-  useAnimaMutation,
-} from "./AnimaBits";
+import { AnimaAccentDot, AnimaBlock, AnimaEmptyNote, RelativeTime, TraitBars } from "./AnimaBits";
 import { StartAnimaThreadMenu } from "./StartAnimaThread";
 
 interface TabProps {
@@ -134,10 +124,6 @@ export function IdentityTab({ environmentId, detail }: TabProps) {
       </aside>
     </div>
   );
-}
-
-function scrollIntoCenter(element: HTMLElement | null) {
-  element?.scrollIntoView({ block: "center" });
 }
 
 function NarrativeLine({
@@ -271,125 +257,7 @@ export function LatestBreath({
   );
 }
 
-function BreathRow({
-  breath,
-  focused,
-}: {
-  readonly breath: AnimaDetail["breaths"][number];
-  readonly focused?: boolean;
-}) {
-  const note = breathNoteText(breath.note);
-  return (
-    <li
-      ref={focused ? scrollIntoCenter : undefined}
-      className={cn("space-y-1.5 px-3 py-2.5 sm:px-4", focused && "bg-accent/40")}
-    >
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Badge size="sm" variant="outline">
-          #{breath.index}
-        </Badge>
-        <RelativeTime value={breath.ts} />
-        {breath.project ? <span className="truncate">{breath.project}</span> : null}
-      </div>
-      {note ? <p className="whitespace-pre-wrap text-sm">{note}</p> : null}
-      <BreathNarrative breath={breath} />
-      {breath.files.length > 0 ? (
-        <p className="truncate font-mono text-2xs text-muted-foreground">
-          {breath.files.length} {breath.files.length === 1 ? "file" : "files"}:{" "}
-          {breath.files.join(", ")}
-        </p>
-      ) : null}
-    </li>
-  );
-}
-
-export function BreathsTab({
-  environmentId,
-  detail,
-  allLoaded,
-  onLoadAll,
-  focusIndex,
-}: TabProps & {
-  readonly allLoaded: boolean;
-  readonly onLoadAll: () => void;
-  readonly focusIndex: number | null;
-}) {
-  const canBreathe = useAtomValue(animaEnvironment.breathe.permissionAtom(environmentId));
-  const breathe = useAnimaMutation(animaEnvironment.breathe, {
-    failureTitle: "Could not request a breath",
-    successTitle: "Breath requested",
-  });
-  const [threadId, setThreadId] = useState<ThreadId | null>(null);
-  const chosen = threadId ?? detail.threadIds[0] ?? null;
-  const breaths = detail.breaths.toSorted((a, b) => b.index - a.index);
-  const hasMore = !allLoaded && detail.summary.breathCount > detail.breaths.length;
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2.5 sm:px-4">
-        {chosen ? (
-          <>
-            {detail.threadIds.length > 1 ? (
-              <Select value={chosen} onValueChange={(value) => setThreadId(value as ThreadId)}>
-                <SelectTrigger size="sm" aria-label="Thread to breathe in">
-                  <SelectValue>
-                    <ThreadTitle environmentId={environmentId} threadId={chosen} />
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {detail.threadIds.map((id) => (
-                    <SelectItem key={id} value={id} label={id}>
-                      <ThreadTitle environmentId={environmentId} threadId={id} />
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                in <ThreadTitle environmentId={environmentId} threadId={chosen} />
-              </span>
-            )}
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!canBreathe}
-              onClick={() => void breathe({ environmentId, input: { threadId: chosen } })}
-            >
-              <WindIcon className="size-3" />
-              Breathe now
-            </Button>
-          </>
-        ) : (
-          <StartAnimaThreadMenu
-            environmentId={environmentId}
-            animaName={detail.summary.name}
-            label="Start a thread to breathe"
-          />
-        )}
-        <span className="ml-auto text-2xs text-muted-foreground">
-          {detail.summary.breathCount} total
-        </span>
-      </div>
-      {breaths.length === 0 ? (
-        <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">No breaths yet.</p>
-      ) : (
-        <ul className="divide-y divide-border/50">
-          {breaths.map((breath) => (
-            <BreathRow key={breath.index} breath={breath} focused={breath.index === focusIndex} />
-          ))}
-        </ul>
-      )}
-      {hasMore ? (
-        <div className="border-t border-border/50 px-3 py-2.5 sm:px-4">
-          <Button size="xs" variant="ghost-muted" onClick={onLoadAll}>
-            Load all {detail.summary.breathCount} breaths
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ThreadTitle({
+export function ThreadTitle({
   environmentId,
   threadId,
 }: {
@@ -398,47 +266,6 @@ function ThreadTitle({
 }) {
   const shell = useThreadShell(scopeThreadRef(environmentId, threadId));
   return <span className="truncate">{shell?.title ?? threadId}</span>;
-}
-
-export function ActivityTab({ detail }: TabProps) {
-  const feed = buildAnimaFeed(detail);
-  if (feed.pinned.length === 0 && feed.items.length === 0) {
-    return <p className="px-3 py-4 text-xs text-muted-foreground sm:px-4">No activity yet.</p>;
-  }
-  return (
-    <ul className="divide-y divide-border/50">
-      {feed.pinned.map((open) => (
-        <li key={`open:${open.id}`} className="space-y-0.5 px-3 py-2.5 sm:px-4">
-          <div className="flex items-center gap-2">
-            <Badge size="sm" variant="warning">
-              Open
-            </Badge>
-            <span className="text-2xs text-muted-foreground">
-              {open.project}
-              {open.assignee ? ` - ${open.assignee}` : ""}
-            </span>
-          </div>
-          <p className="text-sm">{open.question}</p>
-        </li>
-      ))}
-      {feed.items.map((item) =>
-        item.kind === "message" ? (
-          <li key={item.key} className="space-y-0.5 px-3 py-2.5 sm:px-4">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge size="sm" variant="info">
-                {item.message.type}
-              </Badge>
-              <span>from {item.message.from}</span>
-              <RelativeTime value={item.ts} />
-            </div>
-            <p className="whitespace-pre-wrap text-sm">{item.message.body}</p>
-          </li>
-        ) : (
-          <BreathRow key={item.key} breath={item.breath} />
-        ),
-      )}
-    </ul>
-  );
 }
 
 function ThreadLinkRow({
