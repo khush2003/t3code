@@ -49,6 +49,8 @@ import * as AnimaFiles from "./AnimaFiles.ts";
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
 const MAX_WAKE_BYTES = 256 * 1024;
+/** Recall matches words; the start of a long message carries its intent. */
+const MAX_RECALL_MESSAGE_CHARS = 2000;
 const MAX_VOICE_BYTES = 16 * 1024;
 /** Stand-in caller for the very first anima: the CLI cannot `init` without an architect to act as. */
 const BOOTSTRAP_CALLER = "bootstrap-caller";
@@ -167,6 +169,14 @@ export class AnimaService extends Context.Service<
     readonly identityBrief: (input: {
       readonly name: string;
       readonly target: AnimaBriefTarget;
+    }) => Effect.Effect<string>;
+    /**
+     * Lived precedents and owned knowledge relevant to `message` (`anima recall`), so the agent
+     * need not shell out for them each turn. "" for the legacy CLI, on error, or when nothing applies.
+     */
+    readonly recall: (input: {
+      readonly name: string;
+      readonly message: string;
     }) => Effect.Effect<string>;
     /** Validates the tree, moves the current anima into `.backups/`, and installs the files. */
     readonly install: (
@@ -1062,6 +1072,22 @@ const make = Effect.gen(function* () {
     Effect.orElseSucceed(() => ""),
   );
 
+  const recall: AnimaService["Service"]["recall"] = Effect.fn("AnimaService.recall")(
+    function* (input) {
+      const message = input.message.trim().slice(0, MAX_RECALL_MESSAGE_CHARS);
+      if (!isAnimaName(input.name) || message === "" || !(yield* isModern)) return "";
+      const result = yield* runCli("recall", [
+        "recall",
+        "--agent",
+        input.name,
+        "--message",
+        message,
+      ]);
+      return result.stdout.trim();
+    },
+    Effect.orElseSucceed(() => ""),
+  );
+
   const comparable = (
     id: string,
     files: ReadonlyArray<AnimaBundleFile>,
@@ -1231,6 +1257,7 @@ const make = Effect.gen(function* () {
     voice,
     capsule,
     identityBrief,
+    recall,
     install,
   });
 });
