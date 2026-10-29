@@ -225,7 +225,7 @@ function LifeStrip(props: {
 }) {
   if (props.breaths.length < 2) return null;
   return (
-    <SettingsSection title="Life in colour" footer={`${props.breaths.length} most recent breaths`}>
+    <SettingsSection title="Life in colour" footer="One bar per breath, oldest first">
       <View className="h-14 flex-row items-end gap-0.5 px-4 py-3">
         {props.breaths.map((breath, index) => {
           const color = animaColor({ hsl: breath.hsl, accent: props.accent });
