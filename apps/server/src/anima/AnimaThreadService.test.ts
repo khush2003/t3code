@@ -68,6 +68,7 @@ describe("AnimaThreadService.breathe", () => {
       expect(text).toContain("bun anima.ts breathe --agent atlas\n");
       expect(text).not.toContain("<name>");
       expect(text).toContain("Skip the bare template run");
+      expect(text).toContain("fix exactly the fields it names and rerun once");
     }),
   );
 

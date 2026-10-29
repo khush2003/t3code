@@ -21,7 +21,7 @@ import {
   threadInbox,
   traitPercent,
   validateAnimaSearch,
-} from "./animaSettings.logic";
+} from "./anima.logic";
 
 const summary = (over: Partial<AnimaSummary>) =>
   ({
@@ -48,7 +48,8 @@ describe("anima settings logic", () => {
       view: "library",
       entry: "notes.md",
     });
-    expect(validateAnimaSearch({ view: "roster", entry: "x" })).toEqual({});
+    expect(validateAnimaSearch({ view: "roster", entry: "x" })).toEqual({ view: "roster" });
+    expect(validateAnimaSearch({ view: "world" })).toEqual({});
     expect(validateAnimaSearch({ view: "library", entry: "../etc" })).toEqual({ view: "library" });
   });
 

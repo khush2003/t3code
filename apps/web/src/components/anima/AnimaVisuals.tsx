@@ -1,9 +1,9 @@
 import { useId, useState } from "react";
 import type { AnimaBreath, AnimaSummary, AnimaTrait } from "@t3tools/contracts";
 
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
-import { cn } from "../../../lib/utils";
-import { breathNoteText, safeAnimaAccent } from "../animaSettings.logic";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { cn } from "../../lib/utils";
+import { breathNoteText, safeAnimaAccent } from "./anima.logic";
 import {
   constellationNodes,
   cubeGeometry,
