@@ -27,7 +27,7 @@ export const ANIMA_TABS = [
 export type AnimaTab = (typeof ANIMA_TABS)[number];
 
 export const ANIMA_TAB_LABELS: Readonly<Record<AnimaTab, string>> = {
-  overview: "Overview",
+  overview: "Portrait",
   health: "Health",
   identity: "Identity",
   breaths: "Breaths",
