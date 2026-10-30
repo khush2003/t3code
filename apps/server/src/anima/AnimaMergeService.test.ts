@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- tests seed fixture trees and probe for the real CLI synchronously
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { AnimaName, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -157,6 +157,11 @@ describe("AnimaMergeService", () => {
         }
         yield* fs.writeFileString(NodePath.join(started.stagingPath, "merged", "DONE"), "");
         expect((yield* merge.status({ mergeId: started.mergeId })).state).toBe("ready");
+        // A reopened Sync tab finds the merge by the anima's name alone.
+        expect(yield* merge.status({ name: AnimaName.make("atlas") })).toMatchObject({
+          mergeId: started.mergeId,
+          state: "ready",
+        });
 
         yield* merge.apply({ mergeId: started.mergeId });
         expect((yield* animas.get({ name: "atlas" })).summary.breathCount).toBe(4);
