@@ -223,6 +223,8 @@ function mergePolicy(
   const rev = Math.max(revOf(local), revOf(incoming)) + 1;
   const sections = new Map<string, Array<string>>();
   const order: Array<string> = [];
+  // Across sections: a merge files rules over the cap under Pending, the other side may not.
+  const seen = new Set<string>();
   for (const [source, text] of [
     ["local", local],
     ["incoming", incoming],
@@ -239,7 +241,8 @@ function mergePolicy(
       if (line.startsWith("## ")) continue;
       if (!kept(line)) continue;
       const trimmed = line.trim();
-      if (trimmed !== "" && bucket.some((entry) => entry.trim() === trimmed)) continue;
+      if (trimmed !== "" && seen.has(trimmed)) continue;
+      seen.add(trimmed);
       if (trimmed === "" && source === "incoming") continue;
       bucket.push(line);
     }
