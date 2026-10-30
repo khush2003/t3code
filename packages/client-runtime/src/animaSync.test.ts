@@ -114,8 +114,14 @@ describe("syncAnimaPair", () => {
     expect(unrelated.importBundle).not.toHaveBeenCalled();
   });
 
-  it("creates the anima where it is missing", async () => {
+  it("creates the anima only where an export finds nothing", async () => {
     const p = pair({});
+    p.exports.delete(from);
+    vi.mocked(p.value.exportBundle).mockImplementation(async (environmentId) => {
+      const found = p.exports.get(environmentId);
+      if (!found) throw new Error("not found");
+      return found;
+    });
     await syncAnimaPair(
       { name, first: from, second: to, present: { first: false, second: true } },
       p.value,
@@ -123,6 +129,22 @@ describe("syncAnimaPair", () => {
     expect(p.importBundle).toHaveBeenCalledWith(from, {
       bundle: { ...bundle, digest: "b" },
       mode: "create",
+    });
+  });
+
+  it("merges when a list says an anima is missing but the machine has it", async () => {
+    const p = pair({ conflicts: [] });
+    await syncAnimaPair(
+      { name, first: from, second: to, present: { first: true, second: false } },
+      p.value,
+    );
+    expect(p.importBundle).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ mode: "create" }),
+    );
+    expect(p.importBundle).toHaveBeenCalledWith(from, {
+      bundle: { ...bundle, digest: "b" },
+      mode: "merge",
     });
   });
 });
