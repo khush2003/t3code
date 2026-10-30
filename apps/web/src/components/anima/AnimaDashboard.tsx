@@ -1,10 +1,14 @@
-import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import type { AnimaDetail, AnimaName, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 import {
   ActivityIcon,
+  CheckIcon,
   HeartPulseIcon,
   InboxIcon,
   RadioIcon,
   SparklesIcon,
+  SquareIcon,
+  Volume2Icon,
   WindIcon,
   ZapIcon,
 } from "lucide-react";
@@ -12,12 +16,16 @@ import { useState, type ReactNode } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "../../lib/utils";
+import { animaEnvironment } from "../../state/anima";
+import { useEnvironmentQuery } from "../../state/query";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { animaNeedsAttention, type AnimaTab } from "./anima.logic";
-import { RelativeTime } from "./AnimaBits";
+import { RelativeTime, SpeechBubble, useAnimaSpeech } from "./AnimaBits";
+import { useRecordBreath } from "./AnimaBreatheDialog";
 import { FamilyConstellation } from "./AnimaFamily";
-import { AlertsBanner, AnimaSearch, HealthPanel } from "./AnimaPool";
+import { ANIMA_SEARCH_INPUT_ID, AlertsBanner, HealthPanel } from "./AnimaPool";
+import { AnimaSearchPanel, type AnimaSearchTarget } from "./AnimaSearchPalette";
 import { AnimaRoster } from "./AnimaRoster";
 import { animaSoulColors } from "./AnimaSoul";
 import {
@@ -31,6 +39,72 @@ import {
 
 function lastSeen(anima: AnimaSummary): string | null {
   return anima.lastActiveAt ?? anima.lastBreathAt;
+}
+
+/** The pool's report in its steward's voice: the architect if there is one, else the eldest. */
+function poolReflection(animas: ReadonlyArray<AnimaSummary>) {
+  const steward =
+    animas.find((anima) => anima.role === "architect") ??
+    animas.toSorted((a, b) => b.breathCount - a.breathCount)[0];
+  if (!steward) return null;
+  const live = animas.filter((anima) => anima.live);
+  const tending = animas.filter(animaNeedsAttention);
+  const oldest = tensionBoard(animas)[0];
+  const recent = animas
+    .filter((anima) => lastSeen(anima) !== null && anima.name !== steward.name)
+    .toSorted((a, b) => (lastSeen(b) ?? "").localeCompare(lastSeen(a) ?? ""))[0];
+  const names = (list: ReadonlyArray<AnimaSummary>) =>
+    list.length <= 3
+      ? list.map((anima) => anima.name).join(" and ")
+      : `${list
+          .slice(0, 3)
+          .map((anima) => anima.name)
+          .join(", ")} and ${list.length - 3} more`;
+  return {
+    steward,
+    text: [
+      `I am ${steward.name}, keeping watch over ${animas.length} ${animas.length === 1 ? "anima" : "animas"}.`,
+      live.length > 0
+        ? `${names(live)} ${live.length === 1 ? "is" : "are"} awake right now.`
+        : "No one is awake right now.",
+      recent?.aim ? `${recent.name} breathed most recently, aiming to ${recent.aim}.` : null,
+      tending.length > 0
+        ? `${names(tending)} could use some tending.`
+        : "Everyone is in good health.",
+      oldest
+        ? `The oldest open tension is ${oldest.anima}'s: ${oldest.text}, held for ${oldest.age} ${oldest.age === 1 ? "breath" : "breaths"}.`
+        : null,
+      steward.aim ? `As for me, I mean to ${steward.aim}.` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+function PoolSpeak({ animas }: { readonly animas: ReadonlyArray<AnimaSummary> }) {
+  const speech = useAnimaSpeech();
+  const report = poolReflection(animas);
+  if (!report) return null;
+  return (
+    <div className="space-y-2">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => (speech.speaking ? speech.stop() : speech.speak(report.text))}
+      >
+        {speech.speaking ? <SquareIcon /> : <Volume2Icon />}
+        {speech.speaking ? "Stop" : `Hear from ${report.steward.name}`}
+      </Button>
+      {speech.text ? (
+        <SpeechBubble
+          text={speech.text}
+          speaking={speech.speaking}
+          color={animaSoulColors(report.steward).core}
+          onDismiss={speech.dismiss}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function Section({
@@ -254,14 +328,116 @@ function Pulse({
   );
 }
 
+function ConfirmResolve({
+  environmentId,
+  detail,
+  slug,
+  onDone,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly detail: AnimaDetail;
+  readonly slug: string;
+  readonly onDone: () => void;
+}) {
+  const record = useRecordBreath(environmentId, detail);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        void record({ resolves: [slug] }).finally(() => {
+          setBusy(false);
+          onDone();
+        });
+      }}
+    >
+      <CheckIcon />
+      {busy ? "Resolving…" : "Resolve with a breath"}
+    </Button>
+  );
+}
+
+/** The record call continues from the anima's latest breath, so its detail loads once the resolve is armed. */
+function ArmedResolve({
+  environmentId,
+  name,
+  slug,
+  onDone,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly name: string;
+  readonly slug: string;
+  readonly onDone: () => void;
+}) {
+  const query = useEnvironmentQuery(
+    animaEnvironment.detail({ environmentId, input: { name: name as AnimaName } }),
+  );
+  return (
+    <span data-armed className="flex items-center gap-1">
+      {query.data ? (
+        <ConfirmResolve
+          environmentId={environmentId}
+          detail={query.data}
+          slug={slug}
+          onDone={onDone}
+        />
+      ) : (
+        <Button size="xs" variant="outline" disabled>
+          Loading…
+        </Button>
+      )}
+      <Button size="xs" variant="ghost" onClick={onDone}>
+        Cancel
+      </Button>
+    </span>
+  );
+}
+
+function ResolveTension({
+  environmentId,
+  name,
+  slug,
+  text,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly name: string;
+  readonly slug: string;
+  readonly text: string;
+}) {
+  const [armed, setArmed] = useState(false);
+  return armed ? (
+    <ArmedResolve
+      environmentId={environmentId}
+      name={name}
+      slug={slug}
+      onDone={() => setArmed(false)}
+    />
+  ) : (
+    <Button
+      size="icon-xs"
+      variant="ghost-muted"
+      aria-label={`Resolve ${text}`}
+      onClick={() => setArmed(true)}
+    >
+      <CheckIcon />
+    </Button>
+  );
+}
+
 function Tensions({
+  environmentId,
   animas,
   onOpen,
 }: {
+  readonly environmentId: EnvironmentId;
   readonly animas: ReadonlyArray<AnimaSummary>;
   readonly onOpen: (name: string) => void;
 }) {
   const [all, setAll] = useState(false);
+  const canRecord = useAtomValue(animaEnvironment.record.permissionAtom(environmentId));
   const board = tensionBoard(animas);
   const shown = all ? board : board.slice(0, 9);
   const byName = new Map(animas.map((anima) => [anima.name, anima]));
@@ -272,12 +448,15 @@ function Tensions({
           const anima = byName.get(tension.anima)!;
           const { core } = animaSoulColors(anima);
           return (
-            <li key={`${tension.anima}:${tension.slug}`}>
+            <li
+              key={`${tension.anima}:${tension.slug}`}
+              className="group flex h-full flex-col gap-2 rounded-2xl border border-border/60 bg-card p-4 shadow-xs transition-colors hover:border-border"
+              style={{ borderLeftColor: core, borderLeftWidth: 3 }}
+            >
               <button
                 type="button"
                 onClick={() => onOpen(tension.anima)}
-                className="flex h-full w-full flex-col gap-2 rounded-2xl border border-border/60 bg-card p-4 text-left shadow-xs outline-none transition-colors hover:border-border hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                style={{ borderLeftColor: core, borderLeftWidth: 3 }}
+                className="flex flex-1 flex-col gap-2 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="flex items-center justify-between gap-2 text-xs">
                   <span className="font-semibold">{tension.anima}</span>
@@ -294,6 +473,16 @@ function Tensions({
                 </span>
                 <span className="text-sm leading-snug text-foreground/85">{tension.text}</span>
               </button>
+              {canRecord ? (
+                <span className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 has-[[data-armed]]:opacity-100">
+                  <ResolveTension
+                    environmentId={environmentId}
+                    name={tension.anima}
+                    slug={tension.slug}
+                    text={tension.text}
+                  />
+                </span>
+              ) : null}
             </li>
           );
         })}
@@ -312,12 +501,14 @@ export function AnimaDashboard({
   animas,
   onOpen,
   onCreate,
+  onSearchPick,
   createDisabledReason,
 }: {
   readonly environmentId: EnvironmentId;
   readonly animas: ReadonlyArray<AnimaSummary>;
   readonly onOpen: (name: string, tab?: AnimaTab) => void;
   readonly onCreate: () => void;
+  readonly onSearchPick: (target: AnimaSearchTarget) => void;
   readonly createDisabledReason: string | null;
 }) {
   const breaths = animas.reduce((sum, anima) => sum + anima.breathCount, 0);
@@ -330,8 +521,15 @@ export function AnimaDashboard({
   return (
     <div className="space-y-10">
       <div className="space-y-3">
-        <AnimaSearch animas={animas} onOpen={onOpen} />
+        <AnimaSearchPanel
+          environmentId={environmentId}
+          animas={animas}
+          onPick={onSearchPick}
+          inputId={ANIMA_SEARCH_INPUT_ID}
+          floating
+        />
         <AlertsBanner animas={animas} onOpen={onOpen} />
+        <PoolSpeak animas={animas} />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatTile icon={<SparklesIcon />} label="Animas" value={animas.length} tone="neutral" />
@@ -379,7 +577,7 @@ export function AnimaDashboard({
           title="Open tensions"
           hint="Unresolved questions animas are carrying, oldest first."
         >
-          <Tensions animas={animas} onOpen={onOpen} />
+          <Tensions environmentId={environmentId} animas={animas} onOpen={onOpen} />
         </Section>
       ) : null}
 

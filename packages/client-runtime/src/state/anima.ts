@@ -70,6 +70,12 @@ export function createAnimaEnvironmentAtoms<R, E>(
       staleTimeMs: 60_000,
       idleTtlMs: 60_000,
     }),
+    search: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:anima:search",
+      tag: WS_METHODS.animaSearch,
+      staleTimeMs: 30_000,
+      idleTtlMs: 30_000,
+    }),
     threadStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:anima:thread-status",
       tag: WS_METHODS.animaThreadStatus,

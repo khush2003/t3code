@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState, type PointerEvent } from "react";
 import type { AnimaBreath, AnimaSummary, AnimaTrait } from "@t3tools/contracts";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -9,6 +9,7 @@ import {
   cubeGeometry,
   parseHsl,
   hslToCss,
+  type OrbitView,
   pointsAttr,
   radarAxisEnd,
   radarPoints,
@@ -88,6 +89,8 @@ export function AnimaSigil({
 const BODY_EXPLANATION =
   "Breadth: how many topics the work spans. Depth: how deep it goes in one area. Coupling: how connected the work is. Each point is a breath, coloured by its hue.";
 
+const DEFAULT_ORBIT: OrbitView = { yaw: Math.PI / 4, pitch: 0.55 };
+
 function latestWithShape(breaths: ReadonlyArray<AnimaBreath>) {
   return breaths.filter((breath) => breath.shape !== null).toSorted((a, b) => b.index - a.index)[0];
 }
@@ -106,7 +109,10 @@ export function AnimaBodyPanel({
 }) {
   const width = 240;
   const height = 190;
-  const geometry = cubeGeometry(width, height);
+  // The expanded body turns by dragging, like the original's orbit; the inline one stays isometric.
+  const [view, setView] = useState<OrbitView>(DEFAULT_ORBIT);
+  const drag = useRef<{ x: number; y: number; view: OrbitView } | null>(null);
+  const geometry = cubeGeometry(width, height, large ? view : undefined);
   const fallback = safeAnimaAccent(accent) ?? "currentColor";
   const all = trajectory(breaths, geometry, fallback);
   const points = upTo === undefined ? all : all.slice(0, Math.max(1, upTo));
@@ -156,8 +162,31 @@ export function AnimaBodyPanel({
             aria-label="Body trajectory in breadth, depth and coupling"
             className={cn(
               "mx-auto block w-full text-muted-foreground",
-              large ? "max-w-3xl" : "max-w-[18rem]",
+              large ? "max-w-3xl cursor-grab touch-none active:cursor-grabbing" : "max-w-[18rem]",
             )}
+            {...(large
+              ? {
+                  onPointerDown: (event: PointerEvent<SVGSVGElement>) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    drag.current = { x: event.clientX, y: event.clientY, view };
+                  },
+                  onPointerMove: (event: PointerEvent<SVGSVGElement>) => {
+                    const start = drag.current;
+                    if (!start) return;
+                    setView({
+                      yaw: start.view.yaw + (event.clientX - start.x) * 0.01,
+                      pitch: Math.max(
+                        0,
+                        Math.min(1.45, start.view.pitch + (event.clientY - start.y) * 0.01),
+                      ),
+                    });
+                  },
+                  onPointerUp: () => {
+                    drag.current = null;
+                  },
+                  onDoubleClick: () => setView(DEFAULT_ORBIT),
+                }
+              : {})}
           >
             <polygon points={pointsAttr(geometry.floor)} fill="currentColor" fillOpacity={0.06} />
             {geometry.edges.map(([from, to]) => (
@@ -183,16 +212,43 @@ export function AnimaBodyPanel({
               { x: geometry.axes.coupling.x, y: geometry.axes.coupling.y - 4 },
               "middle",
             )}
-            {points.length > 1 ? (
-              <polyline
-                points={pointsAttr(points)}
-                fill="none"
-                stroke={fallback}
-                strokeOpacity={0.45}
-                strokeWidth={1.25}
-                strokeLinejoin="round"
-              />
-            ) : null}
+            {points.map((point) => (
+              <g key={`floor-${point.index}`} opacity={point === head ? 0.6 : 0.25}>
+                <line
+                  x1={point.x}
+                  y1={point.y}
+                  x2={point.floor.x}
+                  y2={point.floor.y}
+                  stroke={point.color}
+                  strokeWidth={0.5}
+                  strokeDasharray="1.5 1.5"
+                />
+                <ellipse
+                  cx={point.floor.x}
+                  cy={point.floor.y}
+                  rx={2.2}
+                  ry={1.1}
+                  fill="currentColor"
+                  fillOpacity={0.5}
+                />
+              </g>
+            ))}
+            {points.slice(1).map((point, index) => {
+              const from = points[index]!;
+              return (
+                <line
+                  key={`trail-${point.index}`}
+                  x1={from.x}
+                  y1={from.y}
+                  x2={point.x}
+                  y2={point.y}
+                  stroke={point.color}
+                  strokeOpacity={0.3 + (0.45 * (index + 1)) / points.length}
+                  strokeWidth={1.25}
+                  strokeLinecap="round"
+                />
+              );
+            })}
             {points.map((point) => (
               <circle
                 key={point.index}
@@ -211,6 +267,11 @@ export function AnimaBodyPanel({
         </TooltipTrigger>
         <TooltipPopup>{BODY_EXPLANATION}</TooltipPopup>
       </Tooltip>
+      {large ? (
+        <p className="text-center text-2xs text-muted-foreground">
+          Drag to turn it. Double-click to reset.
+        </p>
+      ) : null}
       {latest?.shape ? (
         <p className="text-center text-2xs tabular-nums text-muted-foreground">
           breadth {latest.shape.breadth.toFixed(2)} · depth {latest.shape.depth.toFixed(2)} ·

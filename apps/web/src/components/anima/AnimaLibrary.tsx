@@ -325,10 +325,19 @@ export function AnimaLibrary({
                 <span className="block truncate text-sm font-medium">
                   {item.title ?? item.slug}
                 </span>
-                {item.title ? (
-                  <span className="block truncate font-mono text-2xs text-muted-foreground">
-                    {item.slug}
+                {item.author || item.target || item.title ? (
+                  <span className="block truncate text-2xs text-muted-foreground">
+                    {[
+                      item.author ? `by ${item.author}` : null,
+                      item.target ? `for ${item.target}` : null,
+                      item.title ? item.slug : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
+                ) : null}
+                {item.preview ? (
+                  <span className="block truncate text-xs text-foreground/70">{item.preview}</span>
                 ) : null}
               </span>
               <span className="shrink-0 text-right text-2xs tabular-nums text-muted-foreground">

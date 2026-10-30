@@ -230,10 +230,24 @@ export function PolicyTab({
   };
   return (
     <div className="space-y-10">
-      <PageHeading
-        eyebrow="Policy"
-        title={`Revision ${policy.revision} · ${policy.operational.length} ${policy.operational.length === 1 ? "rule" : "rules"} shaping how it works`}
-      />
+      <div className="space-y-1">
+        <PageHeading
+          eyebrow="Policy"
+          title={`Revision ${policy.revision} · ${policy.operational.length} ${policy.operational.length === 1 ? "rule" : "rules"} shaping how it works`}
+        />
+        {policy.updatedAt || policy.updatedBy ? (
+          <p className="text-xs text-muted-foreground">
+            Updated
+            {policy.updatedAt ? (
+              <>
+                {" "}
+                <RelativeTime value={policy.updatedAt} />
+              </>
+            ) : null}
+            {policy.updatedBy ? ` by ${policy.updatedBy}` : null}
+          </p>
+        ) : null}
+      </div>
       <div className="grid grid-cols-3 gap-6">
         <AnimaStat
           label="Rules"
@@ -356,7 +370,38 @@ export function PolicyTab({
         <Button size="xs" variant="ghost-muted" onClick={() => setShowAudit((value) => !value)}>
           {showAudit ? "Hide audit log" : `Show audit log (${policy.audit.length})`}
         </Button>
-        {showAudit ? (
+        {showAudit && policy.auditEntries && policy.auditEntries.length > 0 ? (
+          <table className="w-full text-xs">
+            <thead className="text-left text-2xs text-muted-foreground">
+              <tr>
+                <th className="py-1 pr-3 font-medium">Rev</th>
+                <th className="py-1 pr-3 font-medium">When</th>
+                <th className="py-1 pr-3 font-medium">Who</th>
+                <th className="py-1 font-medium">What</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {policy.auditEntries
+                .toSorted((a, b) => (b.revision ?? -1) - (a.revision ?? -1))
+                .slice(0, 20)
+                .map((entry) => (
+                  <tr
+                    key={`${entry.revision}:${entry.at}:${entry.by}:${entry.text}`}
+                    className="align-top"
+                  >
+                    <td className="py-1 pr-3 tabular-nums text-muted-foreground">
+                      {entry.revision ?? ""}
+                    </td>
+                    <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground">
+                      {entry.at ? <RelativeTime value={entry.at} /> : null}
+                    </td>
+                    <td className="py-1 pr-3 text-muted-foreground">{entry.by ?? ""}</td>
+                    <td className="py-1">{entry.text}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        ) : showAudit ? (
           <ul className="max-h-64 space-y-1 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-2xs">
             {policy.audit.length === 0 ? <li>No entries.</li> : null}
             {keyedLines(policy.audit).map(({ key, line }) => (

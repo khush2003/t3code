@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { RelativeTime } from "./AnimaBits";
+import { BreathNarrative } from "./AnimaTabs";
 import { AnimaBodyPanel } from "./AnimaVisuals";
 import { parseHsl } from "./animaVisuals.logic";
 import { parseBreathNote, type BreathNote } from "./soul.logic";
@@ -40,8 +41,16 @@ export function MemoryPanel({ detail }: { readonly detail: AnimaDetail }) {
   const [playing, setPlaying] = useState<number | null>(null);
   const [rendering, setRendering] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops audio playback when the panel unmounts
   useEffect(() => () => stopRef.current?.(), []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the playing bar in the scrolled strip's view, a DOM scroll position
+  useEffect(() => {
+    if (playing === null) return;
+    stripRef.current
+      ?.querySelector(`[data-breath="${playing}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [playing]);
   if (entries.length === 0) {
     return <p className="text-sm text-muted-foreground">No breath has a note yet.</p>;
   }
@@ -114,7 +123,14 @@ export function MemoryPanel({ detail }: { readonly detail: AnimaDetail }) {
           </Button>
         </div>
       </div>
-      <div className="flex h-24 items-center gap-1 overflow-x-auto rounded-2xl bg-muted/30 px-3">
+      <div
+        ref={(node) => {
+          // The newest breaths are on the right; start there like the original.
+          if (node && stripRef.current !== node) node.scrollLeft = node.scrollWidth;
+          stripRef.current = node;
+        }}
+        className="flex h-28 items-center gap-1 overflow-x-auto rounded-2xl bg-muted/30 px-3"
+      >
         {entries.map((entry) => {
           const color = memoryColor(entry.breath, entry.note);
           const lit = entry.index === focus.index;
@@ -125,10 +141,24 @@ export function MemoryPanel({ detail }: { readonly detail: AnimaDetail }) {
                   <button
                     type="button"
                     aria-label={`Play breath ${entry.index}`}
+                    data-breath={entry.index}
                     onClick={() => void playOne(entry)}
                     className="relative flex w-3 shrink-0 flex-col items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    style={{ height: `${Math.max(14, (entry.note.velocity / 127) * 80)}%` }}
+                    style={{ height: `${Math.max(14, (entry.note.velocity / 127) * 72)}%` }}
                   >
+                    {entry.note.quality === "major" || entry.note.quality === "seventh" ? (
+                      <span
+                        aria-hidden
+                        className="absolute -top-2 size-1 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="absolute -bottom-2 size-1 rounded-full opacity-70"
+                        style={{ backgroundColor: color }}
+                      />
+                    )}
                     <span
                       className={cn(
                         "size-full rounded-full transition-opacity",
@@ -152,10 +182,13 @@ export function MemoryPanel({ detail }: { readonly detail: AnimaDetail }) {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Breath #{focus.index} · <RelativeTime value={focus.breath.ts} />
-        {focus.breath.aim ? ` · ${focus.breath.aim}` : ""}
-      </p>
+      <div className="space-y-2 rounded-xl border border-border/50 bg-background/40 p-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          Breath #{focus.index} · <RelativeTime value={focus.breath.ts} />
+          {selected === null && playing === null ? " · the latest" : ""}
+        </p>
+        <BreathNarrative breath={focus.breath} />
+      </div>
     </div>
   );
 }
