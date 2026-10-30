@@ -28,6 +28,9 @@ import {
   type AnimaOpen,
   type AnimaOpensInput,
   type AnimaPolicyInput,
+  ANIMA_SEARCH_DEFAULT_LIMIT,
+  type AnimaSearchInput,
+  type AnimaSearchResult,
   type AnimaSummary,
   type AnimaTeamInput,
 } from "@t3tools/contracts";
@@ -144,6 +147,8 @@ export class AnimaService extends Context.Service<
     readonly libraryShelve: (
       input: AnimaLibraryShelveInput,
     ) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
+    /** Case-insensitive search across every anima's files and the shared library. */
+    readonly search: (input: AnimaSearchInput) => Effect.Effect<AnimaSearchResult, AnimaError>;
     readonly team: (input: AnimaTeamInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
     /** Writes the anima's self-chosen creature form (and optional accent) to appearance.json. */
     readonly clinic: (input: AnimaClinicInput) => Effect.Effect<AnimaMutationResult, AnimaFailure>;
@@ -484,7 +489,7 @@ const make = Effect.gen(function* () {
         session: AnimaFiles.parseSession(session, nowMs),
         appearance,
         digest: AnimaFiles.digestFiles(files),
-        health: assessment?.score ?? null,
+        health: assessment,
       }),
       agent,
       assessment,
@@ -971,9 +976,13 @@ const make = Effect.gen(function* () {
     if (info.type !== "File") return Option.none();
     const bytes = Number(info.size);
     const content = bytes > MAX_FILE_BYTES ? "" : yield* fs.readFileString(target);
+    const { title, author, target: forTarget, preview } = AnimaFiles.libraryMetadata(content);
     return Option.some({
       slug: file.slice(0, -".md".length),
-      title: AnimaFiles.libraryTitle(content),
+      title,
+      author,
+      target: forTarget,
+      preview,
       bytes,
       modifiedAt: Option.match(info.mtime, {
         onNone: () => null,
@@ -1005,6 +1014,63 @@ const make = Effect.gen(function* () {
         return yield* rejected("libraryRead", "The library entry is too large to read here.");
       const content = yield* fs.readFileString(target).pipe(Effect.mapError(failed("libraryRead")));
       return { slug, content };
+    },
+  );
+
+  const readLibraryFile = Effect.fn("AnimaService.readLibraryFile")(
+    function* (file: string) {
+      const target = path.join(libraryDir, file);
+      const info = yield* fs.stat(target);
+      if (info.type !== "File" || Number(info.size) > MAX_FILE_BYTES) return "";
+      return yield* fs.readFileString(target);
+    },
+    Effect.orElseSucceed(() => ""),
+  );
+
+  const searchOne = Effect.fn("AnimaService.searchOne")(function* (name: string, query: string) {
+    const files = yield* collectFiles(path.join(root, name), { includeSkills: false });
+    const breathFiles = new Map<string, string>();
+    let agentContent = "";
+    let identity = "";
+    for (const file of files) {
+      if (file.path === "agent.anima") agentContent = file.content;
+      else if (file.path === "identity.md") identity = file.content;
+      else if (file.path.startsWith("breaths/")) breathFiles.set(file.path.slice(8), file.content);
+    }
+    return AnimaFiles.searchAnima({ name, agentContent, identity, breathFiles }, query);
+  });
+
+  const search: AnimaService["Service"]["search"] = Effect.fn("AnimaService.search")(
+    function* (input) {
+      const names = yield* listAnimaNames;
+      const perAnima = yield* Effect.forEach(
+        names,
+        (name) =>
+          // An unreadable anima must not hide matches in the others.
+          searchOne(name, input.query).pipe(
+            Effect.orElseSucceed((): ReadonlyArray<AnimaFiles.ScoredSearchHit> => []),
+          ),
+        { concurrency: SUMMARY_CONCURRENCY },
+      );
+      const libraryFiles = yield* fs
+        .readDirectory(libraryDir)
+        .pipe(Effect.orElseSucceed((): string[] => []));
+      const library = yield* Effect.forEach(
+        libraryFiles.filter((file) => file.endsWith(".md")).toSorted(),
+        (file) =>
+          readLibraryFile(file).pipe(
+            Effect.map((content) =>
+              AnimaFiles.searchLibraryEntry(file.slice(0, -".md".length), content, input.query),
+            ),
+          ),
+        { concurrency: SUMMARY_CONCURRENCY },
+      );
+      return {
+        results: AnimaFiles.rankSearchHits(
+          [...perAnima.flat(), ...library.filter((hit) => hit !== null)],
+          input.limit ?? ANIMA_SEARCH_DEFAULT_LIMIT,
+        ),
+      };
     },
   );
 
@@ -1350,6 +1416,7 @@ const make = Effect.gen(function* () {
     opensAction,
     health,
     libraryList,
+    search,
     libraryRead,
     libraryShelve,
     team,

@@ -21,7 +21,7 @@ export function formIndex(anima: Pick<AnimaSummary, "name" | "form">): number {
 }
 
 /** Hex for WebGL; three.js cannot parse the OKLCH the rest of the UI uses. */
-export function worldAccent(anima: Pick<AnimaSummary, "accent" | "hsl">): string {
+function worldAccent(anima: Pick<AnimaSummary, "accent" | "hsl">): string {
   if (anima.accent && HEX.test(anima.accent)) return anima.accent;
   const parts = anima.hsl?.split(",").map(Number) ?? [];
   if (parts.length >= 3 && parts.every(Number.isFinite)) {
