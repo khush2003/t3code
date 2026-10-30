@@ -1023,6 +1023,9 @@ function isVolatilePath(path: string): boolean {
   return VOLATILE_PATTERNS.some((pattern) => pattern.test(path));
 }
 
+/** Each machine appends rule fires here; bundles carry it so merges see both machines' fires. */
+export const POLICY_FIRE_LOG = "policy-fires.jsonl";
+
 /** Files a bundle may carry; import and merge-apply reject everything else. */
 export function isBundlePath(path: string): boolean {
   if (!isSafeRelativePath(path) || isVolatilePath(path)) return false;
@@ -1033,6 +1036,7 @@ export function isBundlePath(path: string): boolean {
     path === "constitution.json" ||
     path === "appearance.json" ||
     path === "goals.json" ||
+    path === POLICY_FIRE_LOG ||
     // Top-level notes: style.md, legacy-opens.md, role and insight notes.
     /^[^/]+\.md$/.test(path) ||
     /^reflections\/[^/]+\.(md|log|txt)$/.test(path) ||
@@ -1043,7 +1047,8 @@ export function isBundlePath(path: string): boolean {
 
 /** The files the digest covers: everything that defines identity, not the skill library. */
 function isDigestPath(path: string): boolean {
-  return isBundlePath(path) && !path.startsWith("skills/");
+  // Fires alone are not drift: they would make every pair of copies look diverged.
+  return isBundlePath(path) && !path.startsWith("skills/") && path !== POLICY_FIRE_LOG;
 }
 
 export function digestFiles(files: ReadonlyArray<AnimaBundleFile>): string {

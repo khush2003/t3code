@@ -1,6 +1,13 @@
 import type { AnimaBundleFile, AnimaMergeConflict } from "@t3tools/contracts";
 
-import { ANIMA_POLICY_CAP, breathFileName, parseBreathFile } from "./AnimaFiles.ts";
+import {
+  ANIMA_POLICY_CAP,
+  POLICY_FIRE_LOG,
+  breathFileName,
+  parseBreathFile,
+  parsePolicy,
+} from "./AnimaFiles.ts";
+import { hashOf } from "./AnimaPolicyMatch.ts";
 
 /**
  * Three-way merge of two copies of one anima against their last synced state. Breaths match by
@@ -208,7 +215,7 @@ function mergePolicy(
   local: string,
   incoming: string,
   incomingNewer: boolean,
-): { readonly content: string; readonly demoted: number } {
+): string {
   const lines = (text: string | undefined) => (text ?? "").split("\n");
   const baseSet = new Set(lines(base).map((line) => line.trim()));
   const localSet = new Set(lines(local).map((line) => line.trim()));
@@ -248,12 +255,10 @@ function mergePolicy(
     }
   }
   const operational = sections.get("## Operational");
-  let demoted = 0;
   if (operational) {
     const rules = operational.filter((line) => line.trim() !== "");
     if (rules.length > ANIMA_POLICY_CAP) {
       const surplus = rules.slice(ANIMA_POLICY_CAP);
-      demoted = surplus.length;
       sections.set("## Operational", [...rules.slice(0, ANIMA_POLICY_CAP), ""]);
       if (!sections.has("## Pending")) {
         sections.set("## Pending", []);
@@ -277,7 +282,31 @@ function mergePolicy(
       out.push(section, ...body);
     }
   }
-  return { content: out.join("\n"), demoted };
+  return out.join("\n");
+}
+
+/**
+ * policy-fires.jsonl is append-only on each machine: keep every fire from both, in time order.
+ * A line both sides hold is the same fire, so per line the larger count wins.
+ */
+export function mergeFireLog(local: string, incoming: string): string {
+  const counts = (text: string) => {
+    const out = new Map<string, number>();
+    for (const line of text.split("\n")) {
+      if (line.trim() !== "") out.set(line, (out.get(line) ?? 0) + 1);
+    }
+    return out;
+  };
+  const l = counts(local);
+  const i = counts(incoming);
+  const lines: Array<string> = [];
+  for (const line of new Set([...l.keys(), ...i.keys()])) {
+    const times = Math.max(l.get(line) ?? 0, i.get(line) ?? 0);
+    for (let n = 0; n < times; n += 1) lines.push(line);
+  }
+  const tsOf = (line: string) => /"ts":"([^"]*)"/.exec(line)?.[1] ?? "";
+  const sorted = lines.toSorted((left, right) => tsOf(left).localeCompare(tsOf(right)));
+  return sorted.length === 0 ? "" : `${sorted.join("\n")}\n`;
 }
 
 /** Notes and logs only grow in practice: keep the longer when one extends the other, else both. */
@@ -391,12 +420,11 @@ export function mergeAnimaFiles(input: {
     else if (base !== null && b === l) content = i;
     else if (base !== null && b === i) content = l;
     else if (path === "policy.md") {
-      const policy = mergePolicy(b, l, i, incomingNewer);
-      content = policy.content;
-      // Over the cap, the draft parks the surplus in Pending, which is inactive: a person picks.
-      if (policy.demoted > 0)
-        conflicts.push({ path, key: null, local: l, incoming: i, draft: content });
-    } else if (path === "goals.json") content = mergeGoals(l, i, incomingNewer) ?? newer(l, i);
+      content = mergePolicy(b, l, i, incomingNewer);
+      // Both sides changed rules: the merge thread tidies them (folds, clears, fits the cap).
+      conflicts.push({ path, key: null, local: l, incoming: i, draft: content });
+    } else if (path === POLICY_FIRE_LOG) content = mergeFireLog(l, i);
+    else if (path === "goals.json") content = mergeGoals(l, i, incomingNewer) ?? newer(l, i);
     else if (!CONFLICT_FILES.has(path) && /\.(md|log|txt)$/.test(path)) content = mergeNotes(l, i);
     else {
       content = newer(l, i);
@@ -406,4 +434,79 @@ export function mergeAnimaFiles(input: {
     if (content !== undefined) files.push({ path, content });
   }
   return { files, conflicts };
+}
+
+interface FireStat {
+  count: number;
+  last: string;
+}
+
+function fireStats(log: string): Map<string, FireStat> {
+  const stats = new Map<string, FireStat>();
+  for (const line of log.split("\n")) {
+    const match = /"h":"([^"]+)".*?"ts":"([^"]*)"/.exec(line);
+    if (!match) continue;
+    const stat = stats.get(match[1]!) ?? { count: 0, last: "" };
+    stat.count += 1;
+    if (match[2]! > stat.last) stat.last = match[2]!;
+    stats.set(match[1]!, stat);
+  }
+  return stats;
+}
+
+/**
+ * Every rule on either machine with its section there and its fires on both, so the merge
+ * thread can fold, clear and rank rules from evidence. A machine without a fire log says nothing
+ * about whether its rules fire.
+ */
+export function renderPolicyReport(input: {
+  readonly local: ReadonlyArray<AnimaBundleFile>;
+  readonly incoming: ReadonlyArray<AnimaBundleFile>;
+  readonly machines: { readonly local: string; readonly incoming: string };
+}): string {
+  const sides = (
+    [
+      ["local", input.local],
+      ["incoming", input.incoming],
+    ] as const
+  ).map(([side, files]) => {
+    const text = (path: string) => files.find((file) => file.path === path)?.content ?? "";
+    const policy = parsePolicy(text("policy.md"));
+    const log = text(POLICY_FIRE_LOG);
+    const since = /"ts":"([^"]*)"/.exec(log)?.[1] ?? null;
+    return { side, policy, stats: fireStats(log), since: log.trim() === "" ? null : since };
+  });
+  const rules = new Map<string, Array<string>>();
+  for (const { side, policy } of sides) {
+    for (const [section, list] of [
+      ["Operational", policy.operational],
+      ["Pending", policy.pending],
+    ] as const) {
+      for (const rule of list) {
+        const where = rules.get(rule.text) ?? [];
+        where.push(`${input.machines[side]} ${section}`);
+        rules.set(rule.text, where);
+      }
+    }
+  }
+  const tracking = sides
+    .map(({ side, since }) =>
+      since === null
+        ? `- ${input.machines[side]}: no fire log, so its rules' fires are unknown.`
+        : `- ${input.machines[side]}: fires logged since ${since}.`,
+    )
+    .join("\n");
+  const lines = [...rules].map(([text, where], index) => {
+    const hash = hashOf(text);
+    const fires = sides
+      .filter(({ since }) => since !== null)
+      .map(({ side, stats }) => {
+        const stat = stats.get(hash);
+        return `${input.machines[side]} ${stat ? `${stat.count}x, last ${stat.last}` : "0x"}`;
+      })
+      .join("; ");
+    const clipped = text.length > 220 ? `${text.slice(0, 220)}...` : text;
+    return `${index + 1}. [${where.join(", ")}] fires: ${fires || "unknown"}\n   ${clipped}`;
+  });
+  return `# Policy report\n\n${tracking}\n\n${lines.join("\n")}\n`;
 }
