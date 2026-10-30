@@ -39,12 +39,16 @@ still. It also stays still when your system asks for reduced motion.
 With a second environment connected, an anima's **Sync** tab compares the two copies:
 the breaths each machine has, the state that differs, and line diffs of its files.
 **Merge both** keeps every breath from both machines, ordered by time. Anything only one
-machine changed since they last synced takes that change, policies keep rules added on
-either side, and traits keep the more certain estimate.
+machine changed since they last synced takes that change, rule fires from both machines
+are kept, and traits keep the more certain estimate. Files a sync does not carry, such as
+session logs, stay on each machine.
 
 When both machines changed the same hand-written part (identity, vow, style, role), the
-tab lists it, and **Resolve with an agent** starts a thread in No Project that asks you
-how to settle each one. Once you apply its result, both machines get it.
+tab lists it, and **Resolve with an agent** starts a thread that asks you how to settle
+each one, showing both machines' versions and its proposal. When both changed their
+policies, the thread also tidies them: it folds similar rules, clears rules that have not
+fired in 30 days, keeps at most 40 active, and asks you once before using that. Once you
+apply its result, both machines get it.
 
 **Stay synced** keeps the two copies merged while the app is open and both machines are
 connected. After a disconnect it catches up on reconnect. If both machines change the same
