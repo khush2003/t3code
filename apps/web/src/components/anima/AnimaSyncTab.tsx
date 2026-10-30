@@ -11,6 +11,7 @@ import {
 import { availableScratchWorkspaceRoot } from "@t3tools/client-runtime/operations/projects";
 import { ArrowLeftIcon, ArrowRightIcon, CombineIcon, SparklesIcon } from "lucide-react";
 import { useContext, useState } from "react";
+import { create } from "zustand";
 import { Link } from "@tanstack/react-router";
 import type {
   AnimaBundle,
@@ -18,10 +19,18 @@ import type {
   AnimaName,
   AnimaSyncRelation,
   EnvironmentId,
+  ModelSelection,
   ProjectId,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 
 import { requestConfirmDialog } from "../../confirmDialog";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { providerInstanceEntriesFor } from "../../providerInstances";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { scheduledTaskDefaultModel } from "../settings/scheduledTasksSettings.logic";
 import {
   animaEnvironment,
   createAnimaSyncPorts,
@@ -57,11 +66,26 @@ type Comparison = {
 };
 
 type SyncState =
-  | { readonly phase: "idle" }
+  | { readonly phase: "idle"; readonly error?: string }
   | { readonly phase: "working"; readonly label: string; readonly comparison: Comparison | null }
-  | { readonly phase: "compared"; readonly comparison: Comparison }
+  | { readonly phase: "compared"; readonly comparison: Comparison; readonly error?: string }
   | { readonly phase: "merging"; readonly mergeId: string; readonly threadId: string }
   | { readonly phase: "done"; readonly message: string };
+
+/**
+ * Kept outside the panel so a comparison or a running merge survives leaving the page; work
+ * started before leaving still lands here. In memory only, since bundles can be large.
+ */
+const useSyncPanelStore = create<{
+  readonly panels: Readonly<Record<string, SyncState>>;
+  readonly set: (key: string, state: SyncState) => void;
+}>((set) => ({
+  panels: {},
+  set: (key, state) => set((current) => ({ panels: { ...current.panels, [key]: state } })),
+}));
+
+const IDLE: SyncState = { phase: "idle" };
+const NO_PROJECT = "no-project";
 
 function notify(type: "success" | "error" | "info", title: string, description?: string) {
   toastManager.add(
@@ -419,7 +443,9 @@ function SyncPanel({
   readonly there: EnvironmentOption;
 }) {
   const registry = useContext(RegistryContext);
-  const [state, setState] = useState<SyncState>({ phase: "idle" });
+  const panelKey = `${name}|${here.environmentId}|${there.environmentId}`;
+  const state = useSyncPanelStore((store) => store.panels[panelKey] ?? IDLE);
+  const setState = (next: SyncState) => useSyncPanelStore.getState().set(panelKey, next);
   const hereList = useAnimaList(here.environmentId);
   const thereList = useAnimaList(there.environmentId);
   const hereSummary = hereList.animas.find((anima) => anima.name === name) ?? null;
@@ -441,8 +467,32 @@ function SyncPanel({
       hereEnvironment?.serverConfig,
     ) !== null;
   const projects = useProjects().filter((project) => project.environmentId === here.environmentId);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(() =>
+    noProject ? NO_PROJECT : (projects[0]?.id ?? NO_PROJECT),
+  );
   const selectedProject = projects.find((project) => project.id === projectId);
+  const runInScratch = selectedProject === undefined;
+  const settings = useEnvironmentSettings(here.environmentId);
+  const providers =
+    useAtomValue(serverEnvironment.providersValueAtom(here.environmentId)) ??
+    EMPTY_SERVER_PROVIDERS;
+  const instanceEntries = providerInstanceEntriesFor(
+    providers,
+    settings,
+    selectedProject?.id ?? null,
+  );
+  const [pickedModel, setPickedModel] = useState<ModelSelection | null>(null);
+  const modelSelection =
+    pickedModel &&
+    instanceEntries.some((entry) => entry.instanceId === pickedModel.instanceId && entry.enabled)
+      ? pickedModel
+      : scheduledTaskDefaultModel(settings, selectedProject ?? null, instanceEntries);
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(
+    settings,
+    providers,
+    modelSelection?.instanceId ?? instanceEntries[0]?.instanceId ?? ("" as ProviderInstanceId),
+    modelSelection?.model ?? "",
+  );
   const quick = quickAnimaState(hereSummary, thereSummary);
   // Until both lists load, an anima missing from one only looks absent.
   const listsLoaded = hereList.data !== null && thereList.data !== null;
@@ -460,7 +510,12 @@ function SyncPanel({
     thereList.refresh();
   };
   const fail = (title: string, error: unknown, comparison: Comparison | null) => {
-    setState(comparison ? { phase: "compared", comparison } : { phase: "idle" });
+    const message = `${title}: ${describeAnimaError(error)}`;
+    setState(
+      comparison
+        ? { phase: "compared", comparison, error: message }
+        : { phase: "idle", error: message },
+    );
     notify("error", title, describeAnimaError(error));
   };
 
@@ -468,9 +523,12 @@ function SyncPanel({
     setState({ phase: "working", label: "Comparing...", comparison: null });
     try {
       const p = ports();
+      // A connection that just woke up can drop the first request, so exports retry once.
+      const exportFrom = (environmentId: EnvironmentId) =>
+        p.exportBundle(environmentId, name).catch(() => p.exportBundle(environmentId, name));
       const [hereBundle, thereBundle] = await Promise.all([
-        hereSummary ? p.exportBundle(here.environmentId, name) : null,
-        thereSummary ? p.exportBundle(there.environmentId, name) : null,
+        hereSummary ? exportFrom(here.environmentId) : null,
+        thereSummary ? exportFrom(there.environmentId) : null,
       ]);
       if (thereBundle) {
         const result = await p.compare(here.environmentId, thereBundle);
@@ -557,7 +615,8 @@ function SyncPanel({
     try {
       const started = await ports().mergeStart(here.environmentId, {
         bundle,
-        ...(noProject || !selectedProject ? {} : { projectId: selectedProject.id as ProjectId }),
+        ...(selectedProject ? { projectId: selectedProject.id as ProjectId } : {}),
+        ...(modelSelection ? { modelSelection } : {}),
       });
       setState({ phase: "merging", mergeId: started.mergeId, threadId: started.threadId });
     } catch (error) {
@@ -637,26 +696,10 @@ function SyncPanel({
                   : `Copy to ${comparison.hereBundle ? there.label : here.label}`}
               </Button>
             ) : null}
-            {conflicts.length > 0 && comparison.thereBundle && !noProject ? (
-              <Select value={projectId} onValueChange={(value) => setProjectId(String(value))}>
-                <SelectTrigger size="sm" aria-label="Project for the merge agent">
-                  <SelectValue>
-                    {selectedProject?.title ?? "Run the agent in project..."}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id} label={project.title}>
-                      {project.title}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            ) : null}
             {conflicts.length > 0 && comparison.thereBundle ? (
               <Button
                 size="sm"
-                disabled={busy || !canMerge || (!noProject && !selectedProject)}
+                disabled={busy || !canMerge || (runInScratch && !noProject) || !modelSelection}
                 onClick={() => void resolveWithAgent(comparison, comparison.thereBundle!)}
               >
                 <SparklesIcon />
@@ -664,6 +707,50 @@ function SyncPanel({
               </Button>
             ) : null}
           </div>
+          {conflicts.length > 0 && comparison.thereBundle ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Run it in</span>
+              <Select value={projectId} onValueChange={(value) => setProjectId(String(value))}>
+                <SelectTrigger size="sm" aria-label="Where the merge agent runs">
+                  <SelectValue>{selectedProject?.title ?? "No project"}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value={NO_PROJECT} label="No project" disabled={!noProject}>
+                    No project
+                  </SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id} label={project.title}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <span>with</span>
+              {modelSelection ? (
+                <ProviderModelPicker
+                  environmentId={here.environmentId}
+                  disabled={busy}
+                  activeInstanceId={modelSelection.instanceId}
+                  model={modelSelection.model}
+                  lockedProvider={null}
+                  instanceEntries={instanceEntries}
+                  modelOptionsByInstance={modelOptionsByInstance}
+                  isComposerOwned={false}
+                  onInstanceModelChange={(instanceId, model) =>
+                    setPickedModel({ instanceId, model })
+                  }
+                />
+              ) : (
+                <span className="text-destructive-foreground">no model is set up here</span>
+              )}
+              {runInScratch && !noProject ? (
+                <span className="basis-full">
+                  No project isn&apos;t available on {here.label}: its data folder is inside a git
+                  checkout. Pick a project instead.
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {both && comparison.relation !== "identical" ? (
             <details className="border-t border-border/40 pt-3">
               <summary className="cursor-pointer text-xs text-muted-foreground">
@@ -694,6 +781,11 @@ function SyncPanel({
         </div>
       ) : null}
 
+      {(state.phase === "idle" || state.phase === "compared") && state.error ? (
+        <p className="rounded-xl bg-destructive/8 px-4 py-3 text-sm text-destructive-foreground">
+          {state.error}
+        </p>
+      ) : null}
       {state.phase === "done" ? (
         <p className="rounded-xl bg-muted/30 px-4 py-3 text-sm">{state.message}</p>
       ) : null}

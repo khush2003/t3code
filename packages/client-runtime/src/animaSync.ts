@@ -8,6 +8,7 @@ import type {
   AnimaSummary,
   AnimaSyncRelation,
   EnvironmentId,
+  ModelSelection,
   ProjectId,
 } from "@t3tools/contracts";
 
@@ -107,7 +108,11 @@ export interface AnimaSyncPorts {
   ) => Promise<AnimaMutationResult>;
   readonly mergeStart: (
     environmentId: EnvironmentId,
-    input: { readonly bundle: AnimaBundle; readonly projectId?: ProjectId },
+    input: {
+      readonly bundle: AnimaBundle;
+      readonly projectId?: ProjectId;
+      readonly modelSelection?: ModelSelection;
+    },
   ) => Promise<AnimaMergeStartResult>;
 }
 

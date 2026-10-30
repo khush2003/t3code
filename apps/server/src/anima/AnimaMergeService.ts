@@ -236,6 +236,7 @@ const make = Effect.gen(function* () {
         project.value,
       ).settings;
       const modelSelection =
+        input.modelSelection ??
         project.value.defaultModelSelection ??
         resolveNewThreadModelSelection({
           defaultSelection: settings.defaultModelSelection,

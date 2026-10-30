@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ModelSelection } from "./modelSelection.ts";
 
 /** Directory-safe anima name; also the CLI `--agent` argument, so no separators or leading dashes. */
 export const AnimaName = TrimmedNonEmptyString.check(
@@ -654,6 +655,8 @@ export const AnimaMergeStartInput = Schema.Struct({
   bundle: AnimaBundle,
   /** Defaults to the No Project (scratch) project. */
   projectId: Schema.optional(ProjectId),
+  /** Defaults to the project's default model, then the environment's. */
+  modelSelection: Schema.optional(ModelSelection),
 });
 export type AnimaMergeStartInput = typeof AnimaMergeStartInput.Type;
 
