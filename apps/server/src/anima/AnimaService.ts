@@ -65,7 +65,6 @@ const DEFAULT_BREATH_LIMIT = 100;
 const CLI_TIMEOUT = "60 seconds";
 const SUMMARY_CONCURRENCY = 8;
 /** Files the CLI keeps across a replace: they describe the live session, not the identity. */
-const PRESERVED_ON_REPLACE = ["session", "inbox"] as const;
 /** Backups kept per anima; staying synced installs often, so older ones are pruned. */
 const BACKUPS_KEPT = 5;
 const SyncBaseJson = Schema.fromJsonString(Schema.Array(AnimaBundleFile));
@@ -1314,9 +1313,25 @@ const make = Effect.gen(function* () {
       yield* Effect.gen(function* () {
         yield* writeTree(staging, input.files);
         if (!present) return yield* fs.rename(staging, dir);
-        for (const keep of PRESERVED_ON_REPLACE) {
-          const source = path.join(dir, keep);
-          if (yield* exists(source)) yield* fs.copyFile(source, path.join(staging, keep));
+        // The bundle owns its paths. Everything else (session, inbox, sessions, CLI notes) stays,
+        // and the fire log keeps this machine's fires as well as the bundle's.
+        for (const entry of yield* fs.readDirectory(dir, { recursive: true })) {
+          const relative = entry.split(path.sep).join("/");
+          const source = path.join(dir, entry);
+          if ((yield* fs.stat(source)).type !== "File") continue;
+          const destination = path.join(staging, entry);
+          if (relative === AnimaFiles.POLICY_FIRE_LOG) {
+            const incoming = yield* fs
+              .readFileString(destination)
+              .pipe(Effect.orElseSucceed(() => ""));
+            yield* fs.writeFileString(
+              destination,
+              AnimaMerge.mergeFireLog(yield* fs.readFileString(source), incoming),
+            );
+          } else if (!AnimaFiles.isBundlePath(relative)) {
+            yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+            yield* fs.copyFile(source, destination);
+          }
         }
         const backups = path.join(root, ".backups");
         yield* fs.makeDirectory(backups, { recursive: true });

@@ -45,6 +45,9 @@ const FAILED_FILE = "FAILED";
 const APPLIED_FILE = "APPLIED";
 const META_FILE = "meta.json";
 const INSTRUCTIONS_FILE = "MERGE.md";
+const POLICY_REPORT_FILE = "POLICY-REPORT.md";
+/** A rule that has not fired in this long, on a machine that logs fires, is cleared on merge. */
+const STALE_RULE_DAYS = 30;
 const MERGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 type MergeFailure = AnimaError | AnimaCommandRejectedError | AnimaNotFoundError;
@@ -87,18 +90,31 @@ function describeConflict(
   machines: { readonly local: string; readonly incoming: string },
 ): string {
   if (conflict.path === "policy.md") {
-    return `### ${index + 1}. Active policy rules in policy.md
+    const { local, incoming } = machines;
+    return `### ${index + 1}. Tidy the policy rules in policy.md
 
-Together ${machines.local} and ${machines.incoming} have more than ${AnimaFiles.ANIMA_POLICY_CAP}
-active rules (\`## Operational\` in \`local/policy.md\` and \`incoming/policy.md\`). The draft
-kept the first ${AnimaFiles.ANIMA_POLICY_CAP} active and moved the rest to \`## Pending\`, where
-they no longer apply. That is a placeholder, not a decision.
+Both machines changed their rules. The draft keeps every rule from both, the first
+${AnimaFiles.ANIMA_POLICY_CAP} under \`## Operational\` and the rest under \`## Pending\`, where
+they no longer apply. That is a placeholder, not a decision. \`${POLICY_REPORT_FILE}\` in the
+staging directory lists every rule with its section on each machine and how often it fired.
 
-Read both files. Propose which rules stay active: fold near-duplicates into one rule, and prefer
-rules that recur or guard against costly mistakes. Show the user, per machine, which of its rules
-your proposal keeps active, folds or parks in Pending, and ask with the options "Keep
-${machines.local}'s active rules", "Keep ${machines.incoming}'s active rules" and "Use the proposed
-selection". Never delete a rule: one that is not active goes under \`## Pending\`.`;
+Draft a tidied \`merged/policy.md\`:
+
+1. **Fold similar rules.** Rules that share a trigger or teach the same lesson become one rule
+   that keeps every distinct condition and action from each. Never lose a condition.
+2. **Clear rules that never fire.** A rule with 0 fires on a machine that has logged fires for
+   at least ${STALE_RULE_DAYS} days is removed, unless \`## Audit\` shows it was added within that
+   time. Fires are unknown for a machine without a fire log; never clear its rules on that ground.
+3. **Fit the cap.** At most ${AnimaFiles.ANIMA_POLICY_CAP} rules stay under \`## Operational\`,
+   chosen by fires and by how costly the mistake they guard against is. The rest go under
+   \`## Pending\`.
+4. **Record it.** Add one \`## Audit\` line per change, newest first, in the file's existing
+   \`rev|date|by|text\` form: \`folded: ...\`, \`removed (never fired): ...\`, \`pending: ...\`.
+
+Ask the user once, with a summary per machine: how many rules each had, which were folded (and
+into what), which were cleared, which went to Pending, and how many stay active. Name each rule
+by its first words. Offer "Use the tidied policy", "Keep every rule (only fit the cap)" and
+"Keep ${local}'s rules", "Keep ${incoming}'s rules" where your tool allows four options.`;
   }
   const where =
     conflict.key === null ? conflict.path : `\`# ${conflict.key}:\` in ${conflict.path}`;
@@ -154,8 +170,9 @@ merged/    a draft that already combines everything a rule could decide
 - **State the CLI rewrites each breath** (memo, aim, arc, ka, hue) comes from the side with the
   latest breath. Traits (\`self\`, \`skills\`, \`user\`) keep the more certain estimate (lower sigma).
   Lists (\`projects\`, \`kin\`, \`team\`, \`tension\`) are combined. \`breaths:\` is recomputed.
-- **policy.md** keeps rules added on either side and drops rules either side removed. Past
-  ${AnimaFiles.ANIMA_POLICY_CAP} active rules, the surplus waits in \`## Pending\` and is listed below.
+- **policy.md** keeps rules added on either side and drops rules either side removed. When both
+  changed it, tidying it is a conflict below.
+- **policy-fires.jsonl** keeps every fire from both machines.
 - Anything only one side changed since the two last synced takes that side's version.
 
 ## Conflicts to resolve with the user
@@ -309,6 +326,10 @@ const make = Effect.gen(function* () {
         threadId: ThreadId.make(`anima-merge:${mergeId}`),
         createdAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs)),
       };
+      const machines = {
+        local: input.localLabel ?? "this machine",
+        incoming: input.incomingLabel ?? "the other machine",
+      };
       yield* Effect.gen(function* () {
         yield* writeFiles(path.join(staging, "local"), local.files);
         yield* writeFiles(path.join(staging, "incoming"), bundle.files);
@@ -317,6 +338,11 @@ const make = Effect.gen(function* () {
           yield* encodeIncoming(bundle.files),
         );
         yield* writeFiles(path.join(staging, "merged"), draft.files);
+        if (draft.conflicts.some((conflict) => conflict.path === "policy.md"))
+          yield* fs.writeFileString(
+            path.join(staging, POLICY_REPORT_FILE),
+            AnimaMerge.renderPolicyReport({ local: local.files, incoming: bundle.files, machines }),
+          );
         yield* fs.writeFileString(
           path.join(staging, INSTRUCTIONS_FILE),
           renderMergeInstructions({
@@ -326,10 +352,7 @@ const make = Effect.gen(function* () {
             localOnlyBreaths: comparison.localOnlyBreaths,
             incomingOnlyBreaths: comparison.incomingOnlyBreaths,
             conflicts: draft.conflicts,
-            machines: {
-              local: input.localLabel ?? "this machine",
-              incoming: input.incomingLabel ?? "the other machine",
-            },
+            machines,
           }),
         );
         yield* fs.writeFileString(path.join(staging, META_FILE), yield* encodeMergeMeta(meta));
