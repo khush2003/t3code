@@ -154,6 +154,16 @@ describe("mergeAnimaFiles", () => {
     ]);
   });
 
+  it("asks which rules stay active when both sides together pass the cap", () => {
+    const rules = (side: string) => Array.from({ length: 30 }, (_, n) => `ALWAYS ${side} ${n}`);
+    const local = anima({ breaths: shared, policy: rules("here") });
+    const incoming = anima({ breaths: shared, policy: rules("there") });
+    const { files, conflicts } = mergeAnimaFiles({ local, incoming, base: null });
+    expect(conflicts.map((conflict) => conflict.path)).toEqual(["policy.md"]);
+    const pending = file(files, "policy.md")!.split("## Pending")[1]!;
+    expect(pending.split("\n").filter((line) => line.startsWith("ALWAYS"))).toHaveLength(20);
+  });
+
   it("keeps a rule once when the sides file it under different sections", () => {
     const local = anima({ breaths: shared, policy: ["ALWAYS a", "", "## Pending", "ALWAYS b"] });
     const incoming = anima({ breaths: shared, policy: ["ALWAYS a", "ALWAYS b"] });
