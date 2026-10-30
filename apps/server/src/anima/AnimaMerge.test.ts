@@ -154,6 +154,13 @@ describe("mergeAnimaFiles", () => {
     ]);
   });
 
+  it("keeps a rule once when the sides file it under different sections", () => {
+    const local = anima({ breaths: shared, policy: ["ALWAYS a", "", "## Pending", "ALWAYS b"] });
+    const incoming = anima({ breaths: shared, policy: ["ALWAYS a", "ALWAYS b"] });
+    const policy = file(mergeAnimaFiles({ local, incoming, base: null }).files, "policy.md")!;
+    expect(policy.split("\n").filter((line) => line === "ALWAYS b")).toHaveLength(1);
+  });
+
   it("is settled once merged: the other side is then simply behind", () => {
     const local = anima({
       breaths: [...shared, { hash: "l1", ts: "2026-01-05T10:00", aim: "l" }],
