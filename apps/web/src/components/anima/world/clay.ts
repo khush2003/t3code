@@ -8,7 +8,7 @@ type Vec3 = readonly [number, number, number];
 
 const materials = new Map<string, THREE.MeshStandardMaterial>();
 
-export function clay(color: string, glow = 0): THREE.MeshStandardMaterial {
+function clay(color: string, glow = 0): THREE.MeshStandardMaterial {
   const key = `${color}:${glow}`;
   let material = materials.get(key);
   if (!material) {

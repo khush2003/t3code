@@ -10,7 +10,6 @@ import { useThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
 import {
   AnimaBlock,
   AnimaEmptyNote,
@@ -237,32 +236,6 @@ export function BreathNarrative({ breath }: { readonly breath: AnimaDetail["brea
         </NarrativeLine>
       ) : null}
     </div>
-  );
-}
-
-export function LatestBreath({
-  breaths,
-  onSelectBreath,
-}: {
-  readonly breaths: AnimaDetail["breaths"];
-  readonly onSelectBreath: (index: number) => void;
-}) {
-  const latest = breaths.reduce<AnimaDetail["breaths"][number] | null>(
-    (best, breath) => (best === null || breath.index > best.index ? breath : best),
-    null,
-  );
-  if (latest === null) return null;
-  return (
-    <AnimaBlock
-      title="Latest breath"
-      action={
-        <Button size="xs" variant="ghost" onClick={() => onSelectBreath(latest.index)}>
-          #{latest.index} · <RelativeTime value={latest.ts} />
-        </Button>
-      }
-    >
-      <BreathNarrative breath={latest} />
-    </AnimaBlock>
   );
 }
 
