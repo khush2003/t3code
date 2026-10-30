@@ -149,4 +149,35 @@ describe("mergeAnimaFiles", () => {
     const again = mergeAnimaFiles({ local: merged, incoming, base: merged }).files;
     expect(again).toEqual(merged);
   });
+
+  it("keeps notes, logs and goals from both sides", () => {
+    const withExtra = (
+      breaths: ReadonlyArray<Breath>,
+      extra: ReadonlyArray<AnimaBundleFile>,
+    ): ReadonlyArray<AnimaBundleFile> => [...anima({ breaths }), ...extra];
+    const goals = (ids: ReadonlyArray<string>) =>
+      JSON.stringify({ themes: ids.map((id) => ({ id, status: "active" })) });
+    const local = withExtra(
+      [...shared, { hash: "l1", ts: "2026-01-05T10:00", aim: "l" }],
+      [
+        { path: "reflections/reflect.log", content: "a\nb\nc\n" },
+        { path: "legacy-opens.md", content: "- one\n- local\n" },
+        { path: "goals.json", content: goals(["g1", "g2"]) },
+      ],
+    );
+    const incoming = withExtra(
+      [...shared, { hash: "i1", ts: "2026-01-03T10:00", aim: "i" }],
+      [
+        { path: "reflections/reflect.log", content: "a\nb\n" },
+        { path: "legacy-opens.md", content: "- one\n- there\n" },
+        { path: "goals.json", content: goals(["g1", "g3"]) },
+      ],
+    );
+    const { files, conflicts } = mergeAnimaFiles({ local, incoming, base: null });
+    expect(conflicts).toEqual([]);
+    expect(file(files, "reflections/reflect.log")).toBe("a\nb\nc\n");
+    expect(file(files, "legacy-opens.md")).toBe("- one\n- local\n- there\n");
+    const merged = JSON.parse(file(files, "goals.json")!) as { themes: Array<{ id: string }> };
+    expect(merged.themes.map((theme) => theme.id).toSorted()).toEqual(["g1", "g2", "g3"]);
+  });
 });
