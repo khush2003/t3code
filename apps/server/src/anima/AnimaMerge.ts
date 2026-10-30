@@ -62,7 +62,25 @@ function splitAgent(content: string): { header: Header; rows: Map<number, string
   return { header: { versionLine, idLine, entries }, rows };
 }
 
-function breathsOf(files: FileMap, rows: ReadonlyMap<number, string>): Array<Breath> {
+/** Hashes on more than one breath of a side, such as a hand-written `hash:unavailable`. */
+function repeatedHashes(files: FileMap): Set<string> {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const [path, content] of files) {
+    if (!BREATH_PATH.test(path)) continue;
+    const hash = parseBreathFile(content, path.slice("breaths/".length))?.hash;
+    if (!hash) continue;
+    if (seen.has(hash)) repeated.add(hash);
+    seen.add(hash);
+  }
+  return repeated;
+}
+
+function breathsOf(
+  files: FileMap,
+  rows: ReadonlyMap<number, string>,
+  placeholders: ReadonlySet<string>,
+): Array<Breath> {
   const byIndex = new Map<
     number,
     { path: string | null; file: string | null; hash: string | null; ts: string }
@@ -80,9 +98,10 @@ function breathsOf(files: FileMap, rows: ReadonlyMap<number, string>): Array<Bre
     .map(([index, entry]) => {
       const row = rows.get(index) ?? null;
       const ts = entry.ts || (row?.split("|")[1] ?? "");
-      const key = entry.hash
-        ? `h:${entry.hash}`
-        : `c:${row?.replace(ROW, "") ?? entry.file ?? String(index)}`;
+      const key =
+        entry.hash && !placeholders.has(entry.hash)
+          ? `h:${entry.hash}`
+          : `c:${ts}|${entry.file?.replace(/^.*\n/, "") ?? row?.replace(ROW, "") ?? String(index)}`;
       return { key, index, ts, path: entry.path, file: entry.file, row };
     })
     .sort((left, right) => left.index - right.index);
@@ -292,8 +311,9 @@ export function mergeAnimaFiles(input: {
   const incomingAgent = splitAgent(incoming.get(AGENT) ?? "");
   const baseAgent = base === null ? null : splitAgent(base.get(AGENT) ?? "");
 
-  const localBreaths = breathsOf(local, localAgent.rows);
-  const incomingBreaths = breathsOf(incoming, incomingAgent.rows);
+  const placeholders = new Set([...repeatedHashes(local), ...repeatedHashes(incoming)]);
+  const localBreaths = breathsOf(local, localAgent.rows, placeholders);
+  const incomingBreaths = breathsOf(incoming, incomingAgent.rows, placeholders);
   const breaths = mergeBreathLists(localBreaths, incomingBreaths);
   const lastTs = (list: Array<Breath>) =>
     list.reduce((latest, breath) => (breath.ts > latest ? breath.ts : latest), "");

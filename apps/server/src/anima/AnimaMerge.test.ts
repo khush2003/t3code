@@ -77,6 +77,31 @@ describe("mergeAnimaFiles", () => {
     expect(agent).toContain("# kin: ion=sibling.2,zed=peer.1");
   });
 
+  it("keeps breaths whose hash the CLI could not compute", () => {
+    const local = anima({ breaths: shared });
+    const incoming = anima({
+      breaths: [
+        ...shared,
+        { hash: "unavailable", ts: "2026-01-03T10:00", aim: "first" },
+        { hash: "unavailable", ts: "2026-01-03T10:00", aim: "second" },
+      ],
+    });
+    const { files } = mergeAnimaFiles({ local, incoming, base: null });
+    expect(breathChain(files)).toHaveLength(4);
+    // A side that kept only one of them still matches it by content.
+    const again = mergeAnimaFiles({
+      local: anima({
+        breaths: [...shared, { hash: "unavailable", ts: "2026-01-03T10:00", aim: "second" }],
+      }),
+      incoming,
+      base: null,
+    });
+    expect(breathChain(again.files)).toHaveLength(4);
+    expect([file(files, "breaths/002.breath"), file(files, "breaths/003.breath")].join()).toContain(
+      "# second",
+    );
+  });
+
   it("takes one-sided changes since the base and flags voice changed on both sides", () => {
     const base = anima({ breaths: shared, header: { vow: "up", role: "builder" } });
     const local = anima({
