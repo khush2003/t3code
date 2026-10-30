@@ -354,9 +354,24 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const latestFor = Effect.fn("AnimaMergeService.latestFor")(function* (name: string) {
+    const root = yield* mergeRoot;
+    const entries = yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []));
+    let latest: MergeMeta | null = null;
+    for (const entry of entries) {
+      if (!entry.startsWith(`${name}-`) || !MERGE_ID_PATTERN.test(entry)) continue;
+      const meta = yield* readMeta(path.join(root, entry)).pipe(Effect.orElseSucceed(() => null));
+      if (meta?.name === name && (latest === null || meta.createdAt > latest.createdAt))
+        latest = meta;
+    }
+    if (latest === null) return yield* new AnimaNotFoundError({ name });
+    return latest.mergeId;
+  });
+
   const status: AnimaMergeService["Service"]["status"] = Effect.fn("AnimaMergeService.status")(
     function* (input: typeof AnimaMergeStatusInput.Type) {
-      const dir = yield* stagingFor(input.mergeId);
+      const mergeId = "mergeId" in input ? input.mergeId : yield* latestFor(input.name);
+      const dir = yield* stagingFor(mergeId);
       const meta = yield* readMeta(dir);
       const read = (file: string) =>
         fs

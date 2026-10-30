@@ -499,6 +499,18 @@ function SyncPanel({
     modelSelection?.model ?? "",
   );
   const quick = quickAnimaState(hereSummary, thereSummary);
+  // A merge started earlier (before a reload or from another window) stays until it is applied.
+  const latestMergeQuery = useEnvironmentQuery(
+    animaEnvironment.mergeStatus({ environmentId: here.environmentId, input: { name } }),
+  );
+  const latestMerge = latestMergeQuery.data;
+  const pendingMerge =
+    state.phase !== "merging" &&
+    latestMerge &&
+    (latestMerge.state === "running" || latestMerge.state === "ready") &&
+    latestMerge.threadId !== null
+      ? { mergeId: latestMerge.mergeId, threadId: latestMerge.threadId }
+      : null;
   // Until both lists load, an anima missing from one only looks absent.
   const listsLoaded = hereList.data !== null && thereList.data !== null;
   const present = { first: hereSummary !== null, second: thereSummary !== null };
@@ -815,6 +827,19 @@ function SyncPanel({
       ) : null}
       {state.phase === "done" ? (
         <p className="rounded-xl bg-muted/30 px-4 py-3 text-sm">{state.message}</p>
+      ) : null}
+      {pendingMerge ? (
+        <div className="rounded-2xl bg-muted/30 p-4">
+          <MergeProgress
+            environmentId={here.environmentId}
+            mergeId={pendingMerge.mergeId}
+            threadId={pendingMerge.threadId}
+            onApplied={() => {
+              latestMergeQuery.refresh();
+              void mergeBoth(null);
+            }}
+          />
+        </div>
       ) : null}
       {state.phase === "merging" ? (
         <div className="rounded-2xl bg-muted/30 p-4">
