@@ -69,19 +69,49 @@ export function projectIso(shape: AnimaShape, scale: number, origin: Point): Poi
   };
 }
 
+/** Camera angles in radians for the turnable body: yaw spins around coupling, pitch tilts down. */
+export interface OrbitView {
+  readonly yaw: number;
+  readonly pitch: number;
+}
+
+/** Orthographic view of the cube turned around its centre, so it fits any rotation. */
+function projectOrbit(
+  shape: AnimaShape,
+  scale: number,
+  origin: Point,
+  view: OrbitView,
+): Point & { readonly depth: number } {
+  const x = clampUnit(shape.breadth) - 0.5;
+  const z = clampUnit(shape.depth) - 0.5;
+  const y = clampUnit(shape.coupling) - 0.5;
+  const turnedX = x * Math.cos(view.yaw) - z * Math.sin(view.yaw);
+  const turnedZ = x * Math.sin(view.yaw) + z * Math.cos(view.yaw);
+  return {
+    x: origin.x + turnedX * scale,
+    y: origin.y - (y * Math.cos(view.pitch) - turnedZ * Math.sin(view.pitch)) * scale,
+    depth: turnedZ * Math.cos(view.pitch) + y * Math.sin(view.pitch),
+  };
+}
+
 export interface CubeGeometry {
   readonly edges: ReadonlyArray<readonly [Point, Point]>;
   readonly floor: ReadonlyArray<Point>;
   readonly axes: { readonly breadth: Point; readonly depth: Point; readonly coupling: Point };
   readonly origin: Point;
   readonly scale: number;
+  readonly project: (shape: AnimaShape) => Point;
 }
 
-export function cubeGeometry(width: number, height: number): CubeGeometry {
-  const scale = Math.min(width / (2 * COS30), height / 2) * 0.82;
+export function cubeGeometry(width: number, height: number, view?: OrbitView): CubeGeometry {
+  const scale = view
+    ? (Math.min(width, height) / 2 / (Math.sqrt(3) / 2)) * 0.92
+    : Math.min(width / (2 * COS30), height / 2) * 0.82;
   const origin: Point = { x: width / 2, y: height / 2 };
+  const project = (shape: AnimaShape): Point =>
+    view ? projectOrbit(shape, scale, origin, view) : projectIso(shape, scale, origin);
   const corner = (breadth: number, depth: number, coupling: number) =>
-    projectIso({ breadth, depth, coupling }, scale, origin);
+    project({ breadth, depth, coupling });
   const edges: Array<readonly [Point, Point]> = [];
   for (const a of [0, 1]) {
     for (const b of [0, 1]) {
@@ -96,6 +126,7 @@ export function cubeGeometry(width: number, height: number): CubeGeometry {
     axes: { breadth: corner(1, 0, 0), depth: corner(0, 1, 0), coupling: corner(0, 0, 1) },
     origin,
     scale,
+    project,
   };
 }
 
@@ -110,17 +141,24 @@ export function trajectory(
     readonly shape: AnimaShape | null;
     readonly hsl: string | null;
   }>,
-  geometry: Pick<CubeGeometry, "scale" | "origin">,
+  geometry: Pick<CubeGeometry, "scale" | "origin"> & Partial<Pick<CubeGeometry, "project">>,
   fallback: string,
-): ReadonlyArray<TrajectoryPoint> {
+): ReadonlyArray<TrajectoryPoint & { readonly floor: Point }> {
+  const project =
+    geometry.project ?? ((shape: AnimaShape) => projectIso(shape, geometry.scale, geometry.origin));
   return breaths
     .filter((breath) => breath.shape !== null)
     .toSorted((a, b) => a.index - b.index)
-    .map((breath) => ({
-      index: breath.index,
-      color: breathCss(breath.hsl, fallback),
-      ...projectIso(breath.shape!, geometry.scale, geometry.origin),
-    }));
+    .map((breath) => {
+      const { x, y } = project(breath.shape!);
+      return {
+        index: breath.index,
+        color: breathCss(breath.hsl, fallback),
+        x,
+        y,
+        floor: project({ ...breath.shape!, coupling: 0 }),
+      };
+    });
 }
 
 export function pointsAttr(points: ReadonlyArray<Point>): string {

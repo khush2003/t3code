@@ -1,4 +1,5 @@
-import { createContext, use, type ReactNode } from "react";
+import { XIcon } from "lucide-react";
+import { createContext, use, useEffect, useState, type ReactNode } from "react";
 import type { AnimaTrait } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -13,7 +14,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Badge } from "../ui/badge";
 import { Label } from "../ui/label";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { safeAnimaAccent, traitPercent } from "./anima.logic";
+import { traitPercent } from "./anima.logic";
 
 export interface AnimaSoulTone {
   readonly core: string;
@@ -27,30 +28,6 @@ export const AnimaSoulContext = createContext<AnimaSoulTone | null>(null);
 
 export function useAnimaSoul(): AnimaSoulTone | null {
   return use(AnimaSoulContext);
-}
-
-/** Static on purpose: a pulsing live indicator repaints continuously. */
-export function AnimaAccentDot({
-  accent,
-  live = false,
-  className,
-}: {
-  readonly accent: string | null;
-  readonly live?: boolean;
-  readonly className?: string;
-}) {
-  const color = safeAnimaAccent(accent);
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "inline-block size-2.5 shrink-0 rounded-full bg-muted-foreground/40",
-        live && "ring-2 ring-success/50",
-        className,
-      )}
-      style={color ? { backgroundColor: color } : undefined}
-    />
-  );
 }
 
 export function AnimaLiveDot({ live }: { readonly live: boolean }) {
@@ -373,4 +350,69 @@ export function useAnimaMutation<W, A, E>(
     }
     return null;
   };
+}
+
+/** Speaks text with the browser's voice; the words stay on screen until dismissed. */
+export function useAnimaSpeech() {
+  const [speaking, setSpeaking] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops browser speech, an external resource, when the page closes
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  const stop = () => {
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+  };
+  const speak = (words: string) => {
+    setText(words);
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(words);
+    const voice = window.speechSynthesis
+      .getVoices()
+      .find(
+        (entry) => /daniel|james|aaron|oliver/i.test(entry.name) && entry.lang.startsWith("en"),
+      );
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.95;
+    utterance.pitch = 0.9;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+  const dismiss = () => {
+    stop();
+    setText(null);
+  };
+  return { speaking, text, speak, stop, dismiss };
+}
+
+export function SpeechBubble({
+  text,
+  speaking,
+  color,
+  onDismiss,
+}: {
+  readonly text: string;
+  readonly speaking: boolean;
+  readonly color?: string | undefined;
+  readonly onDismiss: () => void;
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className="relative max-w-3xl rounded-2xl rounded-tl-sm border border-border/50 bg-background/70 py-3 pr-10 pl-4 text-sm leading-relaxed backdrop-blur-sm"
+      style={color ? { borderLeftColor: color, borderLeftWidth: 3 } : undefined}
+    >
+      <p className={cn(!speaking && "text-foreground/80")}>{text}</p>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={onDismiss}
+        className="absolute top-2 right-2 rounded-md p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <XIcon className="size-3.5" />
+      </button>
+    </div>
+  );
 }

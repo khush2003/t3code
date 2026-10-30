@@ -40,7 +40,7 @@ const RECALL_NOTE =
   "T3 Code runs `anima recall` on each of the user's messages for you and includes any match as an <anima-recall> block; do not run recall yourself, and when no block appears, nothing applied.";
 
 /** Fences recall output so it reads as retrieved precedent, not as the user's words. */
-export function renderAnimaRecall(name: string, recalled: string): string {
+function renderAnimaRecall(name: string, recalled: string): string {
   return recalled === ""
     ? ""
     : [`<anima-recall name="${name}">`, recalled, "</anima-recall>"].join("\n");

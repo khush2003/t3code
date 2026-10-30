@@ -10,7 +10,7 @@ import { familyLayout, type FamilyEdgeKind } from "./animaPortrait.logic";
 import { SoulOrb, animaSoulColors } from "./AnimaSoul";
 
 const CELL_WIDTH = 128;
-const CELL_HEIGHT = 108;
+const CELL_HEIGHT = 120;
 /** Orb centre within a cell, as a fraction of the cell height. */
 const ORB_Y = 0.36;
 
@@ -19,6 +19,24 @@ const EDGE_LABELS: Record<FamilyEdgeKind, string> = {
   crew: "lead and crew",
   kin: "kin",
 };
+
+/** Kin pairs with what each side calls the other; a pair named from both sides shows both words. */
+function kinBonds(animas: ReadonlyArray<AnimaSummary>) {
+  const names = new Set(animas.map((anima) => anima.name));
+  const pairs = new Map<string, { a: string; b: string; words: string[]; strength: number }>();
+  for (const anima of animas) {
+    for (const bond of anima.kin ?? []) {
+      if (!names.has(bond.name) || bond.name === anima.name) continue;
+      const [a, b] = [anima.name, bond.name].toSorted();
+      const key = `${a}|${b}`;
+      const pair = pairs.get(key) ?? { a: a!, b: b!, words: [], strength: 0 };
+      pair.words.push(bond.strength === null ? "unformed" : bond.label.replaceAll("-", " "));
+      pair.strength = Math.max(pair.strength, bond.strength ?? 0);
+      pairs.set(key, pair);
+    }
+  }
+  return [...pairs.values()].toSorted((x, y) => y.strength - x.strength);
+}
 
 function orbSize(anima: AnimaSummary): number {
   return Math.round(Math.min(46, 16 + Math.sqrt(anima.breathCount) * 2.6));
@@ -175,7 +193,28 @@ export function FamilyConstellation({
                 >
                   <SoulOrb anima={anima} size={size} />
                 </span>
-                <span className="max-w-full truncate text-xs font-medium">{anima.name}</span>
+                {(anima.team?.length ?? 0) > 0 ? (
+                  <span className="absolute top-0 left-1/2 ml-2 rounded-full bg-foreground/80 px-1 text-4xs leading-3.5 font-semibold text-background tabular-nums">
+                    <span className="sr-only">Leads a crew of </span>
+                    {anima.team!.length}
+                  </span>
+                ) : null}
+                <span className="flex max-w-full items-center gap-1 text-xs font-medium">
+                  <span className="truncate">{anima.name}</span>
+                  {anima.role === "architect" || anima.role === "lead" ? (
+                    <span className="shrink-0 rounded-sm border border-border px-0.5 text-4xs leading-3 tracking-wide text-muted-foreground uppercase">
+                      {anima.role}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="-mt-1 max-w-full truncate text-3xs text-muted-foreground">
+                  {anima.breathCount} ·{" "}
+                  {anima.enabled ? (
+                    <RelativeTime value={anima.lastActiveAt ?? anima.lastBreathAt} />
+                  ) : (
+                    "inactive"
+                  )}
+                </span>
               </button>
             );
           })}
@@ -232,6 +271,7 @@ export function FamilyConstellation({
             ))}
           </ul>
         ) : null}
+        <BondList bonds={kinBonds(animas)} animas={animas} focus={selected} onSelect={hover} />
         {focus ? (
           <Button size="sm" variant="outline" onClick={() => onOpen(focus.name)}>
             Open {focus.name}
@@ -239,6 +279,76 @@ export function FamilyConstellation({
           </Button>
         ) : null}
       </aside>
+    </div>
+  );
+}
+
+function BondList({
+  bonds,
+  animas,
+  focus,
+  onSelect,
+}: {
+  readonly bonds: ReturnType<typeof kinBonds>;
+  readonly animas: ReadonlyArray<AnimaSummary>;
+  readonly focus: string | null;
+  readonly onSelect: (name: string) => void;
+}) {
+  const [all, setAll] = useState(false);
+  if (bonds.length === 0) return null;
+  const byName = new Map(animas.map((anima) => [anima.name, anima]));
+  const relevant = focus ? bonds.filter((bond) => bond.a === focus || bond.b === focus) : bonds;
+  const shown = all ? relevant : relevant.slice(0, 8);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">
+        {focus && relevant.length > 0 ? `${focus}'s kin` : "Bonds"}
+      </p>
+      {shown.length === 0 ? (
+        <p className="text-xs text-muted-foreground/70">{focus} has no kin bonds yet.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {shown.map((bond) => {
+            const from = animaSoulColors(byName.get(bond.a)!).core;
+            const to = animaSoulColors(byName.get(bond.b)!).core;
+            return (
+              <li key={`${bond.a}|${bond.b}`} className="space-y-0.5 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    className="rounded-sm font-medium outline-none hover:underline focus-visible:underline"
+                    style={{ color: from }}
+                    onClick={() => onSelect(bond.a)}
+                  >
+                    {bond.a}
+                  </button>
+                  <span
+                    aria-hidden
+                    className="h-0.5 flex-1 rounded-full"
+                    style={{ backgroundImage: `linear-gradient(to right, ${from}, ${to})` }}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-sm font-medium outline-none hover:underline focus-visible:underline"
+                    style={{ color: to }}
+                    onClick={() => onSelect(bond.b)}
+                  >
+                    {bond.b}
+                  </button>
+                </span>
+                <span className="block text-center text-muted-foreground">
+                  {[...new Set(bond.words)].join(" · ")}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {relevant.length > 8 ? (
+        <Button size="xs" variant="ghost" onClick={() => setAll((value) => !value)}>
+          {all ? "Show fewer" : `Show all ${relevant.length} bonds`}
+        </Button>
+      ) : null}
     </div>
   );
 }

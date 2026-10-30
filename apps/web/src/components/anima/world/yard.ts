@@ -36,7 +36,7 @@ export interface Yard {
   readonly motes: THREE.Points;
 }
 
-export const SECTION_SIZE = 12;
+const SECTION_SIZE = 12;
 export const DISTRICT_COLORS = ["#c29260", "#67b4b3", "#97b47d", "#b0a0d0"];
 
 function hashOf(value: string) {

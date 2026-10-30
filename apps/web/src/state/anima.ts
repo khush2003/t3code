@@ -7,7 +7,7 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { AnimaSummary, EnvironmentId } from "@t3tools/contracts";
+import type { AnimaSearchHit, AnimaSummary, EnvironmentId } from "@t3tools/contracts";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useEnvironmentQuery } from "./query";
@@ -29,6 +29,22 @@ export function useAnimaList(environmentId: EnvironmentId | null) {
   };
 }
 
+const NO_SEARCH_HITS: ReadonlyArray<AnimaSearchHit> = Object.freeze([]);
+
+/** Deep search across animas and the library; idle for a blank query, so debounce the input upstream. */
+export function useAnimaSearch(environmentId: EnvironmentId | null, query: string, limit?: number) {
+  const trimmed = query.trim();
+  const search = useEnvironmentQuery(
+    environmentId === null || trimmed === ""
+      ? null
+      : animaEnvironment.search({
+          environmentId,
+          input: limit === undefined ? { query: trimmed } : { query: trimmed, limit },
+        }),
+  );
+  return { ...search, results: search.data?.results ?? NO_SEARCH_HITS };
+}
+
 const UNKNOWN_REQUEST = /Unknown request tag: \S+/;
 
 function errorText(error: unknown): string {
@@ -36,7 +52,7 @@ function errorText(error: unknown): string {
 }
 
 /** An older T3 server rejects requests it does not know as a defect carrying this text. */
-export function isUnsupportedAnimaRequest(error: unknown): boolean {
+function isUnsupportedAnimaRequest(error: unknown): boolean {
   return UNKNOWN_REQUEST.test(errorText(error));
 }
 

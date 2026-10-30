@@ -79,6 +79,14 @@ export const AnimaSummary = Schema.Struct({
   policyCount: NonNegativeInt,
   /** CLI health score in 0..1, higher means more in need of tending; null before the first row. */
   health: Schema.NullOr(Schema.Number),
+  /** The same assessment's urgency; null before the first row. */
+  healthAction: Schema.optional(Schema.NullOr(Schema.Literals(["none", "internal", "proactive"]))),
+  healthReasons: Schema.optional(Schema.Array(Schema.String)),
+  healthWarnings: Schema.optional(Schema.Array(Schema.String)),
+  /** `H,S,L` averaged over the breaths' pitches, the anima's long-run colour; null before a breath. */
+  identityHsl: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Notes from the `# projects: name=note` header, keyed by project; omitted when none have one. */
+  projectNotes: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   /** Stable digest of state + breaths + policy + identity; equal digests mean identical animas. */
   digest: Schema.String,
   /** Self-chosen creature form from `appearance.json`; null until the anima checks in. */
@@ -123,11 +131,24 @@ export const AnimaPolicyRule = Schema.Struct({
 });
 export type AnimaPolicyRule = typeof AnimaPolicyRule.Type;
 
+/** One `rev|date|by|text` audit line; a line in another shape keeps only `text`. */
+export const AnimaPolicyAuditEntry = Schema.Struct({
+  revision: Schema.NullOr(NonNegativeInt),
+  at: Schema.NullOr(Schema.String),
+  by: Schema.NullOr(Schema.String),
+  text: Schema.String,
+});
+export type AnimaPolicyAuditEntry = typeof AnimaPolicyAuditEntry.Type;
+
 export const AnimaPolicy = Schema.Struct({
   revision: NonNegativeInt,
+  /** From the `# rev: N updated: X by: Y` line. */
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  updatedBy: Schema.optional(Schema.NullOr(Schema.String)),
   operational: Schema.Array(AnimaPolicyRule),
   pending: Schema.Array(AnimaPolicyRule),
   audit: Schema.Array(Schema.String),
+  auditEntries: Schema.optional(Schema.Array(AnimaPolicyAuditEntry)),
   /** Operational rule cap enforced by the CLI. */
   cap: NonNegativeInt,
 });
@@ -467,6 +488,12 @@ export const AnimaLibraryEntry = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   bytes: NonNegativeInt,
   modifiedAt: Schema.NullOr(Schema.String),
+  /** `From:` line or front-matter author, without the CLI's `(date)` suffix. */
+  author: Schema.optional(Schema.NullOr(Schema.String)),
+  /** `For:` line or front-matter target; `pool` means every anima. */
+  target: Schema.optional(Schema.NullOr(Schema.String)),
+  /** First body line, at most 120 characters. */
+  preview: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type AnimaLibraryEntry = typeof AnimaLibraryEntry.Type;
 
@@ -490,6 +517,48 @@ export const AnimaLibraryShelveInput = Schema.Struct({
   forAnima: Schema.optional(AnimaName),
 });
 export type AnimaLibraryShelveInput = typeof AnimaLibraryShelveInput.Type;
+
+const ANIMA_SEARCH_HIT_TYPES = [
+  "anima",
+  "vow",
+  "memo",
+  "aim",
+  "tension",
+  "skill",
+  "decision",
+  "breath",
+  "identity",
+  "library",
+] as const;
+export const AnimaSearchHitType = Schema.Literals(ANIMA_SEARCH_HIT_TYPES);
+export type AnimaSearchHitType = typeof AnimaSearchHitType.Type;
+
+export const ANIMA_SEARCH_DEFAULT_LIMIT = 60;
+
+export const AnimaSearchInput = Schema.Struct({
+  query: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  /** Defaults to ANIMA_SEARCH_DEFAULT_LIMIT. */
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
+});
+export type AnimaSearchInput = typeof AnimaSearchInput.Type;
+
+export const AnimaSearchHit = Schema.Struct({
+  type: AnimaSearchHitType,
+  /** Null for library entries. */
+  anima: Schema.NullOr(AnimaName),
+  title: Schema.String,
+  /** Text around the first match, with `...` where it was cut. */
+  snippet: Schema.String,
+  breath: Schema.NullOr(NonNegativeInt),
+  /** Decisions are done, open questions are open; null for everything else. */
+  status: Schema.NullOr(Schema.Literals(["done", "open"])),
+  /** Library slug, for opening the entry. */
+  slug: Schema.optional(Schema.String),
+});
+export type AnimaSearchHit = typeof AnimaSearchHit.Type;
+
+export const AnimaSearchResult = Schema.Struct({ results: Schema.Array(AnimaSearchHit) });
+export type AnimaSearchResult = typeof AnimaSearchResult.Type;
 
 export const AnimaTeamInput = Schema.Struct({
   lead: AnimaName,

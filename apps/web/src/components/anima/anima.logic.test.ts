@@ -43,6 +43,19 @@ describe("anima settings logic", () => {
       tab: "policy",
     });
     expect(validateAnimaSearch({ tab: "overview" })).toEqual({});
+    expect(validateAnimaSearch({ anima: "ada", tab: "breaths", breath: "12" })).toEqual({
+      anima: "ada",
+      tab: "breaths",
+      breath: 12,
+    });
+    expect(validateAnimaSearch({ anima: "ada", tab: "policy", breath: 12 })).toEqual({
+      anima: "ada",
+      tab: "policy",
+    });
+    expect(validateAnimaSearch({ anima: "ada", tab: "breaths", breath: "-1" })).toEqual({
+      anima: "ada",
+      tab: "breaths",
+    });
     expect(validateAnimaSearch({ tab: "bogus", anima: "" })).toEqual({});
     expect(validateAnimaSearch({ view: "library", entry: "notes.md" })).toEqual({
       view: "library",

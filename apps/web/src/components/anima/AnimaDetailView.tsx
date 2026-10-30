@@ -76,18 +76,23 @@ export function AnimaDetailView({
   environmentId,
   name,
   tab,
+  breath,
   onTab,
   onOpenAnima,
 }: {
   readonly environmentId: EnvironmentId;
   readonly name: AnimaName;
   readonly tab: AnimaTab;
+  /** A breath to show from the URL, as search results link to one. */
+  readonly breath?: number | undefined;
   readonly onTab: (tab: AnimaTab) => void;
   readonly onOpenAnima: (name: string) => void;
 }) {
   // Detail defaults to the newest breaths; the full history is fetched only when asked for.
-  const [allBreaths, setAllBreaths] = useState(false);
-  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  const [loadAll, setAllBreaths] = useState(false);
+  const allBreaths = loadAll || breath !== undefined;
+  const [pickedIndex, setFocusIndex] = useState<number | null>(null);
+  const focusIndex = pickedIndex ?? breath ?? null;
   const query = useEnvironmentQuery(
     animaEnvironment.detail({
       environmentId,

@@ -305,6 +305,12 @@ export function LifeStrip({
               />
               <TooltipPopup className="max-w-72">
                 <span className="font-medium">#{breath.index}</span>
+                {breath.hsl ? (
+                  <span className="font-mono text-muted-foreground">
+                    {" "}
+                    {breath.hsl.replaceAll(",", ".")}
+                  </span>
+                ) : null}
                 {breath.aim ? ` · ${breath.aim}` : ""}
               </TooltipPopup>
             </Tooltip>

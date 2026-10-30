@@ -29,7 +29,14 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Skeleton } from "../ui/skeleton";
 import { Switch } from "../ui/switch";
 import { ANIMA_HEALTH_LABELS, animaHealthBucket } from "./anima.logic";
-import { AnimaLiveDot, RelativeTime, TraitBars, useAnimaMutation } from "./AnimaBits";
+import {
+  AnimaLiveDot,
+  RelativeTime,
+  SpeechBubble,
+  TraitBars,
+  useAnimaMutation,
+  useAnimaSpeech,
+} from "./AnimaBits";
 import {
   animaOrder,
   parseUserModel,
@@ -70,6 +77,19 @@ function latestBreath(detail: AnimaDetail) {
   );
 }
 
+/** The first sentence, trimmed for speech; decisions and aims can run for a paragraph. */
+function clause(text: string): string {
+  const first = text
+    .split(/(?<=[.;])\s/)[0]!
+    .replace(/[.;:]+$/, "")
+    .replace(/:D$|:\?$/, "");
+  return first.length > 160 ? `${first.slice(0, 157).trimEnd()}...` : first;
+}
+
+function lowerFirst(text: string): string {
+  return /^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text;
+}
+
 /** A spoken self-report built from the anima's own state, in the original dashboard's voice. */
 function reflection(detail: AnimaDetail): string {
   const { summary } = detail;
@@ -83,11 +103,12 @@ function reflection(detail: AnimaDetail): string {
         : "My energy is low"
     : null;
   const tensions = summary.tensions ?? [];
+  const decision = latest?.decisions[0] ? clause(latest.decisions[0]) : null;
   return [
-    `I am ${summary.name}, ${summary.breathCount} breaths in.`,
+    `I am ${summary.name}, ${summary.breathCount} ${summary.breathCount === 1 ? "breath" : "breaths"} in.`,
     meaning ? `${energy}, and I am ${meaning.focusLabel}, working in ${meaning.domain}.` : null,
-    latest?.decisions[0] ? `Last time I decided to ${latest.decisions[0]}.` : null,
-    summary.aim ? `Next, I mean to ${summary.aim}.` : "I have no aim yet.",
+    decision ? `Last time I settled this: ${decision}.` : null,
+    summary.aim ? `Next, I mean to ${lowerFirst(clause(summary.aim))}.` : "I have no aim yet.",
     tensions.length > 0
       ? `I am holding ${tensions.length} ${tensions.length === 1 ? "tension" : "tensions"}, the oldest being ${tensionText(tensions[0]!.slug)}.`
       : null,
@@ -123,6 +144,98 @@ function SoulReading({
   );
 }
 
+function ParentLink({
+  parent,
+  pool,
+  onOpenAnima,
+}: {
+  readonly parent: string;
+  readonly pool: ReadonlyArray<AnimaSummary>;
+  readonly onOpenAnima: (name: string) => void;
+}) {
+  const match = pool.find((anima) => anima.id === parent || anima.name === parent);
+  if (!match) return <span>from {parent}</span>;
+  return (
+    <span>
+      from{" "}
+      <button
+        type="button"
+        className="font-medium text-foreground/80 underline-offset-2 outline-none hover:underline focus-visible:underline"
+        style={{ color: animaSoulColors(match).core }}
+        onClick={() => onOpenAnima(match.name)}
+      >
+        {match.name}
+      </button>
+    </span>
+  );
+}
+
+/** Kin from the `# kin:` header; stronger bonds read brighter, unformed ones are dashed. */
+function KinChips({
+  kin,
+  pool,
+  onOpenAnima,
+}: {
+  readonly kin: NonNullable<AnimaSummary["kin"]>;
+  readonly pool: ReadonlyArray<AnimaSummary>;
+  readonly onOpenAnima: (name: string) => void;
+}) {
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Kin">
+      {kin.map((bond) => {
+        const match = pool.find((anima) => anima.name === bond.name);
+        const color = match ? animaSoulColors(match).core : undefined;
+        const unformed = bond.strength === null;
+        const strength = Math.min(10, Math.max(0, bond.strength ?? 0));
+        const label = unformed ? "not yet formed" : bond.label.replaceAll("-", " ");
+        const body = (
+          <>
+            <span className="font-medium" style={{ color }}>
+              {bond.name}
+            </span>
+            <span className="text-muted-foreground">· {label}</span>
+            {!unformed && strength > 0 ? (
+              <span
+                aria-hidden
+                className="absolute inset-x-2 bottom-0 h-px rounded-full"
+                style={{ width: `${strength * 10}%`, backgroundColor: color ?? "currentColor" }}
+              />
+            ) : null}
+          </>
+        );
+        const chip = cn(
+          "relative flex items-center gap-1 rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-xs",
+          unformed && "border-dashed",
+        );
+        const opacity = unformed ? 0.55 : 0.55 + strength * 0.045;
+        return (
+          <li key={bond.name} style={{ opacity }}>
+            {match ? (
+              <button
+                type="button"
+                className={cn(
+                  chip,
+                  "outline-none hover:border-border focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                )}
+                aria-label={
+                  unformed
+                    ? `${bond.name}: not yet formed`
+                    : `${bond.name}: ${label}, strength ${strength} of 10`
+                }
+                onClick={() => onOpenAnima(match.name)}
+              >
+                {body}
+              </button>
+            ) : (
+              <span className={chip}>{body}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** The anima's portrait: its soul colour as the room's light, past breaths as stars. */
 export function PortraitHero({
   environmentId,
@@ -144,33 +257,20 @@ export function PortraitHero({
   const canOperate = useAtomValue(animaEnvironment.setEnabled.permissionAtom(environmentId));
   const canRecord = useAtomValue(animaEnvironment.record.permissionAtom(environmentId));
   const [breathing, setBreathing] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops browser speech, an external resource, when the page closes
-  useEffect(() => () => window.speechSynthesis?.cancel(), []);
-  const toggleSpeak = (current: AnimaDetail) => {
-    if (speaking) {
-      window.speechSynthesis.cancel();
-      setSpeaking(false);
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(reflection(current));
-    const voice = window.speechSynthesis
-      .getVoices()
-      .find(
-        (entry) => /daniel|james|aaron|oliver/i.test(entry.name) && entry.lang.startsWith("en"),
-      );
-    if (voice) utterance.voice = voice;
-    utterance.rate = 0.95;
-    utterance.pitch = 0.9;
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    setSpeaking(true);
-    window.speechSynthesis.speak(utterance);
-  };
+  const speech = useAnimaSpeech();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- names the browser tab after the open anima, restoring it on leave
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = `${name} · anima`;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [name]);
   const setEnabled = useAnimaMutation(animaEnvironment.setEnabled, {
     failureTitle: `Could not update ${name}`,
   });
-  const order = animaOrder(useAnimaList(environmentId).animas);
+  const pool = useAnimaList(environmentId).animas;
+  const order = animaOrder(pool);
   const position = order.findIndex((anima) => anima.name === name);
   const previous = position > 0 ? order[position - 1] : undefined;
   const next = position >= 0 ? order[position + 1] : undefined;
@@ -210,11 +310,44 @@ export function PortraitHero({
       ) : null}
       <div className="relative mx-auto max-w-6xl px-5 pt-5 pb-7 sm:px-8">
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-2 tracking-widest uppercase">
-            {full ? `${full.role} · born ` : "anima"}
-            {full ? <RelativeTime value={full.born} /> : null}
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="tracking-widest uppercase">
+              {full ? `${full.role} · born ` : "anima"}
+              {full ? <RelativeTime value={full.born} /> : null}
+            </span>
+            {full?.parent ? (
+              <ParentLink parent={full.parent} pool={pool} onOpenAnima={onOpenAnima} />
+            ) : null}
+            {full ? (
+              <span className="font-mono text-2xs text-muted-foreground/60">
+                <span className="sr-only">Anima id </span>
+                {full.id}
+              </span>
+            ) : null}
           </span>
           <div className="flex items-center gap-1">
+            {order.length > 1 ? (
+              <Select value={name} onValueChange={(value) => onOpenAnima(String(value))}>
+                <SelectTrigger size="xs" variant="ghost" aria-label="Switch anima">
+                  <SelectValue>{`${position + 1} of ${order.length}`}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {order.map((anima) => (
+                    <SelectItem key={anima.name} value={anima.name} label={anima.name}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="size-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: animaSoulColors(anima).core }}
+                        />
+                        {anima.name}
+                        {anima.live ? <AnimaLiveDot live /> : null}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            ) : null}
             {previous ? (
               <Button size="xs" variant="ghost" onClick={() => onOpenAnima(previous.name)}>
                 <ChevronLeftIcon />
@@ -281,6 +414,9 @@ export function PortraitHero({
                 {detail ? <AnimaTeamChip detail={detail} onOpenAnima={onOpenAnima} /> : null}
               </div>
             ) : null}
+            {full && (full.kin?.length ?? 0) > 0 ? (
+              <KinChips kin={full.kin ?? []} pool={pool} onOpenAnima={onOpenAnima} />
+            ) : null}
           </div>
 
           {full && soul ? (
@@ -301,10 +437,16 @@ export function PortraitHero({
               </button>
               {meaning ? (
                 <div className="space-y-2.5 border-t border-border/50 pt-3">
-                  <p className="text-sm">
-                    Working in{" "}
-                    <span className="font-semibold capitalize" style={{ color: soul.core }}>
-                      {meaning.domain}
+                  <p className="flex items-baseline justify-between gap-2 text-sm">
+                    <span>
+                      Working in{" "}
+                      <span className="font-semibold capitalize" style={{ color: soul.core }}>
+                        {meaning.domain}
+                      </span>
+                    </span>
+                    <span className="font-mono text-2xs whitespace-nowrap text-muted-foreground tabular-nums">
+                      {Math.round(meaning.hue)}° {Math.round(meaning.focus)}%{" "}
+                      {Math.round(meaning.vitality)}%
                     </span>
                   </p>
                   <SoulReading
@@ -351,9 +493,13 @@ export function PortraitHero({
               </Button>
             ) : null}
             {detail ? (
-              <Button size="sm" variant="ghost" onClick={() => toggleSpeak(detail)}>
-                {speaking ? <SquareIcon /> : <Volume2Icon />}
-                {speaking ? "Stop" : "Speak"}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => (speech.speaking ? speech.stop() : speech.speak(reflection(detail)))}
+              >
+                {speech.speaking ? <SquareIcon /> : <Volume2Icon />}
+                {speech.speaking ? "Stop" : "Speak"}
               </Button>
             ) : null}
             <label className="ml-auto flex items-center gap-2 text-xs">
@@ -366,6 +512,16 @@ export function PortraitHero({
                 }
               />
             </label>
+          </div>
+        ) : null}
+        {speech.text ? (
+          <div className="mt-4">
+            <SpeechBubble
+              text={speech.text}
+              speaking={speech.speaking}
+              color={soul?.core}
+              onDismiss={speech.dismiss}
+            />
           </div>
         ) : null}
         {breathing && detail ? (
@@ -599,7 +755,9 @@ function NowChapter({
                     </span>
                   ))}
                 </div>
-              ) : null}
+              ) : (
+                <p className="pt-1 text-xs text-muted-foreground">No work graph on this breath.</p>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">It has not breathed yet.</p>
@@ -702,6 +860,7 @@ function VoiceChapter({
 }) {
   const style = headerValue(detail, "style");
   const biases = headerValue(detail, "biases");
+  const policy = headerValue(detail, "policy");
   const samples = parseVoiceSamples(headerValue(detail, "samples") ?? "");
   const [lead, ...rest] = voice;
   return (
@@ -737,6 +896,12 @@ function VoiceChapter({
               <p className="text-sm leading-relaxed text-foreground/85">{biases}</p>
             </div>
           ) : null}
+        </div>
+      ) : null}
+      {policy ? (
+        <div className="space-y-1.5">
+          <Label>Policy it states</Label>
+          <p className="max-w-3xl text-sm leading-relaxed text-foreground/85">{policy}</p>
         </div>
       ) : null}
       {samples.length > 0 ? (
@@ -1024,7 +1189,10 @@ function ShapeChapter({ detail, soul }: { readonly detail: AnimaDetail; readonly
         <div className="min-w-0 space-y-2">
           <Label>Skills</Label>
           <TraitRadar traits={detail.skills} />
-          <TraitBars traits={detail.skills} empty="No skills recorded yet." />
+          <TraitBars
+            traits={detail.skills.toSorted((a, b) => b.mean - a.mean)}
+            empty="No skills recorded yet."
+          />
         </div>
       </div>
     </Chapter>
@@ -1045,6 +1213,7 @@ const HIDDEN_HEADER_KEYS = new Set([
   "ka-top",
   "self",
   "skills",
+  "policy",
   "projects",
 ]);
 
@@ -1083,6 +1252,9 @@ function WorkspaceChapter({
               summary.projects.map((project) => (
                 <Badge key={project} variant="outline" size="sm">
                   {project}
+                  {summary.projectNotes?.[project] ? (
+                    <span className="text-muted-foreground">{summary.projectNotes[project]}</span>
+                  ) : null}
                 </Badge>
               ))
             )}

@@ -144,7 +144,7 @@ export function soulMeaning(hsl: string | null) {
 }
 
 /** The original dashboard's match score: exact 100, prefix 80, substring by position, else word hits. */
-export function matchScore(text: string, query: string): number {
+function matchScore(text: string, query: string): number {
   const haystack = text.toLowerCase();
   const needle = query.toLowerCase().trim();
   if (!needle || !haystack) return 0;
