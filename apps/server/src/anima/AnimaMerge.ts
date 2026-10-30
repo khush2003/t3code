@@ -208,7 +208,7 @@ function mergePolicy(
   local: string,
   incoming: string,
   incomingNewer: boolean,
-): string {
+): { readonly content: string; readonly demoted: number } {
   const lines = (text: string | undefined) => (text ?? "").split("\n");
   const baseSet = new Set(lines(base).map((line) => line.trim()));
   const localSet = new Set(lines(local).map((line) => line.trim()));
@@ -248,10 +248,12 @@ function mergePolicy(
     }
   }
   const operational = sections.get("## Operational");
+  let demoted = 0;
   if (operational) {
     const rules = operational.filter((line) => line.trim() !== "");
     if (rules.length > ANIMA_POLICY_CAP) {
       const surplus = rules.slice(ANIMA_POLICY_CAP);
+      demoted = surplus.length;
       sections.set("## Operational", [...rules.slice(0, ANIMA_POLICY_CAP), ""]);
       if (!sections.has("## Pending")) {
         sections.set("## Pending", []);
@@ -275,7 +277,7 @@ function mergePolicy(
       out.push(section, ...body);
     }
   }
-  return out.join("\n");
+  return { content: out.join("\n"), demoted };
 }
 
 /** Notes and logs only grow in practice: keep the longer when one extends the other, else both. */
@@ -388,8 +390,13 @@ export function mergeAnimaFiles(input: {
     else if (i === undefined) content = base !== null && b === l ? undefined : l;
     else if (base !== null && b === l) content = i;
     else if (base !== null && b === i) content = l;
-    else if (path === "policy.md") content = mergePolicy(b, l, i, incomingNewer);
-    else if (path === "goals.json") content = mergeGoals(l, i, incomingNewer) ?? newer(l, i);
+    else if (path === "policy.md") {
+      const policy = mergePolicy(b, l, i, incomingNewer);
+      content = policy.content;
+      // Over the cap, the draft parks the surplus in Pending, which is inactive: a person picks.
+      if (policy.demoted > 0)
+        conflicts.push({ path, key: null, local: l, incoming: i, draft: content });
+    } else if (path === "goals.json") content = mergeGoals(l, i, incomingNewer) ?? newer(l, i);
     else if (!CONFLICT_FILES.has(path) && /\.(md|log|txt)$/.test(path)) content = mergeNotes(l, i);
     else {
       content = newer(l, i);
