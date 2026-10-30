@@ -863,11 +863,25 @@ describe("AnimaService sync", () => {
         expect(identical.relation).toBe("identical");
 
         yield* seed(root, "atlas", "id-atlas", 2);
-        const ahead = yield* bundleOf(service, "atlas");
+        const fireLog = (text: string) => ({ path: "policy-fires.jsonl", content: text });
+        const exported = yield* bundleOf(service, "atlas");
+        const ahead = {
+          ...exported,
+          files: [...exported.files, fireLog('{"h":"b","ts":"2026-03-02T10:00"}\n')],
+        };
         yield* fs.remove(NodePath.join(root, "atlas"), { recursive: true });
         yield* seed(root, "atlas", "id-atlas", 1, {
           session: "2026-03-01T10:00|2026-03-01T10:00|/x\n",
         });
+        const write = (path: string, content: string) =>
+          Effect.gen(function* () {
+            yield* fs.makeDirectory(NodePath.dirname(NodePath.join(root, "atlas", path)), {
+              recursive: true,
+            });
+            yield* fs.writeFileString(NodePath.join(root, "atlas", path), content);
+          });
+        yield* write("sessions/one.log", "kept");
+        yield* write("policy-fires.jsonl", '{"h":"a","ts":"2026-03-01T10:00"}\n');
 
         const compare = yield* service.compare(ahead);
         expect(compare).toMatchObject({
@@ -880,6 +894,11 @@ describe("AnimaService sync", () => {
         const after = yield* service.get({ name: "atlas" });
         expect(after.summary.breathCount).toBe(2);
         expect(yield* fs.exists(NodePath.join(root, "atlas", "session"))).toBe(true);
+        // Files the bundle does not carry stay, and both machines' fires are kept.
+        expect(yield* fs.exists(NodePath.join(root, "atlas", "sessions", "one.log"))).toBe(true);
+        expect(yield* fs.readFileString(NodePath.join(root, "atlas", "policy-fires.jsonl"))).toBe(
+          '{"h":"a","ts":"2026-03-01T10:00"}\n{"h":"b","ts":"2026-03-02T10:00"}\n',
+        );
         const backups = yield* fs.readDirectory(NodePath.join(root, ".backups"));
         expect(backups).toHaveLength(1);
         expect(

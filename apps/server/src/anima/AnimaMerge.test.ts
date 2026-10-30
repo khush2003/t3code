@@ -2,7 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import type { AnimaBundleFile } from "@t3tools/contracts";
 
 import { breathChain, relationBetween } from "./AnimaFiles.ts";
-import { mergeAnimaFiles } from "./AnimaMerge.ts";
+import { mergeAnimaFiles, renderPolicyReport } from "./AnimaMerge.ts";
+import { hashOf } from "./AnimaPolicyMatch.ts";
 
 type Breath = { readonly hash: string; readonly ts: string; readonly aim: string };
 
@@ -162,6 +163,21 @@ describe("mergeAnimaFiles", () => {
     expect(conflicts.map((conflict) => conflict.path)).toEqual(["policy.md"]);
     const pending = file(files, "policy.md")!.split("## Pending")[1]!;
     expect(pending.split("\n").filter((line) => line.startsWith("ALWAYS"))).toHaveLength(20);
+  });
+
+  it("reports each rule's fires, and unknown fires for a machine without a log", () => {
+    const fires = [1, 2].map((n) => `{"h":"${hashOf("ALWAYS b")}","ts":"2026-01-0${n}T10:00"}`);
+    const report = renderPolicyReport({
+      local: anima({ breaths: shared, policy: ["ALWAYS a"] }),
+      incoming: [
+        ...anima({ breaths: shared, policy: ["ALWAYS a", "ALWAYS b"] }),
+        { path: "policy-fires.jsonl", content: `${fires.join("\n")}\n` },
+      ],
+      machines: { local: "pop", incoming: "box" },
+    });
+    expect(report).toContain("- pop: no fire log");
+    expect(report).toContain("1. [pop Operational, box Operational] fires: box 0x\n   ALWAYS a");
+    expect(report).toContain("2. [box Operational] fires: box 2x, last 2026-01-02T10:00");
   });
 
   it("keeps a rule once when the sides file it under different sections", () => {
