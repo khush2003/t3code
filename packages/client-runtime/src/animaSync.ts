@@ -47,16 +47,23 @@ export async function syncAnimaPair(
   ports: AnimaSyncPorts,
 ): Promise<AnimaPairSyncResult> {
   const { name, first, second, present } = input;
-  if (!present.first && !present.second) return { status: "in-sync" };
-  if (!present.first || !present.second) {
-    const [from, to] = present.first ? [first, second] : [second, first];
-    await ports.importBundle(to, { bundle: await ports.exportBundle(from, name), mode: "create" });
+  // Lists can lag (an anima just installed, a list still loading), so the exports decide what
+  // exists. A failed export counts as missing only where the list agrees; else it is an error.
+  const exportOrMissing = (environmentId: EnvironmentId, listed: boolean) =>
+    ports.exportBundle(environmentId, name).catch((error: unknown) => {
+      if (listed) throw error;
+      return null;
+    });
+  const [firstBundle, secondBundle] = await Promise.all([
+    exportOrMissing(first, present.first),
+    exportOrMissing(second, present.second),
+  ]);
+  if (firstBundle === null && secondBundle === null) return { status: "in-sync" };
+  if (firstBundle === null || secondBundle === null) {
+    const [bundle, to] = firstBundle ? [firstBundle, second] : [secondBundle!, first];
+    await ports.importBundle(to, { bundle, mode: "create" });
     return { status: "synced" };
   }
-  const [firstBundle, secondBundle] = await Promise.all([
-    ports.exportBundle(first, name),
-    ports.exportBundle(second, name),
-  ]);
   const compare = await ports.compare(first, secondBundle);
   if (compare.relation === "unrelated") return { status: "unrelated" };
   if (compare.conflicts && compare.conflicts.length > 0)
