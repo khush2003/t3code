@@ -42,11 +42,12 @@ describe("RPC authorization scopes", () => {
     }
   });
 
-  it("lets read-only sessions see anima health, library and thread status but not change them", () => {
+  it("lets read-only sessions see anima health, library, search and thread status but not change them", () => {
     for (const method of [
       WS_METHODS.animaHealth,
       WS_METHODS.animaLibraryList,
       WS_METHODS.animaLibraryRead,
+      WS_METHODS.animaSearch,
       WS_METHODS.animaThreadStatus,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);

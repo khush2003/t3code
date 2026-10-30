@@ -173,6 +173,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.animaHealth]: AuthOrchestrationReadScope,
   [WS_METHODS.animaLibraryList]: AuthOrchestrationReadScope,
   [WS_METHODS.animaLibraryRead]: AuthOrchestrationReadScope,
+  [WS_METHODS.animaSearch]: AuthOrchestrationReadScope,
   [WS_METHODS.animaThreadStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.animaInbox]: AuthOrchestrationOperateScope,
   [WS_METHODS.animaOpens]: AuthOrchestrationOperateScope,

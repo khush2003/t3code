@@ -302,7 +302,9 @@ describe("AnimaService files", () => {
         yield* fs.writeFileString(NodePath.join(library, "notes.txt"), "skip");
         yield* fs.writeFileString(NodePath.join(root, "secret.md"), "outside");
         const { entries } = yield* service.libraryList;
-        expect(entries).toMatchObject([{ slug: "codec", title: "Codec", bytes: 17 }]);
+        expect(entries).toMatchObject([
+          { slug: "codec", title: "Codec", bytes: 17, author: "x", target: null, preview: null },
+        ]);
         expect(entries[0]?.modifiedAt).not.toBeNull();
         expect(yield* service.libraryRead("codec")).toEqual({
           slug: "codec",
@@ -312,6 +314,72 @@ describe("AnimaService files", () => {
           const error = yield* Effect.flip(service.libraryRead(slug));
           expect(error._tag).toBe("AnimaCommandRejectedError");
         }
+      }),
+    ),
+  );
+
+  it.effect("searches header, aims, breaths, identity and the library across animas", () =>
+    withService({ cli: false }, ({ service, root }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* seed(root, "atlas", "id-atlas", 2, {
+          extraHeader: "# tension: codec-drift:4\n# memo: Codec work paused.\n",
+        });
+        yield* seed(root, "sage", "id-sage", 1);
+        const atlas = NodePath.join(root, "atlas");
+        yield* fs.writeFileString(
+          NodePath.join(atlas, "agent.anima"),
+          (yield* fs.readFileString(NodePath.join(atlas, "agent.anima")))
+            .replace("# memo: m\n", "")
+            .replace(
+              "1|2026-03-02T10:00|0,0,50|note 1|0.1/0.1/0.1+0/0/0|||",
+              '1|2026-03-02T10:00|0,0,50|note 1|0.1/0.1/0.1+0/0/0|old-codec:D|Port the CODEC --flag "x"|',
+            ),
+        );
+        yield* fs.writeFileString(
+          NodePath.join(atlas, "breaths", "002.breath"),
+          "# breath:2 ts:2026-03-03T10:00 parent:1 hash:h2\n# kept the codec stable | none | ship\n# open: does the codec need v2\n# seeking: unrelated codec reading\n",
+        );
+        yield* fs.writeFileString(
+          NodePath.join(atlas, "breaths", "000.breath"),
+          "# breath:0 ts:2026-03-01T10:00 parent:- hash:h0\n# seeking: a codec manual\n",
+        );
+        yield* fs.writeFileString(
+          NodePath.join(atlas, "identity.md"),
+          "# atlas\n\n## voice\nQuiet.\n\n## likes\nA clean codec.\n",
+        );
+        yield* fs.makeDirectory(NodePath.join(root, "library"), { recursive: true });
+        yield* fs.writeFileString(
+          NodePath.join(root, "library", "codec.md"),
+          "# Codec notes\n\nFrom: sage\n\nHow the codec works.\n",
+        );
+
+        const { results } = yield* service.search({ query: "  CoDeC " });
+        const brief = results.map((hit) => [hit.type, hit.anima, hit.breath, hit.status]);
+        expect(brief).toEqual(
+          expect.arrayContaining([
+            ["memo", "atlas", null, null],
+            ["tension", "atlas", null, null],
+            ["aim", "atlas", 1, null],
+            ["decision", "atlas", 2, "done"],
+            ["decision", "atlas", 2, "open"],
+            ["decision", "atlas", 1, "done"],
+            ["breath", "atlas", 0, null],
+            ["identity", "atlas", null, null],
+            ["library", null, null, null],
+          ]),
+        );
+        // A breath whose decisions or opens matched is not repeated as a raw breath hit.
+        expect(results.filter((hit) => hit.type === "breath")).toHaveLength(1);
+        expect(results.find((hit) => hit.type === "aim")?.title).toBe("Port the CODEC");
+        expect(results.find((hit) => hit.type === "identity")?.title).toBe("atlas: likes");
+        expect(results.find((hit) => hit.type === "library")).toMatchObject({
+          title: "Codec notes",
+          slug: "codec",
+        });
+        expect(results.some((hit) => hit.anima === "sage")).toBe(false);
+        expect((yield* service.search({ query: "codec", limit: 2 })).results).toHaveLength(2);
+        expect((yield* service.search({ query: "zzz-nothing" })).results).toEqual([]);
       }),
     ),
   );

@@ -111,10 +111,12 @@ import {
   SettingsScheduledTaskNewRouteScreen,
   SettingsScheduledTaskEditRouteScreen,
 } from "./features/settings/SettingsScheduledTasksRouteScreen";
+import { SettingsAnimaDetailRouteScreen } from "./features/animas/AnimaDetailScreen";
 import {
-  SettingsAnimaDetailRouteScreen,
-  SettingsAnimasRouteScreen,
-} from "./features/settings/SettingsAnimasRouteScreen";
+  SettingsAnimaLibraryEntryRouteScreen,
+  SettingsAnimaLibraryRouteScreen,
+} from "./features/animas/AnimaLibraryScreen";
+import { SettingsAnimasRouteScreen } from "./features/animas/AnimasOverviewScreen";
 import {
   ScheduledTaskModelPickerRouteScreen,
   ScheduledTaskBranchPickerRouteScreen,
@@ -402,6 +404,14 @@ const SETTINGS_SCREENS = {
   SettingsAnimaDetail: createNativeStackScreen({
     screen: SettingsAnimaDetailRouteScreen,
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Anima" },
+  }),
+  SettingsAnimaLibrary: createNativeStackScreen({
+    screen: SettingsAnimaLibraryRouteScreen,
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Library" },
+  }),
+  SettingsAnimaLibraryEntry: createNativeStackScreen({
+    screen: SettingsAnimaLibraryEntryRouteScreen,
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Library entry" },
   }),
   SettingsScheduledTaskNew: createNativeStackScreen({
     screen: SettingsScheduledTaskNewRouteScreen,

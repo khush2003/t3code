@@ -134,6 +134,8 @@ import {
   AnimaSetEnabledInput,
   AnimaClinicInput,
   AnimaRecordInput,
+  AnimaSearchInput,
+  AnimaSearchResult,
   AnimaTeamInput,
   AnimaThreadRuntimeStatus,
   AnimaThreadStatusInput,
@@ -486,6 +488,7 @@ export const WS_METHODS = {
   animaLibraryList: "anima.libraryList",
   animaLibraryRead: "anima.libraryRead",
   animaLibraryShelve: "anima.libraryShelve",
+  animaSearch: "anima.search",
   animaTeam: "anima.team",
   animaThreadStatus: "anima.threadStatus",
   assetsCreateUrl: "assets.createUrl",
@@ -1678,6 +1681,17 @@ const WsAnimaLibraryReadRpc = Rpc.make(WS_METHODS.animaLibraryRead, {
   ]),
 });
 
+const WsAnimaSearchRpc = Rpc.make(WS_METHODS.animaSearch, {
+  payload: AnimaSearchInput,
+  success: AnimaSearchResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsAnimaLibraryShelveRpc = Rpc.make(WS_METHODS.animaLibraryShelve, {
   payload: AnimaLibraryShelveInput,
   success: AnimaMutationResult,
@@ -2446,6 +2460,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaLibraryListRpc,
   WsAnimaLibraryReadRpc,
   WsAnimaLibraryShelveRpc,
+  WsAnimaSearchRpc,
   WsAnimaTeamRpc,
   WsAnimaThreadStatusRpc,
   WsAssetsCreateUrlRpc,

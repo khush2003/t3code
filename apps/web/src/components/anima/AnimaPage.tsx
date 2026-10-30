@@ -5,6 +5,7 @@ import {
   LayoutDashboardIcon,
   LibraryBigIcon,
   PlusIcon,
+  SearchIcon,
   SparklesIcon,
   TentTreeIcon,
   UsersIcon,
@@ -15,6 +16,7 @@ import { isElectron } from "~/env";
 import { animaEnvironment, useAnimaList } from "../../state/anima";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
@@ -32,6 +34,7 @@ import { AnimaLibrary } from "./AnimaLibrary";
 import { AnimaDashboard } from "./AnimaDashboard";
 import { animaOrder } from "./animaDashboard.logic";
 import { ANIMA_SEARCH_INPUT_ID } from "./AnimaPool";
+import { AnimaSearchDialog, type AnimaSearchTarget } from "./AnimaSearchPalette";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { NewAnimaDialog } from "./NewAnimaDialog";
 import type { AnimaHomeView, AnimaTab } from "./anima.logic";
@@ -53,8 +56,10 @@ export function AnimaPage(target: {
   readonly tab?: AnimaTab;
   readonly view?: "world" | "library";
   readonly entry?: string;
+  readonly breath?: number;
 }) {
   const navigate = useNavigate();
+  const [searching, setSearching] = useState(false);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const [creating, setCreating] = useState(false);
@@ -92,6 +97,21 @@ export function AnimaPage(target: {
         ...(next === "library" && entry ? { entry } : {}),
       },
     });
+  const pick = (result: AnimaSearchTarget) => {
+    if ("library" in result) {
+      showView("library", result.library);
+      return;
+    }
+    void navigate({
+      to: "/anima",
+      search: {
+        ...scope,
+        anima: result.anima,
+        ...(result.tab ? { tab: result.tab } : {}),
+        ...(result.breath !== undefined ? { breath: result.breath } : {}),
+      },
+    });
+  };
   const selectEnvironment = (next: EnvironmentId) =>
     void navigate({
       to: "/anima",
@@ -104,9 +124,11 @@ export function AnimaPage(target: {
     if (element?.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
     const order = animaOrder(animas);
     const at = order.findIndex((entry) => entry.name === target.anima);
-    if (event.key === "/" && !target.anima && view === "dashboard") {
+    if (event.key === "/") {
       event.preventDefault();
-      document.getElementById(ANIMA_SEARCH_INPUT_ID)?.focus();
+      const box = document.getElementById(ANIMA_SEARCH_INPUT_ID);
+      if (box) box.focus();
+      else setSearching(true);
     } else if (event.key === "Escape" && target.anima) {
       open(undefined);
     } else if (event.key === "j" && order.length > 0) {
@@ -175,6 +197,25 @@ export function AnimaPage(target: {
             ) : null}
           </WorkspaceBreadcrumb>
           <div className="min-w-0 flex-1" />
+          {target.anima || view !== "dashboard" ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Search animas"
+                    onClick={() => setSearching(true)}
+                  />
+                }
+              >
+                <SearchIcon />
+              </TooltipTrigger>
+              <TooltipPopup>
+                Search animas <Kbd>/</Kbd>
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
           {target.anima ? null : (
             <ToggleGroup
               aria-label="Anima view"
@@ -235,6 +276,7 @@ export function AnimaPage(target: {
               environmentId={environmentId}
               name={target.anima as AnimaName}
               tab={target.tab ?? "overview"}
+              breath={target.breath}
               onTab={(tab) => open(target.anima, tab)}
               onOpenAnima={(name) => open(name)}
             />
@@ -256,6 +298,7 @@ export function AnimaPage(target: {
                   animas={animas}
                   onOpen={(name, tab) => open(name, tab)}
                   onCreate={() => setCreating(true)}
+                  onSearchPick={pick}
                   createDisabledReason={createDisabledReason}
                 />
               )}
@@ -263,6 +306,15 @@ export function AnimaPage(target: {
           </div>
         )}
       </div>
+      {searching ? (
+        <AnimaSearchDialog
+          open
+          onOpenChange={setSearching}
+          environmentId={environmentId}
+          animas={animas}
+          onPick={pick}
+        />
+      ) : null}
       {creating && environmentId ? (
         <NewAnimaDialog
           environmentId={environmentId}

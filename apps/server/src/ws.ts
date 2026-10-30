@@ -2898,6 +2898,7 @@ export const layerWsRpc = (
         [WS_METHODS.animaHealth]: (input) => anima.health(input.name),
         [WS_METHODS.animaLibraryList]: () => anima.libraryList,
         [WS_METHODS.animaLibraryRead]: (input) => anima.libraryRead(input.slug),
+        [WS_METHODS.animaSearch]: (input) => anima.search(input),
         [WS_METHODS.animaLibraryShelve]: (input) => anima.libraryShelve(input),
         [WS_METHODS.animaTeam]: (input) => anima.team(input),
         [WS_METHODS.animaThreadStatus]: (input) => animaRuntime.threadStatus(input.threadId),

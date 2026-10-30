@@ -39,7 +39,7 @@ export const ANIMA_TAB_LABELS: Readonly<Record<AnimaTab, string>> = {
   sync: "Sync",
 };
 
-export function isAnimaTab(value: unknown): value is AnimaTab {
+function isAnimaTab(value: unknown): value is AnimaTab {
   return typeof value === "string" && (ANIMA_TABS as ReadonlyArray<string>).includes(value);
 }
 
@@ -52,6 +52,7 @@ export function validateAnimaSearch(raw: Record<string, unknown>): {
   readonly tab?: AnimaTab;
   readonly view?: "world" | "library";
   readonly entry?: string;
+  readonly breath?: number;
 } {
   return {
     ...(typeof raw.environmentId === "string" && raw.environmentId.trim()
@@ -59,11 +60,21 @@ export function validateAnimaSearch(raw: Record<string, unknown>): {
       : {}),
     ...(typeof raw.anima === "string" && raw.anima.trim() ? { anima: raw.anima.trim() } : {}),
     ...(isAnimaTab(raw.tab) && raw.tab !== "overview" ? { tab: raw.tab } : {}),
+    ...(raw.tab === "breaths" && typeof raw.anima === "string" && raw.anima.trim()
+      ? breathParam(raw.breath)
+      : {}),
     ...(raw.view === "library" || raw.view === "world" ? { view: raw.view } : {}),
     ...(raw.view === "library" && typeof raw.entry === "string" && isLibrarySlugValid(raw.entry)
       ? { entry: raw.entry }
       : {}),
   };
+}
+
+function breathParam(value: unknown): { readonly breath?: number } {
+  const breath = typeof value === "string" ? Number(value) : value;
+  return typeof breath === "number" && Number.isSafeInteger(breath) && breath >= 0
+    ? { breath }
+    : {};
 }
 
 export function isLibrarySlugValid(slug: string): boolean {

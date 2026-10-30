@@ -178,6 +178,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.animaHealth]: "workspace",
   [WS_METHODS.animaLibraryList]: "workspace",
   [WS_METHODS.animaLibraryRead]: "workspace",
+  [WS_METHODS.animaSearch]: "workspace",
   [WS_METHODS.animaThreadStatus]: "workspace",
   [WS_METHODS.animaInbox]: "workspace",
   [WS_METHODS.animaOpens]: "workspace",
