@@ -671,7 +671,11 @@ export const AnimaMergeStartResult = Schema.Struct({
 export type AnimaMergeStartResult = typeof AnimaMergeStartResult.Type;
 
 export const AnimaMergeApplyInput = Schema.Struct({ mergeId: Schema.String });
-export const AnimaMergeStatusInput = Schema.Struct({ mergeId: Schema.String });
+/** By id, or the newest merge started for an anima so a reopened Sync tab can pick it back up. */
+export const AnimaMergeStatusInput = Schema.Union([
+  Schema.Struct({ mergeId: Schema.String }),
+  Schema.Struct({ name: AnimaName }),
+]);
 export const AnimaMergeStatusResult = Schema.Struct({
   mergeId: Schema.String,
   name: AnimaName,
