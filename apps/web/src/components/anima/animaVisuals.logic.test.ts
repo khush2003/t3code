@@ -42,6 +42,20 @@ describe("cube", () => {
       projectIso({ breadth: 1, depth: 0, coupling: 0 }, 10, o),
     );
   });
+  it("keeps every corner inside the viewbox at any turn", () => {
+    for (const yaw of [0, 0.7, 2, 4]) {
+      for (const pitch of [0, 0.5, 1.2]) {
+        for (const [a, b] of cubeGeometry(200, 160, { yaw, pitch }).edges) {
+          for (const p of [a, b]) {
+            expect(p.x).toBeGreaterThanOrEqual(0);
+            expect(p.x).toBeLessThanOrEqual(200);
+            expect(p.y).toBeGreaterThanOrEqual(0);
+            expect(p.y).toBeLessThanOrEqual(160);
+          }
+        }
+      }
+    }
+  });
   it("builds 12 edges that fit the viewbox", () => {
     const g = cubeGeometry(200, 160);
     expect(g.edges).toHaveLength(12);

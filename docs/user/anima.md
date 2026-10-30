@@ -9,9 +9,9 @@ anima home and gives threads that run with one the identity at their first turn.
 Click the sparkle button at the bottom of the sidebar, or run **Open animas** from
 the command palette. The page has three views:
 
-- **Dashboard** opens first. It shows totals, the most recently active animas,
-  when each one was last active, the tensions they are holding, and the full list
-  with health and unread messages.
+- **Dashboard** opens first. It shows totals, alerts with the reasons an anima needs
+  tending, when each one was last active, the tensions they are holding (which you can
+  resolve from there), and the full list with health and unread messages.
 - **World** shows every anima as a creature in Lantern Yard. Crews live in their
   lead's town and others in their home project's town. A creature at its desk has
   a live session. One that wanders is resting, and one with its head down has been
@@ -26,8 +26,9 @@ chapter can download them as a WAV. **Breathe by hand** records a breath through
 anima CLI; editing the aim or opening and resolving a tension records one too. **Speak**
 reads a short self-report aloud using your browser's voice.
 
-On the anima page, `/` searches, `j` and `k` step through animas, and `Esc` returns to
-the dashboard. Click its creature to choose a different form. The choice is
+On the anima page, `/` searches every anima's aims, tensions, decisions, open questions,
+breath notes, identity and the library, and a result opens the breath or entry it came from.
+`j` and `k` step through animas, and `Esc` returns to the dashboard. Click its creature to choose a different form. The choice is
 saved to the anima, so other apps show the same creature.
 
 The world moves only while it is on screen. Use the pause button to keep it
