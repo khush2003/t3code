@@ -12,7 +12,7 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { breathNoteText, buildAnimaFeed } from "./anima.logic";
 import { PageHeading, RelativeTime, TraitBars, useAnimaMutation, useAnimaSoul } from "./AnimaBits";
-import { parseUserModel } from "./animaDashboard.logic";
+import { parseUserModel, soulMeaning } from "./animaDashboard.logic";
 import { groupByDay } from "./animaPortrait.logic";
 import { SoulOrb, animaSoulColors } from "./AnimaSoul";
 import { BreathNarrative, ThreadTitle } from "./AnimaTabs";
@@ -103,6 +103,7 @@ function BreathEntry({
   const note = parseBreathNote(breath.note);
   const text = note ? null : breathNoteText(breath.note);
   const [showFiles, setShowFiles] = useState(false);
+  const domain = soulMeaning(breath.hsl)?.domain;
   return (
     <li
       ref={focused ? scrollIntoCenter : undefined}
@@ -126,6 +127,9 @@ function BreathEntry({
               {note.pitch} {note.quality} · vel {note.velocity} · {note.tempo} bpm
             </span>
           ) : null}
+          {breath.hsl ? (
+            <span className="font-mono text-2xs">{breath.hsl.replaceAll(",", ".")}</span>
+          ) : null}
           <span className="ml-auto">
             <ShapeBars breath={breath} />
           </span>
@@ -136,6 +140,9 @@ function BreathEntry({
           </p>
         ) : null}
         {text ? <p className="text-sm whitespace-pre-wrap text-foreground/80">{text}</p> : null}
+        {!breath.aim && !text && domain ? (
+          <p className="text-sm text-muted-foreground capitalize">{domain} work</p>
+        ) : null}
         <BreathNarrative breath={{ ...breath, aim: null }} />
         {breath.files.length > 0 ? (
           <div className="space-y-1">

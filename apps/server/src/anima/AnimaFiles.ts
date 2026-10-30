@@ -13,6 +13,8 @@ import {
   type AnimaInboxMessage,
   type AnimaOpen,
   type AnimaPolicy,
+  type AnimaPolicyAuditEntry,
+  type AnimaSearchHit,
   type AnimaShape,
   type AnimaSummary,
   type AnimaSyncRelation,
@@ -402,8 +404,23 @@ function parseFireLog(
   return stats;
 }
 
+/** `rev|date|by|text`, the CLI's audit line; anything else keeps only its text. */
+function parsePolicyAuditLine(line: string): AnimaPolicyAuditEntry {
+  const parts = line.split("|");
+  if (parts.length < 4) return { revision: null, at: null, by: null, text: line };
+  const revision = Number.parseInt(parts[0]!, 10);
+  return {
+    revision: Number.isNaN(revision) || revision < 0 ? null : revision,
+    at: nonEmpty(parts[1]),
+    by: nonEmpty(parts[2]),
+    text: parts.slice(3).join("|").trim(),
+  };
+}
+
 export function parsePolicy(content: string, fireLog = ""): ParsedPolicy {
   let revision = 0;
+  let updatedAt: string | null = null;
+  let updatedBy: string | null = null;
   let section: "none" | "operational" | "pending" | "audit" = "none";
   const operational: Array<string> = [];
   const pending: Array<string> = [];
@@ -413,6 +430,8 @@ export function parsePolicy(content: string, fireLog = ""): ParsedPolicy {
     const rev = /^# rev:\s*(\d+)/.exec(line);
     if (rev !== null) {
       revision = Number.parseInt(rev[1]!, 10);
+      updatedAt = nonEmpty(/\bupdated:\s*(\S+)/.exec(line)?.[1]);
+      updatedBy = nonEmpty(/\bby:\s*(\S+)/.exec(line)?.[1]);
       continue;
     }
     if (line === "## Operational") section = "operational";
@@ -436,9 +455,12 @@ export function parsePolicy(content: string, fireLog = ""): ParsedPolicy {
     });
   return {
     revision,
+    updatedAt,
+    updatedBy,
     operational: numbered(operational, true),
     pending: numbered(pending, false),
     audit,
+    auditEntries: audit.map(parsePolicyAuditLine),
   };
 }
 
@@ -608,6 +630,122 @@ export function parseAppearance(content: string): ParsedAppearance | null {
 export function libraryTitle(content: string): string | null {
   const heading = content.split("\n").find((line) => line.startsWith("# "));
   return heading === undefined ? null : nonEmpty(heading.slice(2));
+}
+
+const LIBRARY_PREVIEW_MAX = 120;
+const LIBRARY_AUTHOR_LINE = /^(?:from|by|author):\s*(.*)$/i;
+const LIBRARY_TARGET_LINE = /^(?:for|target):\s*(.*)$/i;
+
+/** The CLI writes `From: name (date)`; the date is not part of the author. */
+const libraryPerson = (value: string | undefined) =>
+  nonEmpty(value?.replace(/\s*\([^)]*\)\s*$/, ""));
+
+/**
+ * Author, target and preview of a library entry. The CLI's `shelve` writes `From:` (and older
+ * entries `For:`) lines under the heading; hand-written entries may use YAML front matter instead.
+ */
+export function libraryMetadata(content: string): {
+  readonly title: string | null;
+  readonly author: string | null;
+  readonly target: string | null;
+  readonly preview: string | null;
+} {
+  const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
+  const body = frontMatter === null ? content : content.slice(frontMatter[0].length);
+  let title: string | null = null;
+  let author: string | null = null;
+  let target: string | null = null;
+  for (const line of frontMatter?.[1]?.split(/\r?\n/) ?? []) {
+    const unquote = (value: string | undefined) => value?.trim().replace(/^(["'])(.*)\1$/, "$2");
+    title ??= nonEmpty(unquote(/^title:\s*(.*)$/i.exec(line)?.[1]));
+    author ??= libraryPerson(unquote(LIBRARY_AUTHOR_LINE.exec(line)?.[1]));
+    target ??= nonEmpty(unquote(LIBRARY_TARGET_LINE.exec(line)?.[1]));
+  }
+  let preview: string | null = null;
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#") || line.startsWith("---")) continue;
+    const authorLine = LIBRARY_AUTHOR_LINE.exec(line);
+    if (authorLine !== null) {
+      author ??= libraryPerson(authorLine[1]);
+      continue;
+    }
+    const targetLine = LIBRARY_TARGET_LINE.exec(line);
+    if (targetLine !== null) {
+      target ??= nonEmpty(targetLine[1]);
+      continue;
+    }
+    preview ??= line.slice(0, LIBRARY_PREVIEW_MAX);
+  }
+  return { title: libraryTitle(body) ?? title, author, target, preview };
+}
+
+const PITCH_HUE: Readonly<Record<string, number>> = {
+  C: 10,
+  D: 45,
+  E: 90,
+  F: 140,
+  G: 190,
+  A: 240,
+  B: 285,
+};
+
+/**
+ * The anima's long-run colour, as the original dashboard drew it: hue is the circular mean of the
+ * breaths' pitch hues weighted towards recent breaths, saturation falls as the pitches spread, and
+ * lightness is the weighted mean vitality.
+ */
+function identityHsl(rows: ReadonlyArray<AnimaRow>): string | null {
+  const pitches: Array<{ hue: number; weight: number }> = [];
+  const vitals: Array<{ light: number; weight: number }> = [];
+  rows.forEach((row, position) => {
+    const weight = position + 1;
+    const light = Number((row.hsl ?? "").split(/[.,]/)[2]);
+    vitals.push({ light: light || 50, weight });
+    // Free-text notes are not codec notes even when they start with a pitch letter.
+    const pitch = /^([A-G])[#b]?\d?\./.exec(row.note)?.[1];
+    if (pitch !== undefined) pitches.push({ hue: PITCH_HUE[pitch]!, weight });
+  });
+  if (pitches.length === 0) return null;
+  let sin = 0;
+  let cos = 0;
+  let total = 0;
+  for (const { hue, weight } of pitches) {
+    const radians = (hue * Math.PI) / 180;
+    sin += Math.sin(radians) * weight;
+    cos += Math.cos(radians) * weight;
+    total += weight;
+  }
+  let mean = (Math.atan2(sin, cos) * 180) / Math.PI;
+  if (mean < 0) mean += 360;
+  let variance = 0;
+  for (const { hue, weight } of pitches) {
+    let diff = Math.abs(hue - mean);
+    if (diff > 180) diff = 360 - diff;
+    variance += diff * diff * weight;
+  }
+  const saturation = Math.max(30, Math.min(80, 80 - Math.sqrt(variance / total) * 0.5));
+  let lightSum = 0;
+  let lightWeight = 0;
+  for (const { light, weight } of vitals) {
+    lightSum += light * weight;
+    lightWeight += weight;
+  }
+  const lightness = lightWeight > 0 ? Math.max(40, Math.min(70, lightSum / lightWeight)) : 55;
+  return `${Math.round(mean) % 360},${Math.round(saturation)},${Math.round(lightness)}`;
+}
+
+/** `# projects: name=note,...`; projects without a note are left out. */
+function parseProjectNotes(value: string): Readonly<Record<string, string>> {
+  const notes: Record<string, string> = {};
+  for (const pair of value.split(",")) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) continue;
+    const name = pair.slice(0, eq).trim();
+    const note = pair.slice(eq + 1).trim();
+    if (name !== "" && note !== "") notes[name] = note;
+  }
+  return notes;
 }
 
 // Health weights, thresholds and caps from the CLI's state.ts.
@@ -1050,12 +1188,15 @@ export interface SummaryInput {
   readonly session: ParsedSession | null;
   readonly appearance: ParsedAppearance | null;
   readonly digest: string;
-  readonly health: number | null;
+  readonly health: AnimaHealthAssessment | null;
 }
 
 export function buildSummary(input: SummaryInput): AnimaSummary {
   const { agent } = input;
   const lastRow = agent.rows.at(-1);
+  const projectNotes = parseProjectNotes(
+    agent.header.find((line) => line.key === "projects")?.value ?? "",
+  );
   // Row 0 of a new anima is a seed placeholder, not a measured breath.
   const breathed = agent.breaths > 0;
   return {
@@ -1090,7 +1231,227 @@ export function buildSummary(input: SummaryInput): AnimaSummary {
     topSkills: agent.skills.toSorted((left, right) => right.mean - left.mean).slice(0, 5),
     inboxCount: input.inbox.length,
     policyCount: input.policy.operational.length,
-    health: input.health,
+    health: input.health?.score ?? null,
+    healthAction: input.health?.action ?? null,
+    healthReasons: input.health?.reasons ?? [],
+    healthWarnings: input.health?.warnings ?? [],
+    identityHsl: breathed ? identityHsl(agent.rows) : null,
+    ...(Object.keys(projectNotes).length > 0 ? { projectNotes } : {}),
     digest: input.digest,
   };
+}
+
+const SNIPPET_RADIUS = 60;
+
+export interface ScoredSearchHit {
+  readonly hit: AnimaSearchHit;
+  /** Higher sorts first; mirrors the original dashboard's ranking. */
+  readonly score: number;
+}
+
+/** Case-insensitive substring score: exact beats prefix beats an early match beats a late one. */
+function matchScore(text: string, needle: string): number {
+  const lower = text.toLowerCase();
+  if (lower === needle) return 100;
+  const at = lower.indexOf(needle);
+  if (at === 0) return 80;
+  return at > 0 ? 60 - Math.min(at, 30) : 0;
+}
+
+/** Text around the first match on one line, with `...` where it was cut. */
+function snippetAround(text: string, needle: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const at = flat.toLowerCase().indexOf(needle);
+  if (at < 0) return flat.slice(0, SNIPPET_RADIUS * 2);
+  const start = Math.max(0, at - SNIPPET_RADIUS);
+  const end = Math.min(flat.length, at + needle.length + SNIPPET_RADIUS);
+  return `${start > 0 ? "..." : ""}${flat.slice(start, end)}${end < flat.length ? "..." : ""}`;
+}
+
+/** The CLI appends `--flag value` options to some aims; they are not part of the aim. */
+const cleanAim = (aim: string) =>
+  aim
+    .replace(/\s*--\w+\s+"[^"]*"/g, "")
+    .replace(/\s*--\w+\s+\S+/g, "")
+    .trim();
+
+const unslug = (value: string) => value.replace(/[-_]/g, " ");
+
+export interface SearchableAnima {
+  readonly name: string;
+  readonly agentContent: string;
+  readonly identity: string;
+  /** Keyed by file name, e.g. `003.breath`. */
+  readonly breathFiles: ReadonlyMap<string, string>;
+}
+
+/**
+ * Port of the original dashboard's deep search over one anima: header fields, every aim it held,
+ * decisions and open questions from its breaths, the rest of each breath, and identity sections.
+ */
+export function searchAnima(anima: SearchableAnima, query: string): ReadonlyArray<ScoredSearchHit> {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return [];
+  const agent = parseAgentFile(anima.agentContent);
+  const out: Array<ScoredSearchHit> = [];
+  const push = (
+    score: number,
+    hit: Omit<AnimaSearchHit, "anima" | "breath" | "status"> &
+      Partial<Pick<AnimaSearchHit, "breath" | "status">>,
+  ) =>
+    out.push({
+      score,
+      hit: { anima: anima.name, breath: null, status: null, ...hit },
+    });
+
+  const nameScore = matchScore(anima.name, needle);
+  if (nameScore > 0)
+    push(nameScore + 20, {
+      type: "anima",
+      title: anima.name,
+      snippet: `${agent.role} · ${agent.breaths} breaths · born ${agent.born}`,
+    });
+  for (const [type, value] of [
+    ["vow", agent.vow],
+    ["memo", agent.memo],
+  ] as const) {
+    const score = value === null ? 0 : matchScore(value, needle);
+    if (score > 0)
+      push(score, {
+        type,
+        title: `${anima.name} ${type}`,
+        snippet: snippetAround(value!, needle),
+      });
+  }
+  for (const { slug, age } of parseTensions(
+    agent.header.find((line) => line.key === "tension")?.value ?? "",
+  )) {
+    const score = matchScore(slug, needle) || matchScore(unslug(slug), needle);
+    if (score > 0)
+      push(score + 5, {
+        type: "tension",
+        title: unslug(slug),
+        snippet: `Open tension, ${age} ${age === 1 ? "breath" : "breaths"} old`,
+      });
+  }
+  for (const skill of agent.skills) {
+    const score = matchScore(skill.name, needle) || matchScore(unslug(skill.name), needle);
+    if (score > 0)
+      push(score, {
+        type: "skill",
+        title: unslug(skill.name),
+        snippet: `${anima.name} · ${skill.mean.toFixed(2)}`,
+      });
+  }
+
+  const newestFirst = agent.rows.toReversed();
+  const seenAims = new Set<string>();
+  for (const row of newestFirst) {
+    const aim = row.aim === null ? "" : cleanAim(row.aim);
+    const key = aim.toLowerCase();
+    if (aim === "" || seenAims.has(key)) continue;
+    seenAims.add(key);
+    const score = matchScore(aim, needle);
+    if (score > 0)
+      push(score, {
+        type: "aim",
+        title: aim,
+        snippet: snippetAround(aim, needle),
+        breath: row.index,
+      });
+  }
+
+  const seenDecisions = new Set<string>();
+  const decision = (text: string, status: "done" | "open", breath: number) => {
+    const key = `${status}:${text.toLowerCase()}`;
+    if (seenDecisions.has(key)) return false;
+    const score = matchScore(text, needle) || matchScore(unslug(text), needle);
+    if (score === 0) return false;
+    seenDecisions.add(key);
+    push(score, {
+      type: "decision",
+      title: text.length > 120 ? `${text.slice(0, 117)}...` : text,
+      snippet: snippetAround(text, needle),
+      breath,
+      status,
+    });
+    return true;
+  };
+  const details = [...anima.breathFiles]
+    .flatMap(([fileName, content]) => {
+      const parsed = parseBreathFile(content, fileName);
+      return parsed === null ? [] : [{ parsed, content }];
+    })
+    .toSorted((left, right) => right.parsed.index - left.parsed.index);
+  for (const { parsed, content } of details) {
+    let matched = false;
+    for (const text of parsed.decisions) matched = decision(text, "done", parsed.index) || matched;
+    for (const text of parsed.open) matched = decision(text, "open", parsed.index) || matched;
+    // The breath header line carries only ids and hashes.
+    const rest = content
+      .split("\n")
+      .filter((line) => !line.startsWith("# breath:"))
+      .join("\n");
+    const score = matchScore(rest, needle);
+    if (!matched && score > 0)
+      push(score - 5, {
+        type: "breath",
+        title: `breath ${parsed.index}${parsed.ts === "" ? "" : ` · ${parsed.ts.slice(0, 10)}`}`,
+        snippet: snippetAround(rest, needle),
+        breath: parsed.index,
+      });
+  }
+  // Graph labels (`slug:D`, `slug:?`) record decisions for rows that predate breath files.
+  for (const row of newestFirst) {
+    for (const entry of (row.graph ?? "").split(",")) {
+      const [label = "", marker] = entry.split(":");
+      if (marker !== "D" && marker !== "?") continue;
+      if (label.trim() !== "") decision(label.trim(), marker === "D" ? "done" : "open", row.index);
+    }
+  }
+
+  for (const section of anima.identity.split(/^(?=## )/m)) {
+    const heading = /^##\s+(.+)$/m.exec(section)?.[1]?.trim();
+    const score = matchScore(section, needle);
+    if (score > 0)
+      push(score - 10, {
+        type: "identity",
+        title: heading === undefined ? `${anima.name} identity` : `${anima.name}: ${heading}`,
+        snippet: snippetAround(section.replace(/^#.*$/gm, ""), needle),
+      });
+  }
+  return out;
+}
+
+export function searchLibraryEntry(
+  slug: string,
+  content: string,
+  query: string,
+): ScoredSearchHit | null {
+  const needle = query.trim().toLowerCase();
+  const score = needle === "" ? 0 : Math.max(matchScore(slug, needle), matchScore(content, needle));
+  if (score === 0) return null;
+  return {
+    score: score - 15,
+    hit: {
+      type: "library",
+      anima: null,
+      title: libraryTitle(content) ?? unslug(slug),
+      snippet: snippetAround(content.toLowerCase().includes(needle) ? content : slug, needle),
+      breath: null,
+      status: null,
+      slug,
+    },
+  };
+}
+
+/** Highest score first; equal scores keep their input order. */
+export function rankSearchHits(
+  hits: ReadonlyArray<ScoredSearchHit>,
+  limit: number,
+): ReadonlyArray<AnimaSearchHit> {
+  return hits
+    .toSorted((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map((entry) => entry.hit);
 }

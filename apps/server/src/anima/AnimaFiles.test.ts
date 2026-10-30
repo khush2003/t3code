@@ -173,11 +173,16 @@ ALWAYS c
 NEVER d [proposed by x, 2026-01-01]
 
 ## Audit
-2|2026-10-26|t3-atlas|added: ALWAYS c
+2|2026-10-26|t3-atlas|added: ALWAYS c|with a pipe
+free-form note
 `,
       fires,
     );
-    expect(policy.revision).toBe(2);
+    expect(policy).toMatchObject({
+      revision: 2,
+      updatedAt: "2026-10-26",
+      updatedBy: "t3-atlas",
+    });
     expect(policy.operational).toEqual([
       { index: 1, text: "WHEN a THEN b", fires: 2, lastFiredAt: "2026-07-20T06:35" },
       { index: 2, text: "ALWAYS c", fires: 0, lastFiredAt: null },
@@ -185,7 +190,15 @@ NEVER d [proposed by x, 2026-01-01]
     expect(policy.pending).toEqual([
       { index: 1, text: "NEVER d [proposed by x, 2026-01-01]", fires: 0, lastFiredAt: null },
     ]);
-    expect(policy.audit).toEqual(["2|2026-10-26|t3-atlas|added: ALWAYS c"]);
+    expect(policy.audit).toEqual([
+      "2|2026-10-26|t3-atlas|added: ALWAYS c|with a pipe",
+      "free-form note",
+    ]);
+    expect(policy.auditEntries).toEqual([
+      { revision: 2, at: "2026-10-26", by: "t3-atlas", text: "added: ALWAYS c|with a pipe" },
+      { revision: null, at: null, by: null, text: "free-form note" },
+    ]);
+    expect(AnimaFiles.parsePolicy("")).toMatchObject({ updatedAt: null, updatedBy: null });
   });
 
   it("parses JSONL and legacy inbox lines, skipping garbage", () => {
@@ -330,6 +343,31 @@ NEVER d [proposed by x, 2026-01-01]
     expect(AnimaFiles.parseCard("")).toBeNull();
     expect(AnimaFiles.libraryTitle("From: x\n# Codec notes\nbody")).toBe("Codec notes");
     expect(AnimaFiles.libraryTitle("no heading")).toBeNull();
+  });
+
+  it("reads library author, target and preview from CLI lines or front matter", () => {
+    // `anima library shelve` output, plus the older `For:` line.
+    expect(
+      AnimaFiles.libraryMetadata(
+        "# insight-aegis-3\n\nFrom: aegis (breath 3, 2026-03-12)\nFor: pool\n\nDomain checks first.\n\n---\n2026-03-13 (kite): more\n",
+      ),
+    ).toEqual({
+      title: "insight-aegis-3",
+      author: "aegis",
+      target: "pool",
+      preview: "Domain checks first.",
+    });
+    expect(
+      AnimaFiles.libraryMetadata(
+        `---\ntitle: "Codec"\nby: quill\nfor: atlas\n---\n${"x".repeat(200)}\n`,
+      ),
+    ).toEqual({ title: "Codec", author: "quill", target: "atlas", preview: "x".repeat(120) });
+    expect(AnimaFiles.libraryMetadata("# Only a heading\n")).toEqual({
+      title: "Only a heading",
+      author: null,
+      target: null,
+      preview: null,
+    });
   });
 });
 
@@ -524,7 +562,18 @@ describe("buildSummary", () => {
       session: null,
       appearance: null,
       digest: built.digest,
-      health: 0.25,
+      health: {
+        score: 0.25,
+        action: "none",
+        components: { uncertainty: 0, negStreak: 0, staleTension: 0, drift: 0, silence: 0 },
+        maxSigma: 0,
+        maxNegStreak: 0,
+        maxTensionAge: 0,
+        silenceHours: 0,
+        colorDrift: 0,
+        reasons: ["silence: 30h"],
+        warnings: ["vitality low"],
+      },
     });
     expect(summary).toMatchObject({
       name: "atlas",
@@ -535,7 +584,13 @@ describe("buildSummary", () => {
       voice: "Speaks slowly. Precise.",
       live: false,
       health: 0.25,
+      healthAction: "none",
+      healthReasons: ["silence: 30h"],
+      healthWarnings: ["vitality low"],
+      projectNotes: { atlas: "C", other: "D" },
     });
+    // Two codec notes on C (hue 10) weighted 1 and 3; the free-text note has no pitch.
+    expect(summary.identityHsl).toBe("10,80,58");
     expect(summary.topSkills.map((skill) => skill.name)).toEqual([
       "typescript",
       "type-design",
@@ -553,7 +608,28 @@ describe("buildSummary", () => {
       digest: built.digest,
       health: null,
     });
-    expect(checkedIn).toMatchObject({ form: "fox", accent: "#ff8800" });
+    expect(checkedIn).toMatchObject({
+      form: "fox",
+      accent: "#ff8800",
+      healthAction: null,
+      healthReasons: [],
+    });
+    const unborn = AnimaFiles.parseAgentFile(
+      "# id:x name:n born:2026-01-01 breaths:0\n# projects: a,b=\n0|2026-01-01T00:00|0,0,50|C4.M.1.1.1.1|0.1/0.1/0.1|||\n",
+    );
+    const fresh = AnimaFiles.buildSummary({
+      name: "n",
+      agent: unborn,
+      identity: "",
+      policy: AnimaFiles.parsePolicy(""),
+      inbox: [],
+      session: null,
+      appearance: null,
+      digest: "d",
+      health: null,
+    });
+    expect(fresh.identityHsl).toBeNull();
+    expect(fresh.projectNotes).toBeUndefined();
   });
 });
 

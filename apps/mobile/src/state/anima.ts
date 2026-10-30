@@ -5,7 +5,13 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { AnimaName, AnimaSummary, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type {
+  AnimaName,
+  AnimaSearchHit,
+  AnimaSummary,
+  EnvironmentId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -16,6 +22,7 @@ import {
   advanceAnimaBreath,
   ANIMA_BREATH_POLL_INTERVAL_MS,
   type AnimaBreathStatus,
+  isUnsupportedAnimaRequest,
 } from "./anima-presentation";
 import { appAtomRegistry } from "./atom-registry";
 import { useEnvironmentQuery } from "./query";
@@ -32,7 +39,21 @@ export function useAnimaList(environmentId: EnvironmentId | null) {
   return { ...query, animas: query.data?.animas ?? NO_ANIMAS };
 }
 
+const NO_SEARCH_HITS: ReadonlyArray<AnimaSearchHit> = Object.freeze([]);
+
+/** An empty query reads nothing; callers debounce and enforce a minimum length. */
+export function useAnimaSearch(environmentId: EnvironmentId, query: string) {
+  const trimmed = query.trim();
+  const search = useEnvironmentQuery(
+    trimmed === "" ? null : animaEnvironment.search({ environmentId, input: { query: trimmed } }),
+  );
+  return { ...search, results: search.data?.results ?? NO_SEARCH_HITS };
+}
+
 export function describeAnimaError(error: unknown): string {
+  if (isUnsupportedAnimaRequest(error)) {
+    return "That environment runs an older T3 server without this anima feature. Update T3 there and try again.";
+  }
   return error instanceof Error && error.message.trim() !== ""
     ? error.message
     : "The anima request failed.";
