@@ -20,7 +20,7 @@ const TRAIT_KEYS = new Set(["user", "self", "skills"]);
 const LIST_KEYS = new Set(["projects", "team", "kin", "tension"]);
 /** Hand-written voice: changed on both sides, a person decides. Every other key is CLI state. */
 const VOICE_KEYS = new Set(["vow", "style", "biases", "samples", "role", "policy"]);
-const CONFLICT_FILES = new Set(["identity.md", "constitution.json"]);
+const CONFLICT_FILES = new Set(["identity.md", "constitution.json", "style.md"]);
 
 interface Breath {
   readonly key: string;
@@ -256,6 +256,30 @@ function mergePolicy(
   return out.join("\n");
 }
 
+/** Notes and logs only grow in practice: keep the longer when one extends the other, else both. */
+function mergeNotes(local: string, incoming: string): string {
+  if (incoming.startsWith(local)) return incoming;
+  if (local.startsWith(incoming)) return local;
+  const seen = new Set(local.split("\n").map((line) => line.trim()));
+  const added = incoming.split("\n").filter((line) => line.trim() !== "" && !seen.has(line.trim()));
+  return added.length === 0 ? local : `${local.replace(/\n*$/, "")}\n${added.join("\n")}\n`;
+}
+
+/** goals.json themes by id: every theme from both sides, the newer side's copy when both have it. */
+function mergeGoals(local: string, incoming: string, incomingNewer: boolean): string | null {
+  try {
+    const left = JSON.parse(local) as { themes?: Array<{ id?: unknown }> };
+    const right = JSON.parse(incoming) as { themes?: Array<{ id?: unknown }> };
+    if (!Array.isArray(left.themes) || !Array.isArray(right.themes)) return null;
+    const [older, newer] = incomingNewer ? [left, right] : [right, left];
+    const themes = new Map<unknown, { id?: unknown }>();
+    for (const theme of [...older.themes!, ...newer.themes!]) themes.set(theme.id, theme);
+    return `${JSON.stringify({ ...older, ...newer, themes: [...themes.values()] }, null, 2)}\n`;
+  } catch {
+    return null;
+  }
+}
+
 export function mergeAnimaFiles(input: {
   readonly local: ReadonlyArray<AnimaBundleFile>;
   readonly incoming: ReadonlyArray<AnimaBundleFile>;
@@ -342,6 +366,8 @@ export function mergeAnimaFiles(input: {
     else if (base !== null && b === l) content = i;
     else if (base !== null && b === i) content = l;
     else if (path === "policy.md") content = mergePolicy(b, l, i, incomingNewer);
+    else if (path === "goals.json") content = mergeGoals(l, i, incomingNewer) ?? newer(l, i);
+    else if (!CONFLICT_FILES.has(path) && /\.(md|log|txt)$/.test(path)) content = mergeNotes(l, i);
     else {
       content = newer(l, i);
       if (CONFLICT_FILES.has(path))
