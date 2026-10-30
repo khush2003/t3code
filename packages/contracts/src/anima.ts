@@ -657,6 +657,9 @@ export const AnimaMergeStartInput = Schema.Struct({
   projectId: Schema.optional(ProjectId),
   /** Defaults to the project's default model, then the environment's. */
   modelSelection: Schema.optional(ModelSelection),
+  /** Names the agent uses for each machine when it asks about conflicts. */
+  localLabel: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(80))),
+  incomingLabel: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(80))),
 });
 export type AnimaMergeStartInput = typeof AnimaMergeStartInput.Type;
 
