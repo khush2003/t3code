@@ -86,6 +86,20 @@ function describeConflict(
   index: number,
   machines: { readonly local: string; readonly incoming: string },
 ): string {
+  if (conflict.path === "policy.md") {
+    return `### ${index + 1}. Active policy rules in policy.md
+
+Together ${machines.local} and ${machines.incoming} have more than ${AnimaFiles.ANIMA_POLICY_CAP}
+active rules (\`## Operational\` in \`local/policy.md\` and \`incoming/policy.md\`). The draft
+kept the first ${AnimaFiles.ANIMA_POLICY_CAP} active and moved the rest to \`## Pending\`, where
+they no longer apply. That is a placeholder, not a decision.
+
+Read both files. Propose which rules stay active: fold near-duplicates into one rule, and prefer
+rules that recur or guard against costly mistakes. Show the user, per machine, which of its rules
+your proposal keeps active, folds or parks in Pending, and ask with the options "Keep
+${machines.local}'s active rules", "Keep ${machines.incoming}'s active rules" and "Use the proposed
+selection". Never delete a rule: one that is not active goes under \`## Pending\`.`;
+  }
   const where =
     conflict.key === null ? conflict.path : `\`# ${conflict.key}:\` in ${conflict.path}`;
   const clip = (text: string) => (text.length > 1200 ? `${text.slice(0, 1200)}\n[...]` : text);
@@ -140,7 +154,8 @@ merged/    a draft that already combines everything a rule could decide
 - **State the CLI rewrites each breath** (memo, aim, arc, ka, hue) comes from the side with the
   latest breath. Traits (\`self\`, \`skills\`, \`user\`) keep the more certain estimate (lower sigma).
   Lists (\`projects\`, \`kin\`, \`team\`, \`tension\`) are combined. \`breaths:\` is recomputed.
-- **policy.md** keeps rules added on either side and drops rules either side removed.
+- **policy.md** keeps rules added on either side and drops rules either side removed. Past
+  ${AnimaFiles.ANIMA_POLICY_CAP} active rules, the surplus waits in \`## Pending\` and is listed below.
 - Anything only one side changed since the two last synced takes that side's version.
 
 ## Conflicts to resolve with the user
