@@ -81,18 +81,22 @@ export class AnimaMergeService extends Context.Service<
   }
 >()("t3/anima/AnimaMergeService") {}
 
-function describeConflict(conflict: AnimaMergeConflict, index: number): string {
+function describeConflict(
+  conflict: AnimaMergeConflict,
+  index: number,
+  machines: { readonly local: string; readonly incoming: string },
+): string {
   const where =
     conflict.key === null ? conflict.path : `\`# ${conflict.key}:\` in ${conflict.path}`;
   const clip = (text: string) => (text.length > 1200 ? `${text.slice(0, 1200)}\n[...]` : text);
   return `### ${index + 1}. ${where}
 
-This machine (local):
+${machines.local} (this machine, \`local/\`):
 \`\`\`
 ${clip(conflict.local)}
 \`\`\`
 
-The other machine (incoming):
+${machines.incoming} (the other machine, \`incoming/\`):
 \`\`\`
 ${clip(conflict.incoming)}
 \`\`\``;
@@ -105,15 +109,19 @@ function renderMergeInstructions(input: {
   readonly localOnlyBreaths: number;
   readonly incomingOnlyBreaths: number;
   readonly conflicts: ReadonlyArray<AnimaMergeConflict>;
+  readonly machines: { readonly local: string; readonly incoming: string };
 }): string {
+  const { local, incoming } = input.machines;
   const conflicts =
     input.conflicts.length === 0
       ? "None. Check the draft reads coherently, then finish."
-      : input.conflicts.map(describeConflict).join("\n\n");
+      : input.conflicts
+          .map((conflict, index) => describeConflict(conflict, index, input.machines))
+          .join("\n\n");
   return `# Merge anima '${input.name}' (${input.mergeId})
 
-Two copies of the anima \`${input.name}\` drifted apart: one on this machine (\`local/\`) and one
-from another machine (\`incoming/\`). Both did real work, so the result keeps both.
+Two copies of the anima \`${input.name}\` drifted apart: one on **${local}** (this machine,
+\`local/\`) and one from **${incoming}** (\`incoming/\`). Both did real work, so the result keeps both.
 
 Staging directory: \`${input.stagingPath}\`
 
@@ -142,11 +150,28 @@ from the machine with the latest breath; that is a placeholder, not a decision.
 
 ${conflicts}
 
-For each conflict, ask the user how to resolve it with your question tool (AskUserQuestion, or
-request_user_input). Offer: keep this machine's version, keep the other machine's, or a combined
-version you write that keeps what is distinctive in both (show it). Ask about related conflicts
-together when that is clearer, but never settle a contradiction without the user. Then write
-their decision into \`merged/\`. For \`identity.md\`, synthesise rather than concatenate.
+Ask the user about each conflict with your question tool (AskUserQuestion, or request_user_input).
+Ask about related conflicts together only when that is clearer, and never settle a contradiction
+without the user. Then write their decision into \`merged/\`.
+
+Every question must let the user compare the two machines at a glance. Always name the machines
+(**${local}** and **${incoming}**); never write "this machine", "the other machine", "local" or
+"incoming" on their own. Lay each question out like this:
+
+1. The field and why it is a conflict, in one line, e.g. "\`vow\` was changed differently on
+   ${local} and ${incoming}."
+2. Both versions side by side. When both are short single lines, use a two-column table headed
+   \`${local}\` and \`${incoming}\`. Otherwise show each under a bold machine-name heading as a
+   quote, then a "Where they differ" list: what only ${local} has, what only ${incoming} has, and
+   what both say in different words.
+3. Your proposed combination under "**Proposed**", keeping what is distinctive in both. For
+   \`identity.md\` and \`style.md\`, synthesise rather than concatenate.
+4. "**Why**": one or two sentences on what the proposal keeps from each side and what it drops.
+
+Offer exactly these options, in this order, with the machine names in the labels:
+"Keep ${local}'s version", "Keep ${incoming}'s version", "Use the proposed combination". The user can also type
+their own edit. When your tool supports option previews, put each option's full text in its
+preview.
 
 ## Finishing
 
@@ -286,6 +311,10 @@ const make = Effect.gen(function* () {
             localOnlyBreaths: comparison.localOnlyBreaths,
             incomingOnlyBreaths: comparison.incomingOnlyBreaths,
             conflicts: draft.conflicts,
+            machines: {
+              local: input.localLabel ?? "this machine",
+              incoming: input.incomingLabel ?? "the other machine",
+            },
           }),
         );
         yield* fs.writeFileString(path.join(staging, META_FILE), yield* encodeMergeMeta(meta));
