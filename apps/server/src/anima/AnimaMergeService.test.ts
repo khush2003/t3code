@@ -113,7 +113,12 @@ describe("AnimaMergeService", () => {
           files: tree(["h0", "h1", "y", "z"]),
         };
 
-        const started = yield* merge.start({ bundle: incoming, projectId: ProjectId.make("p1") });
+        const started = yield* merge.start({
+          bundle: incoming,
+          projectId: ProjectId.make("p1"),
+          localLabel: "pop-os",
+          incomingLabel: "hetzner",
+        });
         expect(started.stagingPath).toBe(NodePath.join(root, ".merge", started.mergeId));
         expect(launched).toHaveLength(1);
         expect(launched[0]).toMatchObject({
@@ -129,6 +134,7 @@ describe("AnimaMergeService", () => {
         );
         expect(instructions).toContain("1 only here");
         expect(instructions).toContain("question tool");
+        expect(instructions).toContain(`"Keep pop-os's version", "Keep hetzner's version"`);
         expect(
           yield* fs.exists(NodePath.join(started.stagingPath, "incoming", "breaths", "003.breath")),
         ).toBe(true);
