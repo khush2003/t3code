@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- tests seed fixture trees and probe for the real CLI synchronously
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { ProjectId } from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -184,8 +184,12 @@ describe("AnimaMergeService", () => {
 
         const started = yield* merge.start({
           bundle: { ...other, id: "id-atlas", files: tree(["h0", "n"]) },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "luna" },
         });
-        expect(launched[0]).toMatchObject({ projectId: "p1" });
+        expect(launched[0]).toMatchObject({
+          projectId: "p1",
+          modelSelection: { instanceId: "codex", model: "luna" },
+        });
         const merged = NodePath.join(started.stagingPath, "merged");
         for (const file of tree(["h0", "n"])) {
           const target = NodePath.join(merged, file.path);

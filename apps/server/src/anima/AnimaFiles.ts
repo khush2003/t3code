@@ -1032,6 +1032,10 @@ export function isBundlePath(path: string): boolean {
     path === "policy.md" ||
     path === "constitution.json" ||
     path === "appearance.json" ||
+    path === "goals.json" ||
+    // Top-level notes: style.md, legacy-opens.md, role and insight notes.
+    /^[^/]+\.md$/.test(path) ||
+    /^reflections\/[^/]+\.(md|log|txt)$/.test(path) ||
     /^breaths\/[^/]+\.breath$/.test(path) ||
     /^skills\/.+\.md$/.test(path)
   );
