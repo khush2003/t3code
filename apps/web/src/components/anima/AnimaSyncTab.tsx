@@ -12,6 +12,7 @@ import { availableScratchWorkspaceRoot } from "@t3tools/client-runtime/operation
 import { ArrowLeftIcon, ArrowRightIcon, CombineIcon, SparklesIcon } from "lucide-react";
 import { useContext, useState } from "react";
 import { create } from "zustand";
+import { createModelSelection } from "@t3tools/shared/model";
 import { Link } from "@tanstack/react-router";
 import type {
   AnimaBundle,
@@ -30,6 +31,7 @@ import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { TraitsPicker } from "../chat/TraitsPicker";
 import { scheduledTaskDefaultModel } from "../settings/scheduledTasksSettings.logic";
 import {
   animaEnvironment,
@@ -487,6 +489,9 @@ function SyncPanel({
     instanceEntries.some((entry) => entry.instanceId === pickedModel.instanceId && entry.enabled)
       ? pickedModel
       : scheduledTaskDefaultModel(settings, selectedProject ?? null, instanceEntries);
+  const activeModelEntry = modelSelection
+    ? instanceEntries.find((entry) => entry.instanceId === modelSelection.instanceId)
+    : undefined;
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     providers,
@@ -617,6 +622,8 @@ function SyncPanel({
         bundle,
         ...(selectedProject ? { projectId: selectedProject.id as ProjectId } : {}),
         ...(modelSelection ? { modelSelection } : {}),
+        localLabel: here.label,
+        incomingLabel: there.label,
       });
       setState({ phase: "merging", mergeId: started.mergeId, threadId: started.threadId });
     } catch (error) {
@@ -737,12 +744,32 @@ function SyncPanel({
                   modelOptionsByInstance={modelOptionsByInstance}
                   isComposerOwned={false}
                   onInstanceModelChange={(instanceId, model) =>
-                    setPickedModel({ instanceId, model })
+                    setPickedModel(createModelSelection(instanceId, model))
                   }
                 />
               ) : (
                 <span className="text-destructive-foreground">no model is set up here</span>
               )}
+              {modelSelection && activeModelEntry ? (
+                <TraitsPicker
+                  provider={activeModelEntry.driverKind}
+                  models={activeModelEntry.models}
+                  model={modelSelection.model}
+                  modelOptions={modelSelection.options ?? []}
+                  allowPromptInjectedEffort={false}
+                  planModeEnabled={false}
+                  disabled={busy}
+                  onModelOptionsChange={(options) =>
+                    setPickedModel(
+                      createModelSelection(
+                        modelSelection.instanceId,
+                        modelSelection.model,
+                        options,
+                      ),
+                    )
+                  }
+                />
+              ) : null}
               {runInScratch && !noProject ? (
                 <span className="basis-full">
                   No project isn&apos;t available on {here.label}: its data folder is inside a git
