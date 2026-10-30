@@ -112,6 +112,8 @@ export interface AnimaSyncPorts {
       readonly bundle: AnimaBundle;
       readonly projectId?: ProjectId;
       readonly modelSelection?: ModelSelection;
+      readonly localLabel?: string;
+      readonly incomingLabel?: string;
     },
   ) => Promise<AnimaMergeStartResult>;
 }
