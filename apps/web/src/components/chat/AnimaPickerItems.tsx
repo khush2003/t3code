@@ -1,9 +1,10 @@
 import type { AnimaName, AnimaSummary } from "@t3tools/contracts";
+import { PlusIcon } from "lucide-react";
 
 import { AnimaLiveDot } from "../anima/AnimaBits";
 import { AnimaHealthBadge } from "../anima/AnimaHealth";
 import { AnimaSigil } from "../anima/AnimaVisuals";
-import { MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../ui/menu";
+import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../ui/menu";
 
 const NONE = "";
 
@@ -12,10 +13,13 @@ export function AnimaPickerItems({
   animas,
   current,
   onChange,
+  onNewAnima,
 }: {
   readonly animas: ReadonlyArray<AnimaSummary>;
   readonly current: AnimaName | null;
   readonly onChange: (next: AnimaName | null) => void;
+  /** Starts an agent-led setup of a new anima in this thread. */
+  readonly onNewAnima: () => void;
 }) {
   return (
     <>
@@ -49,6 +53,11 @@ export function AnimaPickerItems({
           </MenuRadioItem>
         ))}
       </MenuRadioGroup>
+      <MenuSeparator />
+      <MenuItem onClick={onNewAnima}>
+        <PlusIcon aria-hidden />
+        New anima…
+      </MenuItem>
       {current !== null ? (
         <p className="px-2 py-1.5 text-muted-foreground text-xs">
           Locks to this thread on your next message.

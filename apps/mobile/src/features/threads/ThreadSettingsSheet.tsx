@@ -107,6 +107,7 @@ import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
 import {
   ThreadAnimaContent,
   ThreadSettingsAnimaRow,
+  startAnimaOnboarding,
   type ThreadSettingsAnima,
 } from "./ThreadAnimaSettings";
 import { describeAnimaError } from "../../state/anima";
@@ -1431,6 +1432,15 @@ export function ExistingThreadSettingsRouteScreen({
         locked: currentAnima !== null && selectedThread.animaWokenAt != null,
         threadId: selectedThread.id,
         onChange: (animaName) => void changeAnima(animaName),
+        onNewAnima: () =>
+          void startAnimaOnboarding({
+            environmentId: selectedThread.environmentId,
+            draft: prompt,
+            setDraft: (text) => setComposerDraftText(draftKey, text),
+            clearAnima: () => {
+              if (currentAnima !== null) void changeAnima(null);
+            },
+          }),
       }}
       onClose={() => navigation.goBack()}
     />
@@ -1445,6 +1455,7 @@ export function NewTaskThreadSettingsRouteScreen() {
     capabilities: flow.selectedModelOption?.capabilities,
     selections: flow.selectedModel?.options,
   });
+  const animaEnvironmentId = flow.selectedEnvironmentId;
 
   return (
     <ThreadSettingsPickerScreen
@@ -1461,14 +1472,21 @@ export function NewTaskThreadSettingsRouteScreen() {
       onUpdateOptionSelections={flow.setSelectedModelOptions}
       runtimeMode={flow.runtimeMode}
       onUpdateRuntimeMode={flow.setRuntimeMode}
-      {...(flow.selectedEnvironmentId
+      {...(animaEnvironmentId
         ? {
             anima: {
-              environmentId: flow.selectedEnvironmentId,
+              environmentId: animaEnvironmentId,
               current: flow.animaName,
               locked: false,
               threadId: null,
               onChange: flow.setAnimaName,
+              onNewAnima: () =>
+                void startAnimaOnboarding({
+                  environmentId: animaEnvironmentId,
+                  draft: flow.prompt,
+                  setDraft: flow.setPrompt,
+                  clearAnima: () => flow.setAnimaName(null),
+                }),
             },
           }
         : {})}
