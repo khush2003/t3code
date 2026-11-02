@@ -13,6 +13,14 @@ const ANIMA_THREAD_STATUS_REFRESH_MS = 5_000;
 /** Live dots go stale after the server's heartbeat window, so list data is refreshed on this cadence while read. */
 const ANIMA_LIVE_REFRESH_MS = 15_000;
 
+/** The composer text for a new-anima setup: the server's prompt, with any draft kept as notes. */
+export function animaOnboardingComposerText(prompt: string, draft: string): string {
+  const notes = draft.trim();
+  return notes === "" || notes === prompt.trim()
+    ? prompt
+    : `${prompt}\n\nMy notes for this anima:\n${notes}`;
+}
+
 export function createAnimaEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
@@ -98,6 +106,12 @@ export function createAnimaEnvironmentAtoms<R, E>(
     clinic: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:clinic",
       tag: WS_METHODS.animaClinic,
+      scheduler,
+      concurrency,
+    }),
+    onboardingPrompt: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:anima:onboarding-prompt",
+      tag: WS_METHODS.animaOnboardingPrompt,
       scheduler,
       concurrency,
     }),

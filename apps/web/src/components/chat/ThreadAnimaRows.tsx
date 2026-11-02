@@ -200,13 +200,13 @@ export function ThreadAnimaRows({
   readonly isServerThread: boolean;
 }) {
   const navigate = useNavigate();
-  const { current, locked, change } = useThreadAnimaChoice({
+  const { current, locked, change, startOnboarding } = useThreadAnimaChoice({
     environmentId,
     threadId,
     draftId,
     isServerThread,
   });
-  const { animas } = useAnimaList(environmentId);
+  const { animas, data: animaList } = useAnimaList(environmentId);
   // Mounted only while the details card shows, so the 5s status refresh never runs unseen.
   const status = useEnvironmentQuery(
     locked ? animaEnvironment.threadStatus({ environmentId, input: { threadId } }) : null,
@@ -217,8 +217,8 @@ export function ThreadAnimaRows({
   );
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // An environment without animas has nothing to choose, unless one is already set.
-  if (animas.length === 0 && current === null) return null;
+  // Without the anima CLI there is nothing to choose or create, unless one is already set.
+  if (animas.length === 0 && current === null && animaList?.cliAvailable !== true) return null;
   const summary =
     current === null ? null : (animas.find((anima) => anima.name === current) ?? null);
 
@@ -276,6 +276,7 @@ export function ThreadAnimaRows({
               animas={animas}
               current={current}
               onChange={(next) => void change(next)}
+              onNewAnima={() => void startOnboarding()}
             />
           </MenuPopup>
         </Menu>
