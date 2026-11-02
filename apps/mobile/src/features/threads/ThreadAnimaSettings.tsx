@@ -1,14 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
+import { animaOnboardingComposerText } from "@t3tools/client-runtime/state/anima";
 import type { AnimaName, AnimaSummary, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import { Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/ui/AppSymbol";
+import * as Dialog from "../../components/ui/Dialog";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import {
   animaEnvironment,
   breatheAnima,
+  fetchAnimaOnboardingPrompt,
   isAnimaBreathInFlight,
   useAnimaBreathStatus,
   useAnimaList,
@@ -28,7 +31,29 @@ export type ThreadSettingsAnima = {
   /** Null for a draft: breaths and runtime status need a thread on the server. */
   readonly threadId: ThreadId | null;
   readonly onChange: (name: AnimaName | null) => void;
+  /** Starts an agent-led setup of a new anima in this thread. */
+  readonly onNewAnima: () => void;
 };
+
+/**
+ * Puts the server's setup prompt in the composer for the user to read and send. The thread runs
+ * without an anima, since the one it sets up does not exist yet; any draft text stays as notes.
+ */
+export async function startAnimaOnboarding(input: {
+  readonly environmentId: EnvironmentId;
+  readonly draft: string;
+  readonly setDraft: (text: string) => void;
+  readonly clearAnima: () => void;
+}) {
+  const result = await fetchAnimaOnboardingPrompt(input.environmentId);
+  if (result === null) return;
+  if ("error" in result) {
+    Dialog.alert("Could not start a new anima", result.error);
+    return;
+  }
+  input.clearAnima();
+  input.setDraft(animaOnboardingComposerText(result.prompt, input.draft));
+}
 
 export function AnimaDot(props: { readonly anima: Pick<AnimaSummary, "hsl" | "accent"> | null }) {
   const color = props.anima ? animaColor(props.anima) : null;
@@ -44,14 +69,14 @@ function LockIcon() {
   return <SymbolView name={LOCK_SYMBOL} size={12} tintColorClassName="accent-icon-subtle" />;
 }
 
-/** Hidden when the environment has no animas, unless one is already set. */
+/** Hidden without the anima CLI, unless an anima is already set. */
 export function ThreadSettingsAnimaRow(props: {
   readonly anima: ThreadSettingsAnima;
   readonly onPress: () => void;
 }) {
-  const { animas } = useAnimaList(props.anima.environmentId);
+  const { animas, data } = useAnimaList(props.anima.environmentId);
   const { current, locked } = props.anima;
-  if (animas.length === 0 && current === null) return null;
+  if (animas.length === 0 && current === null && data?.cliAvailable !== true) return null;
   const summary = animas.find((anima) => anima.name === current) ?? null;
   return (
     <Pressable
@@ -241,20 +266,31 @@ export function ThreadAnimaContent(props: {
             <ChoiceRow
               label="None"
               selected={current === null}
-              isLast={animas.length === 0}
+              isLast={false}
               onPress={() => select(null)}
             />
-            {animas.map((anima, index) => (
+            {animas.map((anima) => (
               <ChoiceRow
                 key={anima.name}
                 icon={<AnimaDot anima={anima} />}
                 label={anima.name}
                 description={anima.role}
                 selected={anima.name === current}
-                isLast={index === animas.length - 1}
+                isLast={false}
                 onPress={() => select(anima.name)}
               />
             ))}
+            <ChoiceRow
+              label="New anima…"
+              description="An agent interviews you and sets it up"
+              selected={false}
+              isLast
+              onPress={() => {
+                void Haptics.selectionAsync();
+                props.anima.onNewAnima();
+                props.onSelected();
+              }}
+            />
           </View>
           <Text className="px-1 pt-2 text-xs text-foreground-muted">
             {animas.length === 0

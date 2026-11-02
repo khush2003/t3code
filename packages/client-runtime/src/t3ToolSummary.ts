@@ -1606,6 +1606,22 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "anima-create": {
+      const count = countEntities(entityIds("name"));
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Created {count} anima} other {Created {count} animas}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to create {count} anima} other {Tried to create {count} animas}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "anima-health": {
       const count = countEntities(entityIds("name"));
       label = done
