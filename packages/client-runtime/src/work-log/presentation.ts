@@ -553,6 +553,7 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "anima-policy":
     case "anima-attach":
     case "anima-clinic":
+    case "anima-create":
     case "anima-record":
     case "attachment-prepare":
     case "attachment-discard":

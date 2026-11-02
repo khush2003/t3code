@@ -1,4 +1,5 @@
 import {
+  AnimaCreateInput,
   AnimaDetail,
   AnimaForm,
   AnimaHealthResult,
@@ -66,6 +67,13 @@ const AnimaAttachTool = Tool.make("t3_anima_attach", {
   description:
     "Attach an anima to a project so its project instructions reference the anima. projectId defaults to the calling thread's project.",
   parameters: Schema.Struct({ name: AnimaName, projectId: Schema.optional(ProjectId) }),
+  success: AnimaMutationResult,
+}).annotate(Tool.Destructive, false);
+const AnimaCreateTool = Tool.make("t3_anima_create", {
+  ...shared,
+  description:
+    "Create a new anima (a persistent agent identity) on this environment. Use it only when the user asked for a new anima. parent makes it a child that inherits that anima's identity; fromProjectPath seeds its skills from a project scan. The first anima on an environment becomes the architect and cannot take a parent or project. Afterwards fill in its identity.md and record its first breath.",
+  parameters: AnimaCreateInput,
   success: AnimaMutationResult,
 }).annotate(Tool.Destructive, false);
 const AnimaClinicTool = Tool.make("t3_anima_clinic", {
@@ -155,6 +163,7 @@ export const AnimaToolkit = Toolkit.make(
   AnimaPolicyTool,
   AnimaAttachTool,
   AnimaClinicTool,
+  AnimaCreateTool,
   AnimaRecordTool,
   AnimaInboxReadTool,
   AnimaInboxSendTool,

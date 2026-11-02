@@ -144,6 +144,8 @@ import {
   AnimaThreadStatusInput,
   AnimaWakePreviewInput,
   AnimaWakePreviewResult,
+  AnimaOnboardingPromptInput,
+  AnimaOnboardingPromptResult,
 } from "./anima.ts";
 import {
   AssetAccessError,
@@ -486,6 +488,7 @@ export const WS_METHODS = {
   animaPolicy: "anima.policy",
   animaBreathe: "anima.breathe",
   animaWakePreview: "anima.wakePreview",
+  animaOnboardingPrompt: "anima.onboardingPrompt",
   animaExport: "anima.export",
   animaCompare: "anima.compare",
   animaImport: "anima.import",
@@ -1626,6 +1629,17 @@ const WsAnimaBreatheRpc = Rpc.make(WS_METHODS.animaBreathe, {
   ]),
 });
 
+const WsAnimaOnboardingPromptRpc = Rpc.make(WS_METHODS.animaOnboardingPrompt, {
+  payload: AnimaOnboardingPromptInput,
+  success: AnimaOnboardingPromptResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
   payload: AnimaWakePreviewInput,
   success: AnimaWakePreviewResult,
@@ -2587,6 +2601,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaPolicyRpc,
   WsAnimaBreatheRpc,
   WsAnimaWakePreviewRpc,
+  WsAnimaOnboardingPromptRpc,
   WsAnimaExportRpc,
   WsAnimaCompareRpc,
   WsAnimaImportRpc,

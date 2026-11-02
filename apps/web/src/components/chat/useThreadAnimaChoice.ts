@@ -1,4 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { animaOnboardingComposerText } from "@t3tools/client-runtime/state/anima";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -6,7 +7,7 @@ import {
 import type { AnimaName, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
-import { describeAnimaError } from "../../state/anima";
+import { animaEnvironment, describeAnimaError } from "../../state/anima";
 import { useQuietThreadShell } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -35,6 +36,9 @@ export function useThreadAnimaChoice({
   );
   const setDraftThreadAnima = useComposerDraftStore((store) => store.setDraftThreadAnima);
   const updateMetadata = useAtomCommand(threadEnvironment.updateMetadata, { reportFailure: false });
+  const onboardingPrompt = useAtomCommand(animaEnvironment.onboardingPrompt, {
+    reportFailure: false,
+  });
 
   const current = isServerThread ? (shell?.animaName ?? null) : draftAnima;
   const locked = isServerThread && current !== null && shell?.animaWokenAt != null;
@@ -56,5 +60,35 @@ export function useThreadAnimaChoice({
     }
   };
 
-  return { current, locked, change };
+  /**
+   * Puts the server's setup prompt in the composer for the user to read and send. The thread runs
+   * without an anima, since the one it sets up does not exist yet; any draft text stays as notes.
+   */
+  const startOnboarding = async () => {
+    const result = await onboardingPrompt({ environmentId, input: {} });
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not start a new anima",
+            description: describeAnimaError(squashAtomCommandFailure(result)),
+          }),
+        );
+      }
+      return;
+    }
+    if (current !== null) await change(null);
+    const target = draftId ?? threadRef;
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(
+      target,
+      animaOnboardingComposerText(
+        result.value.prompt,
+        store.getComposerDraft(target)?.prompt ?? "",
+      ),
+    );
+  };
+
+  return { current, locked, change, startOnboarding };
 }

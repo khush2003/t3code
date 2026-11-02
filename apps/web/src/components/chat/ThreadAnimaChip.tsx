@@ -5,6 +5,7 @@ import type { DraftId } from "../../composerDraftStore";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import { AnimaLiveDot } from "../anima/AnimaBits";
 import { AnimaSigil } from "../anima/AnimaVisuals";
+import { useAnimaList } from "../../state/anima";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { PopoverTrigger, type PopoverCreateHandle } from "../ui/popover";
@@ -109,13 +110,17 @@ function AnimaPickerChip({
   environmentId,
   current,
   onChange,
+  onNewAnima,
 }: {
   readonly environmentId: EnvironmentId;
   readonly current: AnimaName | null;
   readonly onChange: (next: AnimaName | null) => void;
+  readonly onNewAnima: () => void;
 }) {
   const animas = useAnimaRoster(environmentId);
-  if (animas.length === 0 && current === null) return null;
+  const cliAvailable = useAnimaList(environmentId).data?.cliAvailable === true;
+  // Without the anima CLI there is nothing to choose or create.
+  if (animas.length === 0 && current === null && !cliAvailable) return null;
   return (
     <Menu>
       <Tooltip>
@@ -147,14 +152,19 @@ function AnimaPickerChip({
         </TooltipPopup>
       </Tooltip>
       <MenuPopup align="end" side="bottom" className="w-72">
-        <AnimaPickerItems animas={animas} current={current} onChange={onChange} />
+        <AnimaPickerItems
+          animas={animas}
+          current={current}
+          onChange={onChange}
+          onNewAnima={onNewAnima}
+        />
       </MenuPopup>
     </Menu>
   );
 }
 
 export function ThreadAnimaChip(props: ThreadAnimaChipProps) {
-  const { current, locked, change } = useThreadAnimaChoice(props);
+  const { current, locked, change, startOnboarding } = useThreadAnimaChoice(props);
   if (locked && current !== null) return <LockedAnimaChip {...props} name={current} />;
   // A started thread without an anima keeps the header quiet; its details row can still set one.
   if (props.isServerThread && current === null) return null;
@@ -163,6 +173,7 @@ export function ThreadAnimaChip(props: ThreadAnimaChipProps) {
       environmentId={props.environmentId}
       current={current}
       onChange={(next) => void change(next)}
+      onNewAnima={() => void startOnboarding()}
     />
   );
 }

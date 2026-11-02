@@ -182,6 +182,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.animaRecord]: "workspace",
   [WS_METHODS.animaPolicy]: "workspace",
   [WS_METHODS.animaBreathe]: "workspace",
+  [WS_METHODS.animaOnboardingPrompt]: "workspace",
   [WS_METHODS.animaImport]: "workspace",
   [WS_METHODS.animaMergeStart]: "workspace",
   [WS_METHODS.animaMergeApply]: "workspace",

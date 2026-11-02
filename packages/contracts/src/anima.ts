@@ -571,6 +571,10 @@ export type AnimaTeamInput = typeof AnimaTeamInput.Type;
 export const AnimaWakePreviewInput = Schema.Struct({ name: AnimaName });
 export const AnimaWakePreviewResult = Schema.Struct({ payload: Schema.String });
 
+/** The message that has an agent interview the user and set up a new anima. */
+export const AnimaOnboardingPromptInput = Schema.Struct({});
+export const AnimaOnboardingPromptResult = Schema.Struct({ prompt: Schema.String });
+
 export const AnimaMutationResult = Schema.Struct({
   /** CLI output, trimmed; shown as the toast detail. */
   output: Schema.String,
