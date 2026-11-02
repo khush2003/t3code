@@ -4,6 +4,15 @@ An anima is a persistent identity an agent wakes into: its voice, aims, policy,
 inbox and a history of breaths. T3 Code reads animas from the environment's
 anima home and gives threads that run with one the identity at their first turn.
 
+## Set up a new anima with an agent
+
+In a thread's **Anima** menu, choose **New anima…**. T3 Code puts a setup request in
+the composer; send it, and the agent reads the thread and, when it matters, the project,
+then asks you about the anima's name, purpose, voice, values and limits. Once you answer,
+it creates the anima, writes its identity and first rules, and records its first breath.
+Anything already in the composer stays as notes for the agent. The setup thread itself
+runs without an anima, so choose the new one when you start its first real thread.
+
 ## Open animas
 
 Click the sparkle button at the bottom of the sidebar, or run **Open animas** from
