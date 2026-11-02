@@ -59,6 +59,22 @@ export function describeAnimaError(error: unknown): string {
     : "The anima request failed.";
 }
 
+/** The server's new-anima setup prompt, or the reason it could not be fetched. */
+export async function fetchAnimaOnboardingPrompt(
+  environmentId: EnvironmentId,
+): Promise<{ readonly prompt: string } | { readonly error: string } | null> {
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    animaEnvironment.onboardingPrompt,
+    { environmentId, input: {} },
+    { reportFailure: false },
+  );
+  if (result._tag === "Success") return { prompt: result.value.prompt };
+  return isAtomCommandInterrupted(result)
+    ? null
+    : { error: describeAnimaError(squashAtomCommandFailure(result)) };
+}
+
 // Breaths are followed outside React so one still reports after the sheet that asked for it closes.
 const breathStatusesAtom = Atom.make<Readonly<Record<string, AnimaBreathStatus>>>({}).pipe(
   Atom.keepAlive,

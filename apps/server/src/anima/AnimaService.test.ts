@@ -676,6 +676,10 @@ describe("AnimaService CLI invocation", () => {
             "old doubt,stale plan",
           ],
         ]);
+        const onboarding = yield* service.onboardingPrompt;
+        expect(onboarding).toContain("Existing animas (names are taken): atlas (agent)");
+        expect(onboarding).toContain(`ANIMA_HOME='${root}'`);
+        expect(onboarding).toContain("<breathe-guide>\nBRIEF\n</breathe-guide>");
       }),
     ),
   );
@@ -837,6 +841,9 @@ describe("AnimaService CLI invocation", () => {
         yield* seed(root, "atlas", "id-atlas", 0);
         const error = yield* Effect.flip(service.setEnabled({ name: "atlas", enabled: true }));
         expect(error._tag).toBe("AnimaCommandRejectedError");
+        expect((yield* Effect.flip(service.onboardingPrompt))._tag).toBe(
+          "AnimaCommandRejectedError",
+        );
       }),
     ),
   );

@@ -50,6 +50,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AnimaFiles from "./AnimaFiles.ts";
 import * as AnimaMerge from "./AnimaMerge.ts";
+import { renderAnimaOnboardingPrompt } from "./AnimaOnboarding.ts";
 
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
@@ -168,6 +169,8 @@ export class AnimaService extends Context.Service<
     readonly cliInfo: Effect.Effect<AnimaCliInfo>;
     /** The CLI's breathe guide (`resource read breathe`, or the skill's breathe.md), or "" when absent. */
     readonly breatheGuide: Effect.Effect<string>;
+    /** The message that has an agent interview the user and set up a new anima. */
+    readonly onboardingPrompt: Effect.Effect<string, AnimaFailure>;
     /** The anima's generated output-style text (frontmatter stripped), or "" when absent. */
     readonly voice: (name: string) => Effect.Effect<string>;
     /** Compact identity refresh built from files only: no wake, no clock-in, no inbox. */
@@ -407,6 +410,24 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => ""),
       );
     return yield* readOptional(path.join(path.dirname(legacyCliPath), "breathe.md"));
+  });
+
+  const onboardingPrompt: AnimaService["Service"]["onboardingPrompt"] = Effect.gen(function* () {
+    if (!(yield* cliAvailable))
+      return yield* rejected(
+        "onboardingPrompt",
+        "The anima CLI is not installed on this environment.",
+      );
+    const { animas } = yield* list.pipe(Effect.orElseSucceed(() => ({ animas: [] })));
+    const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+    return renderAnimaOnboardingPrompt({
+      root,
+      cli: [`ANIMA_HOME=${quote(root)}`, cli.command, ...cli.prefixArgs]
+        .map((part, index) => (index === 0 ? part : quote(part)))
+        .join(" "),
+      existing: animas.map((anima) => ({ name: anima.name, role: anima.role })),
+      breatheGuide: yield* breatheGuide,
+    });
   });
 
   /** Architect-only commands (`birth`, `activate`, ...) need the architect as caller. */
@@ -1447,6 +1468,7 @@ const make = Effect.gen(function* () {
     cliAvailable,
     cliInfo,
     breatheGuide,
+    onboardingPrompt,
     voice,
     capsule,
     identityBrief,

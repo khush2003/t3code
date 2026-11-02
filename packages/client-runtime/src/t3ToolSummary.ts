@@ -383,6 +383,9 @@ export function summarizeT3ToolCalls(
     case "anima-clinic":
       label = phrase("Chose", "choose", `an anima's look ${times}`);
       break;
+    case "anima-create":
+      label = phrase("Created", "create", `${quantity(countEntities(entityIds("name")), "anima")}`);
+      break;
     case "anima-record":
       label = phrase("Recorded", "record", `anima breaths ${times}`);
       break;
