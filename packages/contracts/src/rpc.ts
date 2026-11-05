@@ -142,6 +142,8 @@ import {
   AnimaWakePreviewInput,
   AnimaWakePreviewResult,
   AnimaOnboardingPromptInput,
+  AnimaStartBotInput,
+  AnimaStartBotResult,
   AnimaOnboardingPromptResult,
 } from "./anima.ts";
 import {
@@ -480,6 +482,7 @@ export const WS_METHODS = {
   animaBreathe: "anima.breathe",
   animaWakePreview: "anima.wakePreview",
   animaOnboardingPrompt: "anima.onboardingPrompt",
+  animaStartBot: "anima.startBot",
   animaExport: "anima.export",
   animaCompare: "anima.compare",
   animaImport: "anima.import",
@@ -1572,6 +1575,17 @@ const WsAnimaOnboardingPromptRpc = Rpc.make(WS_METHODS.animaOnboardingPrompt, {
   ]),
 });
 
+const WsAnimaStartBotRpc = Rpc.make(WS_METHODS.animaStartBot, {
+  payload: AnimaStartBotInput,
+  success: AnimaStartBotResult,
+  error: Schema.Union([
+    AnimaCommandRejectedError,
+    AnimaError,
+    AnimaNotFoundError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
   payload: AnimaWakePreviewInput,
   success: AnimaWakePreviewResult,
@@ -2488,6 +2502,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaBreatheRpc,
   WsAnimaWakePreviewRpc,
   WsAnimaOnboardingPromptRpc,
+  WsAnimaStartBotRpc,
   WsAnimaExportRpc,
   WsAnimaCompareRpc,
   WsAnimaImportRpc,

@@ -2876,6 +2876,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(command.bot === true ? { bot: true } : {}),
       ...(command.animaName == null ? {} : { animaName: command.animaName }),
       activeProviderThreadId: null,
       pullRequests: [],
@@ -3276,7 +3277,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.metadata.update" &&
       command.animaName !== undefined &&
-      thread.animaWokenAt != null &&
+      (thread.animaWokenAt != null || thread.bot === true) &&
       thread.animaName != null &&
       command.animaName !== thread.animaName
     ) {
@@ -5709,6 +5710,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const onlyMaintenanceHistory =
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
     if (
+      // A bot's chat spans all its work, so it stays named after its anima.
+      projection.thread.bot !== true &&
       !isNativeMaintenanceCommand(command) &&
       ((command.titleSeed !== undefined &&
         (yield* projectionStore

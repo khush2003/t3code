@@ -515,6 +515,48 @@ describe("ThreadTitleRegenerationService", () => {
     }),
   );
 
+  it.effect("keeps a bot's chat named after its anima on the first message", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      return yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const threadId = ThreadId.make("bot:atlas");
+        yield* threads.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("command:title:bot:create"),
+          threadId,
+          projectId,
+          title: "atlas",
+          bot: true,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("command:title:bot:message"),
+          threadId,
+          messageId: MessageId.make("command:title:bot:message:message"),
+          text: "Fix the login bug",
+          titleSeed: "Fix the login bug",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "defer_start" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+
+        const { thread } = yield* threads.getThreadProjection(threadId);
+        assert.equal(thread.title, "atlas");
+        assert.isNull(thread.titleRegeneration ?? null);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
   it.effect("clears the marker and keeps the title when generation fails", () =>
     Effect.gen(function* () {
       const harness = makeHarness({

@@ -2375,6 +2375,13 @@ const make = Effect.gen(function* () {
           : readTask(scope, taskId, false, true);
       }
       const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+      // A bot's own folder holds no work: its tasks run as ordinary threads in their projects.
+      if (parent.thread.bot === true) {
+        const { taskId } = yield* remoteDelegation.delegateToProject(scope, input);
+        return yield* input.mode === "wait"
+          ? awaitTask(scope, taskId, input.timeoutMs)
+          : readTask(scope, taskId, false, true);
+      }
       if (
         input.target?.projectId !== undefined &&
         input.target.projectId !== parent.thread.projectId

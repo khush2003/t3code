@@ -781,6 +781,7 @@ const make = Effect.gen(function* () {
       // The CLI splits both flags on commas, so a comma would silently become two tensions.
       if ([...tensions, ...resolves].some((entry) => entry.includes(",")))
         return yield* rejected("record", "Tensions cannot contain commas.");
+      const decisions = [...(input.decisions === undefined ? [] : [input.decisions]), ...resolves];
       const result = yield* runCli("record", [
         "breathe",
         "--agent",
@@ -794,7 +795,8 @@ const make = Effect.gen(function* () {
         ...(input.aim === undefined ? [] : ["--aim", input.aim]),
         ...(input.memo === undefined ? [] : ["--memo", input.memo]),
         ...(tensions.length === 0 ? [] : ["--tension", tensions.join(",")]),
-        ...(resolves.length === 0 ? [] : ["--decisions", resolves.join(",")]),
+        ...(decisions.length === 0 ? [] : ["--decisions", decisions.join(",")]),
+        ...(input.friction === undefined ? [] : ["--friction", input.friction]),
       ]);
       return yield* mutationResult(input.name, result.stdout);
     },

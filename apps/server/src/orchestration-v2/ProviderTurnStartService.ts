@@ -58,6 +58,7 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
+import { renderBotContext } from "../bots/BotContext.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
@@ -925,7 +926,17 @@ export const layer: Layer.Layer<
         activeAnima === null
           ? ""
           : yield* animaWake.recall({ name: activeAnima, message: userText });
-      const wakeContext = [identityContext, recallContext, runtimeNotices.text]
+      // Only Claude can run with its built-in tools removed, so a bot on any other provider
+      // would be an agent with a shell and rules telling it not to use one.
+      if (projection.thread.bot === true && session.driver !== "claudeAgent") {
+        return yield* new ProviderTurnStartError({
+          runId,
+          cause: "A bot runs on Claude. Choose a Claude model for this thread.",
+        });
+      }
+      const botContext =
+        projection.thread.bot === true ? renderBotContext(projection.subagents) : "";
+      const wakeContext = [identityContext, botContext, recallContext, runtimeNotices.text]
         .filter((part) => part !== "")
         .join("\n\n");
       const tokenCap = yield* handoffTokenCapConfig.pipe(

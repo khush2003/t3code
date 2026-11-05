@@ -489,6 +489,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  /** A bot: it talks to people and delegates, and runs no tools of its own. Fixed at creation. */
+  bot: Schema.optional(Schema.Boolean),
   /** Active anima identity; its wake payload is injected as context on the next provider turn until `animaWokenAt` is set. */
   animaName: Schema.optional(Schema.NullOr(AnimaName)),
   /** Set when the first wake was delivered; from then on `animaName` is locked and cannot change or clear. */
@@ -2138,6 +2140,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  bot: Schema.optional(Schema.Boolean),
   animaName: Schema.optional(Schema.NullOr(AnimaName)),
   animaWokenAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2929,6 +2932,7 @@ export const OrchestrationV2Command = Schema.Union([
     linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
     /** Only the server sets this, with `linkOrigin`, for a linked environment's delegated task. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
+    bot: Schema.optional(Schema.Boolean),
     animaName: Schema.optional(Schema.NullOr(AnimaName)),
     importedNativeThread: Schema.optional(
       Schema.Struct({
@@ -3655,6 +3659,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  bot: Schema.optional(Schema.Boolean),
   animaName: Schema.optional(Schema.NullOr(AnimaName)),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   initialMessage: Schema.optional(

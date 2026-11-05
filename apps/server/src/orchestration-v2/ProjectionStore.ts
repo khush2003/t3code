@@ -207,6 +207,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "settledOverride"
   | "pinnedAt"
   | "autoSettleDisabledAt"
+  | "bot"
   | "animaName"
   | "animaWokenAt"
   | "snoozedUntil"
@@ -1681,6 +1682,7 @@ export function threadShellFromProjection(
     pinnedAt: projection.thread.pinnedAt ?? null,
 
     autoSettleDisabledAt: projection.thread.autoSettleDisabledAt ?? null,
+    ...(projection.thread.bot === true ? { bot: true } : {}),
     animaName: projection.thread.animaName ?? null,
     animaWokenAt: projection.thread.animaWokenAt ?? null,
     pinOrderKey: projection.thread.pinOrderKey ?? null,
@@ -1949,6 +1951,7 @@ function shellFromState(input: {
     pinnedAt: input.state.thread.pinnedAt ?? null,
 
     autoSettleDisabledAt: input.state.thread.autoSettleDisabledAt ?? null,
+    ...(input.state.thread.bot === true ? { bot: true } : {}),
     animaName: input.state.thread.animaName ?? null,
     animaWokenAt: input.state.thread.animaWokenAt ?? null,
     pinOrderKey: input.state.thread.pinOrderKey ?? null,

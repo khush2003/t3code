@@ -34,6 +34,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  filterSidebarV2VisibleThreads,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -136,6 +137,21 @@ describe("deleteSelectedThreadEntries", () => {
 });
 
 describe("sidebar thread lineage helpers", () => {
+  it("keeps bots out of the thread lists, since they have their own section", () => {
+    const lineage = { parentThreadId: null, relationshipToParent: null, rootThreadId: "t" };
+    const thread = {
+      archivedAt: null,
+      environmentId: "e",
+      id: "t",
+      lineage,
+      projectId: "p",
+    } as never as Parameters<typeof filterSidebarV2VisibleThreads>[0][number];
+    expect(filterSidebarV2VisibleThreads([thread], null, new Set())).toHaveLength(1);
+    expect(filterSidebarV2VisibleThreads([{ ...thread, bot: true }], null, new Set())).toHaveLength(
+      0,
+    );
+  });
+
   it("maps an open subagent to its nearest visible ancestor's sidebar row", () => {
     const environmentId = EnvironmentId.make("environment-row");
     const otherEnvironmentId = EnvironmentId.make("environment-other");

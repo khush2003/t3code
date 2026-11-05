@@ -291,6 +291,7 @@ function makeLocalCommandHarness(input: {
   readonly failReadsAfterRunning?: boolean;
   /** Runs the thread with a woken anima whose runtime is this mock. */
   readonly anima?: Partial<AnimaRuntime.AnimaRuntime["Service"]>;
+  readonly bot?: boolean;
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -380,6 +381,7 @@ function makeLocalCommandHarness(input: {
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
       ...(input.anima === undefined ? {} : { animaName: "iris", animaWokenAt: now }),
+      ...(input.bot === true ? { bot: true } : {}),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -1901,3 +1903,18 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+effectIt.effect("refuses a bot's turn on a provider that cannot remove its tools", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      previousTurn: { runStatus: "completed", turnStatus: "completed" },
+      bot: true,
+    });
+
+    const error = yield* harness.start.pipe(Effect.flip);
+
+    expect(error).toMatchObject({ cause: expect.stringContaining("A bot runs on Claude") });
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+  }),
+);

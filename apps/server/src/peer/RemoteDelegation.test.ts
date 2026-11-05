@@ -60,6 +60,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as HereTaskThreads from "./HereTaskThreads.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "./PeerLinks.testkit.ts";
@@ -540,6 +541,7 @@ const makeLaptop = (
   >,
   /** The laptop's links from before a restart, which keep their sessions there. */
   kept?: Context.Context<Layer.Success<ReturnType<typeof layerLinkingEnvironment>>>,
+  hereThreads: Partial<HereTaskThreads.HereTaskThreads["Service"]> = {},
 ) =>
   Effect.gen(function* () {
     const linking = kept ?? (yield* layerLinkingEnvironment(laptop).pipe(Layer.build));
@@ -569,6 +571,7 @@ const makeLaptop = (
       Layer.provideMerge(
         RemoteDelegation.layer.pipe(
           Layer.provideMerge(PeerForwarding.layer),
+          Layer.provide(Layer.mock(HereTaskThreads.HereTaskThreads)(hereThreads)),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               // A cold enrichment cache: the project itself reports no identity yet.
@@ -642,7 +645,10 @@ const parentScope: McpInvocationContext.McpInvocationScope = {
 };
 
 /** The laptop's parent thread, mid-turn when its agent delegates. */
-const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+const seedParent = (
+  laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>,
+  options: { readonly bot?: boolean } = {},
+) =>
   Effect.gen(function* () {
     const now = yield* DateTime.now;
     const providerThreadId = ProviderThreadId.make("provider-thread:laptop-parent");
@@ -659,6 +665,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      ...(options.bot === true ? { bot: true } : {}),
     });
     yield* laptopEnv.sink.write({
       commandId: CommandId.make("command:seed:laptop-parent"),
@@ -792,6 +799,74 @@ const taskResult = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>, ta
           : undefined,
       ),
     );
+
+it.effect("a bot's task runs as a thread in a project here and wakes the bot when it ends", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const taskThreadId = ThreadId.make("thread:bot-task");
+      const launchedIn = yield* Ref.make<ProjectId | null>(null);
+      const stopped = yield* Ref.make<ThreadId | null>(null);
+      const release = yield* Deferred.make<void>();
+      const a = yield* makeLaptop(database, offers, undefined, {
+        assertMayDelegate: () => Effect.void,
+        launch: ({ projectId }) =>
+          Ref.set(launchedIn, projectId).pipe(
+            Effect.as({
+              threadId: taskThreadId,
+              runId: RunId.make("run:bot-task"),
+              modelSelection,
+              projectTitle: "Acme app",
+            }),
+          ),
+        waitForThread: () =>
+          Deferred.await(release).pipe(
+            Effect.as({
+              threadId: taskThreadId,
+              runId: RunId.make("run:bot-task"),
+              status: "completed" as const,
+              timedOut: false,
+            }),
+          ),
+        lastReply: () => Effect.succeed("The suite passes."),
+        stop: ({ threadId }) => Ref.set(stopped, threadId),
+      });
+      yield* seedParent(a, { bot: true });
+
+      const withoutProject = yield* a.call("delegate_task", { task: "Run the suite." });
+      expect(withoutProject.isError).toBe(true);
+      expect(JSON.stringify(withoutProject.content)).toContain("target.projectId");
+
+      const started = yield* a.call("delegate_task", {
+        task: "Run the suite.",
+        target: { projectId: "project:acme" },
+        clientRequestId: "suite",
+      });
+      expect(started.isError, JSON.stringify(started.content)).toBe(false);
+      const { taskId, remoteChild } = started.structuredContent as {
+        taskId: NodeId;
+        remoteChild: { environmentId: string; threadId: ThreadId; label: string };
+      };
+      expect(yield* Ref.get(launchedIn)).toBe("project:acme");
+      expect(remoteChild).toMatchObject({
+        environmentId: laptop.environmentId,
+        threadId: taskThreadId,
+        label: "Acme app",
+      });
+
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* taskResult(a, taskId)).toMatchObject({
+        status: "completed",
+        result: "The suite passes.",
+      });
+      // A local task's follower reads and waits here: nothing went over a link.
+      expect(yield* Ref.get(stopped)).toBe(null);
+    }),
+  ),
+);
 
 it.effect("a task delegated to the box wakes the laptop's parent when it ends there", () =>
   Effect.scoped(

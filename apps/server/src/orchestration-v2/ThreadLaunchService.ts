@@ -89,6 +89,7 @@ export interface ThreadLaunchInput {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly bot?: boolean | undefined;
   readonly animaName?: AnimaName | null | undefined;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
   readonly initialMessage?: ThreadLaunchInitialMessage;
@@ -972,6 +973,7 @@ const make = Effect.gen(function* () {
                 interactionMode: input.interactionMode,
                 branch: initialBranch,
                 worktreePath: initialWorktreePath,
+                ...(input.bot === true ? { bot: true } : {}),
                 ...(input.animaName == null ? {} : { animaName: input.animaName }),
                 ...(input.importedNativeThread === undefined
                   ? {}
@@ -1066,7 +1068,9 @@ const make = Effect.gen(function* () {
         const runIsPreparing =
           runId !== null &&
           projection.runs.some((run) => run.id === runId && run.status === "preparing");
-        const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : runIsPreparing;
+        // A bot waits for its first message; its wake runs then, so it shows no setup until asked.
+        const shouldSchedule =
+          runId === null ? input.bot !== true && Option.isNone(launchReceipt) : runIsPreparing;
         const boundWorktreePath = projection.thread.worktreePath;
         const preparationStrategy: ThreadLaunchWorkspaceStrategy =
           Option.isSome(launchReceipt) &&

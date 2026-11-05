@@ -41,7 +41,8 @@ export function useThreadAnimaChoice({
   });
 
   const current = isServerThread ? (shell?.animaName ?? null) : draftAnima;
-  const locked = isServerThread && current !== null && shell?.animaWokenAt != null;
+  const locked =
+    isServerThread && current !== null && (shell?.animaWokenAt != null || shell?.bot === true);
 
   const change = async (next: AnimaName | null) => {
     if (!isServerThread) {

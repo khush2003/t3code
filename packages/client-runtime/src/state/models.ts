@@ -180,6 +180,7 @@ export interface EnvironmentThreadShell {
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecovery | null;
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
+  readonly bot?: boolean;
   readonly animaName?: import("@t3tools/contracts").AnimaName | null;
   readonly animaWokenAt?: string | null;
   readonly pinOrderKey: string | null;
@@ -333,6 +334,7 @@ export function presentThreadShell(
     limitRecovery: thread.limitRecovery ?? null,
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
+    ...(thread.bot === true ? { bot: true } : {}),
     animaName: thread.animaName ?? null,
     animaWokenAt: nullableIso(thread.animaWokenAt ?? null),
     pinOrderKey: thread.pinOrderKey ?? null,

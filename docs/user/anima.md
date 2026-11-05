@@ -13,6 +13,22 @@ it creates the anima, writes its identity and first rules, and records its first
 Anything already in the composer stays as notes for the agent. The setup thread itself
 runs without an anima, so choose the new one when you start its first real thread.
 
+## Chat with a bot
+
+A bot is an anima you talk to about work across all your projects. It keeps one long
+conversation and hands each piece of work to a thread in the right project, so you can see,
+open and steer that thread like any other. When a thread finishes, the bot wakes and tells you.
+
+In the sidebar, press **+** next to **Bots** and pick an anima. Picking one again reopens its
+bot. Archive the thread to put a bot away; picking the anima again brings it back with its
+conversation.
+
+- A bot runs on Claude, on a lighter model by default, and has no shell or file tools, so it
+  cannot do the work itself. Its threads use each project's default model.
+- A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.
+- After 20 threads started since you last spoke, a bot stops and asks before starting more.
+- Bots need a data directory outside a Git checkout, as threads without a project do.
+
 ## Open animas
 
 Click the sparkle button at the bottom of the sidebar, or run **Open animas** from

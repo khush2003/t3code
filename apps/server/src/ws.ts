@@ -3019,6 +3019,7 @@ export const layerWsRpc = (
         [WS_METHODS.animaRecord]: (input) => anima.record(input),
         [WS_METHODS.animaPolicy]: (input) => anima.policy(input),
         [WS_METHODS.animaBreathe]: (input) => animaThreads.breathe(input),
+        [WS_METHODS.animaStartBot]: (input) => animaThreads.startBot(input),
         [WS_METHODS.animaOnboardingPrompt]: () =>
           anima.onboardingPrompt.pipe(Effect.map((prompt) => ({ prompt }))),
         [WS_METHODS.animaWakePreview]: (input) =>

@@ -307,8 +307,22 @@ export const AnimaRecordInput = Schema.Struct({
   tensions: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   /** Tensions this breath resolves; the CLI closes a tension named among the decisions. */
   resolves: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** Consequential choices and what came of them. */
+  decisions: Schema.optional(TrimmedNonEmptyString),
+  /** The surprise, failure or correction this breath records. */
+  friction: Schema.optional(TrimmedNonEmptyString),
 });
 export type AnimaRecordInput = typeof AnimaRecordInput.Type;
+
+export const AnimaStartBotInput = Schema.Struct({ name: AnimaName });
+export type AnimaStartBotInput = typeof AnimaStartBotInput.Type;
+
+export const AnimaStartBotResult = Schema.Struct({
+  threadId: ThreadId,
+  /** False when this anima already had a bot, which was opened instead. */
+  created: Schema.Boolean,
+});
+export type AnimaStartBotResult = typeof AnimaStartBotResult.Type;
 
 export const AnimaSetEnabledInput = Schema.Struct({
   name: AnimaName,

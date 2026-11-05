@@ -2902,6 +2902,14 @@ const CLAUDE_BYPASS_FULLY_AVAILABLE: ClaudeBypassAvailability = {
   autoDisabled: false,
 };
 
+/** A bot only talks and delegates: MCP tools stay, every built-in tool goes. */
+export function claudeBuiltInTools(
+  appThread: Pick<OrchestrationV2AppThread, "bot">,
+  queryPolicy: Pick<ClaudeRuntimeQueryPolicy, "tools">,
+): ClaudeAgentSdkQueryTools {
+  return appThread.bot === true ? [] : (queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS);
+}
+
 export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   availability: ClaudeBypassAvailability = CLAUDE_BYPASS_FULLY_AVAILABLE,
@@ -10909,7 +10917,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
                 : undefined,
             ),
-            tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
+            tools: claudeBuiltInTools(turnInput.appThread, queryPolicy),
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),

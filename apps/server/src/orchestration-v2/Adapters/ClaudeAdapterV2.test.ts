@@ -416,6 +416,11 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
   });
 
+  it("gives a bot no built-in tools, whatever its policy allows", () => {
+    assert.deepEqual(ClaudeAdapterV2.claudeBuiltInTools({ bot: true }, { tools: ["Read"] }), []);
+    assert.deepEqual(ClaudeAdapterV2.claudeBuiltInTools({}, { tools: ["Read"] }), ["Read"]);
+  });
+
   it("does not auto-allow reads for canonical restricted read-only never policy", () => {
     const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
       ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
