@@ -3,9 +3,6 @@ import {
   AnimaDetail,
   AnimaForm,
   AnimaHealthResult,
-  AnimaInboxMessage,
-  AnimaInboxReplyAction,
-  AnimaInboxSendAction,
   AnimaLibraryListResult,
   AnimaLibraryReadResult,
   AnimaLibrarySlug,
@@ -97,25 +94,6 @@ const AnimaRecordTool = Tool.make("t3_anima_record", {
   })),
   success: AnimaMutationResult,
 }).annotate(Tool.Destructive, false);
-const AnimaInboxReadTool = Tool.make("t3_anima_inbox_read", {
-  ...shared,
-  description:
-    "Read an anima's inbox: messages other animas or the user sent it, with ids to reply to. name defaults to the calling thread's anima.",
-  parameters: Schema.Struct({ name: Schema.optional(AnimaName) }),
-  success: Schema.Struct({ name: AnimaName, messages: Schema.Array(AnimaInboxMessage) }),
-})
-  .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
-const AnimaInboxSendTool = Tool.make("t3_anima_inbox_send", {
-  ...shared,
-  description:
-    "Message an anima. action.type send delivers body to name's inbox; from defaults to the calling thread's anima. action.type reply answers messageId from name's inbox, sending the reply as name to the original sender; name defaults to the calling thread's anima.",
-  parameters: Schema.Struct({
-    name: Schema.optional(AnimaName),
-    action: Schema.Union([AnimaInboxSendAction, AnimaInboxReplyAction]),
-  }),
-  success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
 const AnimaOpensListTool = Tool.make("t3_anima_opens_list", {
   ...shared,
   description:
@@ -165,8 +143,6 @@ export const AnimaToolkit = Toolkit.make(
   AnimaClinicTool,
   AnimaCreateTool,
   AnimaRecordTool,
-  AnimaInboxReadTool,
-  AnimaInboxSendTool,
   AnimaOpensListTool,
   AnimaOpensUpdateTool,
   AnimaLibraryListTool,
