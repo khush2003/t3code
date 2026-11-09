@@ -11,6 +11,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as DiskGuard from "../../../diskGuard.ts";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
@@ -169,6 +170,18 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 }),
             ),
           );
+        // Agents make worktrees unattended; keep them from filling the disk.
+        if (!replaying && strategy?.type === "worktree")
+          yield* DiskGuard.DiskGuard.pipe(
+            Effect.flatMap((guard) => guard.ensureRoomForWorktree),
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({
+                  code: "orchestration_error",
+                  message: `${error.message} No thread was created. Tell the user.`,
+                }),
+            ),
+          );
         // A caller outside a thread has nothing to inherit, so it starts with the
         // project's effective defaults, as the composer does. Its mode stays
         // within the ceiling it was approved with.
@@ -245,8 +258,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           createdBy: "agent",
           creationSource: "mcp",
           ...(linkOrigin === undefined ? {} : { linkOrigin }),
-          // Kept only alongside linkOrigin: thread.create drops it otherwise.
-          ...(input.delegatedFrom === undefined ? {} : { delegatedFrom: input.delegatedFrom }),
+          // Only a linked environment's call may name the parent it delegated from.
+          ...(linkOrigin === undefined || input.delegatedFrom === undefined
+            ? {}
+            : { delegatedFrom: input.delegatedFrom }),
         }).pipe(
           Effect.mapError((error) => {
             if (error._tag === "AttachmentClaimError") {

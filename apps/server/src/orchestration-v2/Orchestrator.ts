@@ -2881,10 +2881,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       activeProviderThreadId: null,
       pullRequests: [],
       ...(command.linkOrigin === undefined ? {} : { linkOrigin: command.linkOrigin }),
-      // Only stamped work names a remote parent, so a client cannot claim one.
-      ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
-        ? {}
-        : { delegatedFrom: command.delegatedFrom }),
+      // Only the server sets this: client commands and agent launches without a link drop it.
+      ...(command.delegatedFrom === undefined ? {} : { delegatedFrom: command.delegatedFrom }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,

@@ -1,3 +1,5 @@
+import { DiskGuard } from "../diskGuard.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -57,6 +59,8 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(McpProviderSessions)({}),
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
+  Layer.mock(DiskGuard)({}),
+  Layer.mock(ProjectStoreV2)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),

@@ -21,6 +21,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
+import * as DiskGuard from "../diskGuard.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import { runOutcome } from "../orchestration-v2/RestartBackgroundNote.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
@@ -88,6 +90,10 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const settings = yield* ServerSettings.ServerSettingsService;
+  const diskGuard = yield* DiskGuard.DiskGuard;
+  const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
+    Effect.flatMap((environment) => environment.getEnvironmentId),
+  );
 
   const assertMayDelegate: HereTaskThreads["Service"]["assertMayDelegate"] = Effect.fn(
     "HereTaskThreads.assertMayDelegate",
@@ -170,6 +176,16 @@ const make = Effect.gen(function* () {
         parent.interactionMode,
         input.interactionMode,
       );
+      if (input.isolation === "worktree")
+        yield* diskGuard.ensureRoomForWorktree.pipe(
+          Effect.mapError(
+            (error) =>
+              new OrchestratorMcpFailure({
+                code: "orchestration_error",
+                message: `${error.message} Tell the user, and start no worktree task until they free space.`,
+              }),
+          ),
+        );
       const commandId = CommandId.make(
         `command:bot-task:${encodeURIComponent(requestNamespace)}:${encodeURIComponent(key)}`,
       );
@@ -190,6 +206,8 @@ const make = Effect.gen(function* () {
           initialMessage: { messageId, senderThreadId: parent.id, text: task, attachments: [] },
           createdBy: "agent",
           creationSource: "mcp",
+          // The project thread shows which bot started it, and storage cleanup reclaims it.
+          delegatedFrom: { environmentId: hereId, threadId: parent.id, title: parent.title },
         })
         .pipe(
           Effect.tapError((cause) =>

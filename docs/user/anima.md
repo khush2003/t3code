@@ -28,6 +28,8 @@ conversation.
 - A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.
 - After 20 threads started since you last spoke, a bot stops and asks before starting more.
 - Bots need a data directory outside a Git checkout, as threads without a project do.
+- A bot's threads show which bot started them, and they are cleaned up on their own schedule. See
+  [Storage cleanup](project-settings.md#work-a-bot-or-another-machine-started).
 
 ## Open animas
 

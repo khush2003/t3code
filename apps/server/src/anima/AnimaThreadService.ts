@@ -70,7 +70,7 @@ export class AnimaThreadService extends Context.Service<
       AnimaCommandRejectedError | AnimaError | AnimaNotFoundError
     >;
     readonly breathe: (
-      input: typeof AnimaBreatheInput.Type,
+      input: AnimaBreatheInput,
     ) => Effect.Effect<
       typeof AnimaBreatheResult.Type,
       AnimaError | AnimaCommandRejectedError | AnimaNotFoundError

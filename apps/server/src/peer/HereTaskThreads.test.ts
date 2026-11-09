@@ -1,5 +1,12 @@
+import * as DiskGuard from "../diskGuard.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { describe, expect, it } from "@effect/vitest";
-import { MessageId, type OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  MessageId,
+  type OrchestrationV2AppThread,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -53,6 +60,10 @@ describe("HereTaskThreads.assertMayDelegate", () => {
               Layer.mock(ProjectService.ProjectService)({}),
               Layer.mock(ProviderRegistry.ProviderRegistry)({}),
               ServerSettings.layerTest(),
+              DiskGuard.layerTest,
+              Layer.mock(ServerEnvironment.ServerEnvironment)({
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("here")),
+              }),
             ),
           ),
         ),

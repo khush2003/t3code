@@ -16,7 +16,7 @@ import type {
   StorageCleanupReportEntry,
   ThreadId,
 } from "@t3tools/contracts";
-import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
+import { resolveProjectSettings, resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -98,6 +98,77 @@ const worktreeCleanupEnabled = (rules: WorktreeCleanupRules) =>
   rules.worktreeOnMerge ||
   rules.worktreeOnDelete ||
   rules.worktreeUnchanged;
+
+/** Days a delegated task's worktree outlives its last activity when its project sets no rules. */
+const DELEGATED_TASK_WORKTREE_DAYS = 3;
+
+/**
+ * A delegated task (a bot's, or a linked environment's) runs unattended, so nobody returns to
+ * remove its worktree. Unless its project chose rules, or turned cleanup off, it gets reclaimed.
+ */
+function storageCleanupRules(
+  settings: ServerSettings,
+  thread: Pick<OrchestrationV2ThreadShell, "projectId" | "delegatedFrom">,
+): WorktreeCleanupRules {
+  const rules = resolveWorktreeCleanup(settings, thread.projectId);
+  if (
+    thread.delegatedFrom === undefined ||
+    worktreeCleanupEnabled(rules) ||
+    resolveProjectSettings(settings, thread.projectId).settings.worktreeCleanup?.mode === "off"
+  )
+    return rules;
+  return {
+    ...rules,
+    worktreeAfterDays: DELEGATED_TASK_WORKTREE_DAYS,
+    worktreeOnMerge: true,
+    worktreeOnDelete: true,
+  };
+}
+
+/** Days a delegated task stays untouched before its long tool output is trimmed. */
+const TOOL_OUTPUT_TRIM_DAYS = 14;
+const TRIMMED_TEXT_LIMIT = 8 * 1024;
+const TRIMMED_TEXT_KEEP = 2 * 1024;
+const TRIM_CANDIDATE_BYTES = 32 * 1024;
+const TRIM_PAGE_SIZE = 50;
+const TRIM_MAX_ITEMS_PER_SWEEP = 2_000;
+
+/**
+ * Keeps a tool call's shape, so it still renders, and cuts each long text to its start and end.
+ * Already-trimmed text is under the limit, so trimming twice changes nothing.
+ */
+function trimLongText(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    if (value.length <= TRIMMED_TEXT_LIMIT) return value;
+    const removed = value.length - 2 * TRIMMED_TEXT_KEEP;
+    return `${value.slice(0, TRIMMED_TEXT_KEEP)}\n… ${removed.toLocaleString("en-US")} characters removed ${TOOL_OUTPUT_TRIM_DAYS} days after this task finished, to save space …\n${value.slice(-TRIMMED_TEXT_KEEP)}`;
+  }
+  if (depth > 32 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => trimLongText(entry, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, trimLongText(entry, depth + 1)]),
+  );
+}
+
+/** A tool call's stored payload with long text trimmed, or null when nothing would shrink. */
+function trimToolItemPayload(stored: string): string | null {
+  let item: unknown;
+  try {
+    item = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+  const payload = JSON.stringify({
+    ...item,
+    output: trimLongText((item as { output?: unknown }).output),
+    // A file write carries the whole file in its input.
+    ...("type" in item && item.type === "dynamic_tool" && "input" in item
+      ? { input: trimLongText(item.input) }
+      : {}),
+  });
+  return payload.length < stored.length ? payload : null;
+}
 
 function anyWorktreePolicy(
   settings: ServerSettings,
@@ -281,6 +352,54 @@ export function storageCleanupPullRequestMerged(
         pullRequest.headSha === worktree.headSha))
   );
 }
+
+// Delegated tasks run unattended and their tool output is the bulk of the database;
+// messages stay whole, so what the task said and decided survives.
+export const trimDelegatedToolOutput = Effect.fn("StorageCleanup.trimToolOutput")(function* (
+  now: number,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const before = DateTime.formatIso(DateTime.makeUnsafe(now - TOOL_OUTPUT_TRIM_DAYS * DAY_MS));
+  const threads = yield* sql<{ threadId: string }>`
+    SELECT thread_id AS "threadId" FROM orchestration_v2_projection_threads
+    WHERE deleted_at IS NULL
+      AND updated_at < ${before}
+      AND json_extract(payload_json, '$.delegatedFrom') IS NOT NULL
+  `.pipe(NodeSqliteClient.readOnly);
+  let items = 0;
+  let bytes = 0;
+  for (const { threadId } of threads) {
+    let cursor = "";
+    while (items < TRIM_MAX_ITEMS_PER_SWEEP) {
+      const rows = yield* sql<{ id: string; updatedAt: string; payload: string }>`
+        SELECT turn_item_id AS "id", updated_at AS "updatedAt", payload_json AS "payload"
+        FROM orchestration_v2_projection_turn_items
+        WHERE thread_id = ${threadId}
+          AND turn_item_id > ${cursor}
+          AND type IN ('command_execution', 'dynamic_tool')
+          AND status IN ('completed', 'failed', 'interrupted', 'cancelled')
+          AND updated_at < ${before}
+          AND length(payload_json) > ${TRIM_CANDIDATE_BYTES}
+        ORDER BY turn_item_id
+        LIMIT ${TRIM_PAGE_SIZE}
+      `.pipe(NodeSqliteClient.readOnly);
+      for (const row of rows) {
+        const payload = trimToolItemPayload(row.payload);
+        if (payload === null) continue;
+        yield* sql`
+          UPDATE orchestration_v2_projection_turn_items SET payload_json = ${payload}
+          WHERE turn_item_id = ${row.id} AND updated_at = ${row.updatedAt}
+        `;
+        items++;
+        bytes += row.payload.length - payload.length;
+      }
+      yield* Effect.yieldNow;
+      if (rows.length < TRIM_PAGE_SIZE) break;
+      cursor = rows.at(-1)!.id;
+    }
+  }
+  return { items, bytes };
+});
 
 export class StorageCleanup extends Context.Service<
   StorageCleanup,
@@ -798,8 +917,15 @@ const make = Effect.gen(function* () {
     now: number,
     entries: StorageCleanupReportEntry[],
   ) {
-    if (!anyWorktreePolicy(serverSettings, worktreeCleanupEnabled))
-      return { waiting: false, kept: [] };
+    if (!anyWorktreePolicy(serverSettings, worktreeCleanupEnabled)) {
+      const delegated = yield* sql<{ found: number }>`
+        SELECT 1 AS "found" FROM orchestration_v2_projection_threads
+        WHERE json_extract(payload_json, '$.delegatedFrom') IS NOT NULL
+          AND json_extract(payload_json, '$.worktreePath') IS NOT NULL
+        LIMIT 1
+      `.pipe(NodeSqliteClient.readOnly);
+      if (delegated.length === 0) return { waiting: false, kept: [] };
+    }
     let waiting = false;
     const kept: string[] = [];
     const roots: Array<string> = [];
@@ -846,7 +972,7 @@ const make = Effect.gen(function* () {
             .get(worktreePath)
             ?.find(
               (deleted) =>
-                resolveWorktreeCleanup(serverSettings, deleted.projectId).worktreeOnDelete &&
+                storageCleanupRules(serverSettings, deleted).worktreeOnDelete &&
                 worktreeOwner([deleted, ...group]) === deleted,
             ) ??
           worktreeOwner(group) ??
@@ -855,7 +981,7 @@ const make = Effect.gen(function* () {
       ...deletedThreads.filter((thread) => !groups.has(path.resolve(thread.worktreePath!))),
     ];
     for (const thread of candidates) {
-      const settings = resolveWorktreeCleanup(serverSettings, thread.projectId);
+      const settings = storageCleanupRules(serverSettings, thread);
       if (!worktreeCleanupEnabled(settings)) continue;
       const worktreePath = path.resolve(thread.worktreePath!);
       const group = groups.get(worktreePath) ?? [];
@@ -1064,10 +1190,7 @@ const make = Effect.gen(function* () {
           })).filter((entry) => path.resolve(entry.worktreePath) === worktreePath);
           if (hasTerminal(worktreePath)) return waitForStop("open terminal");
           if (deleted) {
-            if (
-              !resolveWorktreeCleanup(yield* settingsService.getSettings, thread.projectId)
-                .worktreeOnDelete
-            )
+            if (!storageCleanupRules(yield* settingsService.getSettings, thread).worktreeOnDelete)
               return "thread or cleanup settings changed since check";
             // Durable deletion cleanup must succeed or be explicitly cancelled before removing its checkout.
             const pendingCleanup = yield* sql<{ status: string }>`
@@ -1157,7 +1280,7 @@ const make = Effect.gen(function* () {
         const finalChanges = yield* localChangesReason(worktreePath, settings);
         if (finalChanges !== null) return keep(finalChanges);
         const currentSettings = yield* settingsService.getSettings;
-        const current = resolveWorktreeCleanup(currentSettings, thread.projectId);
+        const current = storageCleanupRules(currentSettings, thread);
         if (
           currentSettings.autoResumeLimitedThreads !== serverSettings.autoResumeLimitedThreads ||
           currentSettings.snoozeLimitedThreads !== serverSettings.snoozeLimitedThreads ||
@@ -1284,6 +1407,39 @@ const make = Effect.gen(function* () {
           });
           yield* Effect.logWarning("worktree cleanup failed", { error });
           return { waiting: true, kept: [] };
+        }),
+      ),
+    );
+    yield* trimDelegatedToolOutput(now).pipe(
+      Effect.provideService(SqlClient.SqlClient, sql),
+      Effect.map(({ items, bytes }) => {
+        if (items > 0)
+          entries.push({
+            kind: "tool-output",
+            outcome: "removed",
+            reason: `Trimmed long tool output from delegated tasks idle for ${TOOL_OUTPUT_TRIM_DAYS} days`,
+            path: null,
+            projectPath: null,
+            threadId: null,
+            threadTitle: null,
+            bytes,
+            files: items,
+          });
+      }),
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          entries.push({
+            kind: "tool-output",
+            outcome: "failed",
+            reason: cleanupFailureReason(error),
+            path: null,
+            projectPath: null,
+            threadId: null,
+            threadTitle: null,
+            bytes: null,
+            files: null,
+          });
+          yield* Effect.logWarning("tool output trim failed", { error });
         }),
       ),
     );

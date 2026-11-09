@@ -22,6 +22,7 @@ import {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "./config.ts";
+import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as GitManager from "./git/GitManager.ts";
@@ -35,6 +36,7 @@ import { CodexProviderCapabilitiesV2 } from "./orchestration-v2/Adapters/CodexAd
 import { ServerActivation } from "./serverActivation.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   EventId,
   ProjectId,
   ProviderDriverKind,
@@ -442,17 +444,23 @@ const cleanupFixture = (
               ]
             : outboxStatus !== null && strings.join("").includes("orchestration_v2_effect_outbox")
               ? [{ status: outboxStatus }]
-              : strings.join("").includes("deleted_at IS NOT NULL")
-                ? deletedThreads.map((thread) => ({
-                    payload_json: JSON.stringify(thread),
-                    workspaceRoot: repo,
-                  }))
-                : strings.join("").includes('AS "worktreePath"')
-                  ? [
-                      ...threads.flatMap((thread) => thread.worktreePath ?? []),
-                      ...storedWorktreePaths,
-                    ].map((worktreePath) => ({ worktreePath }))
-                  : [],
+              : strings.join("").includes("$.delegatedFrom")
+                ? threads.some(
+                    (thread) => thread.delegatedFrom !== undefined && thread.worktreePath !== null,
+                  )
+                  ? [{ found: 1 }]
+                  : []
+                : strings.join("").includes("deleted_at IS NOT NULL")
+                  ? deletedThreads.map((thread) => ({
+                      payload_json: JSON.stringify(thread),
+                      workspaceRoot: repo,
+                    }))
+                  : strings.join("").includes('AS "worktreePath"')
+                    ? [
+                        ...threads.flatMap((thread) => thread.worktreePath ?? []),
+                        ...storedWorktreePaths,
+                      ].map((worktreePath) => ({ worktreePath }))
+                    : [],
         )) as unknown as SqlClient.SqlClient),
       Effect.provideService(GitManager.GitManager, {
         invalidateStatus: () => Effect.void,
@@ -1932,6 +1940,31 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.effect("reclaims a delegated task's worktree when its project sets no rules", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture(DEFAULT_SERVER_SETTINGS.storageCleanup);
+        const task = shell({ branch: "feature", worktreePath: fixture.worktree });
+        fixture.setThreads([task]);
+        expect((yield* fixture.service.runNow).entries).toEqual([]);
+        fixture.setThreads([
+          {
+            ...task,
+            delegatedFrom: {
+              environmentId: EnvironmentId.make("here"),
+              threadId: ThreadId.make("bot:atlas"),
+              title: "atlas",
+            },
+          },
+        ]);
+        expect((yield* fixture.service.runNow).entries).toMatchObject([
+          { outcome: "removed", reason: "Inactive for 30 days" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+      }),
+    ),
+  );
   it.live.each(["before-check", "while-measuring"] as const)(
     "keeps a worktree protected by a missing project root (%s)",
     (timing) =>
@@ -2619,3 +2652,81 @@ it.live("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("delegated task tool output", () => {
+  const seed = (threadId: string, delegated: boolean, updatedAt: string, output: string) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const payload = JSON.stringify({
+        title: threadId,
+        ...(delegated
+          ? { delegatedFrom: { environmentId: "here", threadId: "bot:atlas", title: "atlas" } }
+          : {}),
+      });
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, payload_json
+        ) VALUES (
+          ${threadId}, 'project-1', ${threadId}, 'claudeAgent', 'full-access', 'default',
+          ${updatedAt}, ${updatedAt}, ${payload}
+        )
+      `;
+      for (const [suffix, type, item] of [
+        ["command", "command_execution", { type: "command_execution", input: "ls", output }],
+        [
+          "write",
+          "dynamic_tool",
+          {
+            type: "dynamic_tool",
+            toolName: "Write",
+            input: { file_path: "a.md", content: output },
+          },
+        ],
+      ] as const) {
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_turn_items (
+            turn_item_id, thread_id, ordinal, type, status, updated_at, payload_json
+          ) VALUES (
+            ${`${threadId}:${suffix}`}, ${threadId}, 0, ${type}, 'completed', ${updatedAt},
+            ${JSON.stringify({ id: `${threadId}:${suffix}`, ...item })}
+          )
+        `;
+      }
+    });
+  const read = (id: string) =>
+    SqlClient.SqlClient.pipe(
+      Effect.flatMap(
+        (sql) => sql<{ payload: string }>`
+          SELECT payload_json AS "payload" FROM orchestration_v2_projection_turn_items
+          WHERE turn_item_id = ${id}
+        `,
+      ),
+      Effect.map((rows) => JSON.parse(rows[0]!.payload)),
+    );
+
+  it.effect("trims only idle delegated tasks, keeps each call's shape, and is idempotent", () =>
+    Effect.gen(function* () {
+      const output = `${"a".repeat(20_000)}${"z".repeat(20_000)}`;
+      const old = DateTime.formatIso(at(-20 * DAY_MS));
+      yield* seed("task-old", true, old, output);
+      yield* seed("task-recent", true, DateTime.formatIso(at(-2 * DAY_MS)), output);
+      yield* seed("user-old", false, old, output);
+
+      const first = yield* StorageCleanup.trimDelegatedToolOutput(NOW_MS);
+      expect(first.items).toBe(2);
+      const command = yield* read("task-old:command");
+      expect(command.output.length).toBeLessThan(5_000);
+      expect(command.output.startsWith("aaaa")).toBe(true);
+      expect(command.output.endsWith("zzzz")).toBe(true);
+      expect(command.output).toContain("characters removed 14 days after this task finished");
+      const write = yield* read("task-old:write");
+      expect(write.input.file_path).toBe("a.md");
+      expect(write.input.content.length).toBeLessThan(5_000);
+
+      expect((yield* read("task-recent:command")).output).toBe(output);
+      expect((yield* read("user-old:command")).output).toBe(output);
+      expect((yield* StorageCleanup.trimDelegatedToolOutput(NOW_MS)).items).toBe(0);
+    }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  );
+});

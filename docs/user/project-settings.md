@@ -230,6 +230,18 @@ Results also list folders in the worktree folder that no thread uses, with their
 Browser captures and rotated logs have separate retention periods. Expired capture links stop
 working. Current logs, message attachments, and browser profiles are kept.
 
+### Work a bot or another machine started
+
+Threads a bot or a linked machine delegated run unattended, so they have their own defaults when
+their project sets no rules: their worktrees are removed 3 days after their last activity or once
+merged, and never while they have local changes. Set the project to **Off** to keep them. 14 days
+after such a thread was last active, long tool output in it (command output, file contents a tool
+wrote) is cut to its start and end. Messages stay whole.
+
+Before an agent makes a worktree, the machine checks its free disk space. Below a tenth of the
+disk, kept between 10 and 20 GB, it runs cleanup first, and if that is not enough it refuses the
+worktree and says so instead of filling the disk.
+
 ## Project icons
 
 Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
