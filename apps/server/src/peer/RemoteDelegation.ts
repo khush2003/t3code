@@ -36,6 +36,8 @@ import {
 } from "../mcp/delegatedTaskModes.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as BotService from "../bots/BotService.ts";
+import * as BotStore from "../bots/BotStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -134,6 +136,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const random = yield* SecureRandom.SecureRandom;
+  const bots = yield* BotStore.BotStore;
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
@@ -198,6 +201,7 @@ const make = Effect.gen(function* () {
 
   const delegate: RemoteDelegation["Service"]["delegate"] = Effect.fn("RemoteDelegation.delegate")(
     function* (scope, input) {
+      yield* checkWorkItem(scope, input);
       const parent = yield* threads.getThreadRecords(scope.thread.threadId, ["runs"]).pipe(
         Effect.mapError(
           () =>
@@ -376,7 +380,45 @@ const make = Effect.gen(function* () {
       });
     }
     yield* followOne(scope.thread.threadId, taskId).pipe(Effect.forkIn(followers));
+    const bot = yield* bots
+      .botForThread(scope.thread.threadId)
+      .pipe(Effect.orElseSucceed(() => null));
+    if (bot !== null)
+      // The task already runs; a board that failed to take it shows it as not on any item.
+      yield* BotService.fileTask({
+        bot: bot.name,
+        workItemId: input.workItemId,
+        environmentId: remoteChild.environmentId,
+        threadId: remoteChild.threadId,
+        title: input.title ?? task.slice(0, 60).trim(),
+        where: remoteChild.label,
+      }).pipe(
+        Effect.provideService(BotStore.BotStore, bots),
+        Effect.catch((error) => Effect.logWarning("bot could not file a task", { taskId, error })),
+      );
     return { taskId };
+  });
+
+  /** A bot's task names a work item of its own, checked before anything is launched. */
+  const checkWorkItem = Effect.fn("RemoteDelegation.checkWorkItem")(function* (
+    scope: ThreadScope,
+    input: OrchestratorMcpDelegateTaskInput,
+  ) {
+    if (input.workItemId === undefined) return;
+    const bot = yield* bots
+      .botForThread(scope.thread.threadId)
+      .pipe(Effect.orElseSucceed(() => null));
+    if (bot === null)
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "workItemId is for bots. Omit it.",
+      });
+    yield* BotService.assertWorkItem(bot.name, input.workItemId).pipe(
+      Effect.provideService(BotStore.BotStore, bots),
+      Effect.mapError(
+        (error) => new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+      ),
+    );
   });
 
   const delegateToProject: RemoteDelegation["Service"]["delegateToProject"] = Effect.fn(
@@ -414,6 +456,7 @@ const make = Effect.gen(function* () {
           "Pass target.projectId: a bot's tasks run in a project. t3_project_list lists them.",
       });
     }
+    yield* checkWorkItem(scope, input);
     yield* here.assertMayDelegate(parent, parent.subagents);
     const key = input.clientRequestId ?? (yield* random.uuidV4());
     const task = taskPrompt(input);

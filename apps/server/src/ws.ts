@@ -278,6 +278,7 @@ import * as AnimaMergeService from "./anima/AnimaMergeService.ts";
 import * as AnimaRuntime from "./anima/AnimaRuntime.ts";
 import * as AnimaService from "./anima/AnimaService.ts";
 import * as AnimaThreadService from "./anima/AnimaThreadService.ts";
+import * as BotService from "./bots/BotService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 
@@ -1454,6 +1455,7 @@ export const layerWsRpc = (
       const anima = yield* AnimaService.AnimaService;
       const animaMerge = yield* AnimaMergeService.AnimaMergeService;
       const animaThreads = yield* AnimaThreadService.AnimaThreadService;
+      const bots = yield* BotService.BotService;
       const animaRuntime = yield* AnimaRuntime.AnimaRuntime;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const nativeChildWork = yield* NativeChildWorkQuery.NativeChildWorkQuery;
@@ -3019,7 +3021,9 @@ export const layerWsRpc = (
         [WS_METHODS.animaRecord]: (input) => anima.record(input),
         [WS_METHODS.animaPolicy]: (input) => anima.policy(input),
         [WS_METHODS.animaBreathe]: (input) => animaThreads.breathe(input),
-        [WS_METHODS.animaStartBot]: (input) => animaThreads.startBot(input),
+        [WS_METHODS.botsStart]: (input) => bots.start(input),
+        [WS_METHODS.botsList]: () => bots.list,
+        [WS_METHODS.botsBoard]: (input) => bots.board(input),
         [WS_METHODS.animaOnboardingPrompt]: () =>
           anima.onboardingPrompt.pipe(Effect.map((prompt) => ({ prompt }))),
         [WS_METHODS.animaWakePreview]: (input) =>

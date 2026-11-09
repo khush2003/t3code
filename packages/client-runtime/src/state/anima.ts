@@ -115,12 +115,6 @@ export function createAnimaEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
-    startBot: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:anima:start-bot",
-      tag: WS_METHODS.animaStartBot,
-      scheduler,
-      concurrency,
-    }),
     record: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:anima:record",
       tag: WS_METHODS.animaRecord,

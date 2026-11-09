@@ -15,14 +15,21 @@ runs without an anima, so choose the new one when you start its first real threa
 
 ## Chat with a bot
 
-A bot is an anima you talk to about work across all your projects. It keeps one long
-conversation and hands each piece of work to a thread in the right project, so you can see,
-open and steer that thread like any other. When a thread finishes, the bot wakes and tells you.
+A bot is a long-lived agent you talk to about work across all your projects. It keeps one
+conversation and hands each piece of work to a thread in the right project, so you can see, open
+and steer that thread like any other. When a thread finishes, the bot wakes and tells you.
 
-In the sidebar, press **+** next to **Bots** and pick an anima. Picking one again reopens its
-bot. Archive the thread to put a bot away; picking the anima again brings it back with its
-conversation.
+In the sidebar, press **+** next to **Bots**, give the bot a name and say what it is for. Starting a
+name you used before reopens that bot. Archive its thread to put a bot away.
 
+- A bot keeps a board: each piece of work is a work item with its threads, and their status is read
+  from the threads themselves, including threads on linked machines. The bot sees the board on
+  every turn, so it keeps track even after its conversation is compacted.
+- A bot's charter holds what it is for and what you told it should hold from now on. Tell it, and it
+  updates its charter.
+- Every bot knows the others and what they are for.
+- When a thread finishes, its result is kept with the bot, so it stays answerable after the thread's
+  machine goes offline.
 - A bot runs on Claude, on a lighter model by default, and has no shell or file tools, so it
   cannot do the work itself. Its threads use each project's default model.
 - A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.

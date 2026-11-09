@@ -4,25 +4,15 @@ import {
   AnimaNotFoundError,
   type AnimaBreatheInput,
   type AnimaBreatheResult,
-  type AnimaStartBotInput,
-  type AnimaStartBotResult,
   CommandId,
   MessageId,
-  ThreadId,
 } from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
-import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
-import * as ProjectService from "../project/ProjectService.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as AnimaService from "./AnimaService.ts";
 
 /**
@@ -63,12 +53,6 @@ function breathePrompt(name: string, guide: string, bot: boolean): string {
 export class AnimaThreadService extends Context.Service<
   AnimaThreadService,
   {
-    readonly startBot: (
-      input: AnimaStartBotInput,
-    ) => Effect.Effect<
-      AnimaStartBotResult,
-      AnimaCommandRejectedError | AnimaError | AnimaNotFoundError
-    >;
     readonly breathe: (
       input: AnimaBreatheInput,
     ) => Effect.Effect<
@@ -82,11 +66,6 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const animas = yield* AnimaService.AnimaService;
   const random = yield* SecureRandom.SecureRandom;
-  const launches = yield* ThreadLaunchService.ThreadLaunchService;
-  const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
-  const projects = yield* ProjectService.ProjectService;
-  const providers = yield* ProviderRegistry.ProviderRegistry;
-  const settings = yield* ServerSettings.ServerSettingsService;
 
   const breathe: AnimaThreadService["Service"]["breathe"] = Effect.fn("AnimaThreadService.breathe")(
     function* (input) {
@@ -148,80 +127,7 @@ const make = Effect.gen(function* () {
   );
 
   /** The anima's one bot thread: its id derives from the name, so asking again reopens it. */
-  const startBot: AnimaThreadService["Service"]["startBot"] = Effect.fn(
-    "AnimaThreadService.startBot",
-  )(function* ({ name }) {
-    const failed = (cause: unknown) => new AnimaError({ operation: "startBot", cause });
-    yield* animas.summary(name);
-    let threadId = ThreadId.make(`bot:${name}`);
-    // A deleted thread keeps its id, so a bot started after one takes the next.
-    for (let generation = 2; ; generation += 1) {
-      const shell = yield* threads.getThreadShell(threadId).pipe(Effect.mapError(failed));
-      if (shell === null) break;
-      if (shell.deletedAt === null) {
-        if (shell.archivedAt !== null) {
-          const id = yield* random.uuidV4().pipe(Effect.mapError(failed));
-          yield* threads
-            .dispatch({
-              type: "thread.unarchive",
-              commandId: CommandId.make(`anima-bot-unarchive:${id}`),
-              threadId,
-            })
-            .pipe(Effect.mapError(failed));
-        }
-        return { threadId, created: false };
-      }
-      threadId = ThreadId.make(`bot:${name}:${generation}`);
-    }
-    const claude = (yield* providers.getProviders).find(
-      (provider) =>
-        provider.driver === "claudeAgent" &&
-        provider.enabled &&
-        provider.status !== "error" &&
-        provider.status !== "disabled",
-    );
-    // Routing work is light; the threads it starts use each project's own model.
-    const model =
-      claude?.models.find((candidate) => /sonnet/i.test(candidate.slug)) ??
-      claude?.models.find((candidate) => candidate.isDefault === true) ??
-      claude?.models[0];
-    if (claude === undefined || model === undefined) {
-      return yield* new AnimaCommandRejectedError({
-        operation: "startBot",
-        reason: "A bot runs on Claude. Set up Claude on this environment first.",
-      });
-    }
-    const { projectId } = yield* folders.ensureScratchProject.pipe(
-      Effect.mapError(
-        (error) => new AnimaCommandRejectedError({ operation: "startBot", reason: error.message }),
-      ),
-    );
-    const project = yield* projects.getById(projectId).pipe(Effect.mapError(failed));
-    const { defaultRuntimeMode } = resolveProjectSettings(
-      yield* settings.getSettings.pipe(Effect.mapError(failed)),
-      projectId,
-      Option.getOrUndefined(project),
-    ).settings;
-    yield* launches
-      .launch({
-        commandId: CommandId.make(`anima-bot:${threadId}`),
-        threadId,
-        projectId,
-        title: name,
-        modelSelection: { instanceId: claude.instanceId, model: model.slug },
-        runtimeMode: defaultRuntimeMode,
-        interactionMode: "default",
-        bot: true,
-        animaName: name,
-        workspaceStrategy: { type: "root" },
-        createdBy: "user",
-        creationSource: "web",
-      })
-      .pipe(Effect.mapError(failed));
-    return { threadId, created: true };
-  });
-
-  return AnimaThreadService.of({ breathe, startBot });
+  return AnimaThreadService.of({ breathe });
 });
 
 export const layer = Layer.effect(AnimaThreadService, make);

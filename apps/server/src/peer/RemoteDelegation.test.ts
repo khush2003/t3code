@@ -1,9 +1,11 @@
+import * as BotStore from "../bots/BotStore.ts";
 import * as DiskGuard from "../diskGuard.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  BotName,
   CommandId,
   EventId,
   MessageId,
@@ -573,6 +575,7 @@ const makeLaptop = (
       Layer.provideMerge(
         RemoteDelegation.layer.pipe(
           Layer.provideMerge(PeerForwarding.layer),
+          Layer.provideMerge(BotStore.layerMemory.pipe(Layer.provide(NodeCrypto.layer))),
           Layer.provide(Layer.mock(HereTaskThreads.HereTaskThreads)(hereThreads)),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
@@ -620,6 +623,7 @@ const makeLaptop = (
       threads: Context.get(here, ThreadManagement.ThreadManagementService),
       projections: Context.get(here, ProjectionStore.ProjectionStoreV2),
       sink: Context.get(here, EventSink.EventSinkV2),
+      bots: Context.get(here, BotStore.BotStore),
       call: (name: string, args: Record<string, unknown>, scope = parentScope) =>
         server
           .callTool({ name, arguments: args })
@@ -837,6 +841,9 @@ it.effect("a bot's task runs as a thread in a project here and wakes the bot whe
         stop: ({ threadId }) => Ref.set(stopped, threadId),
       });
       yield* seedParent(a, { bot: true });
+      const atlas = BotName.make("atlas");
+      yield* a.bots.ensureBot({ name: atlas, purpose: "p", charter: "c" });
+      yield* a.bots.setThread(atlas, parentThreadId);
 
       const withoutProject = yield* a.call("delegate_task", { task: "Run the suite." });
       expect(withoutProject.isError).toBe(true);
@@ -853,6 +860,18 @@ it.effect("a bot's task runs as a thread in a project here and wakes the bot whe
         remoteChild: { environmentId: string; threadId: ThreadId; label: string };
       };
       expect(yield* Ref.get(launchedIn)).toBe("project:acme");
+      // Every task a bot starts sits on a work item, here a new one named after it.
+      const [item] = yield* a.bots.listItems(atlas);
+      expect(item?.title).toBe("Run the suite.");
+      expect(yield* a.bots.itemThreads([item!.id])).toMatchObject([
+        { threadId: taskThreadId, where: "Acme app" },
+      ]);
+      const unknownItem = yield* a.call("delegate_task", {
+        task: "Again.",
+        target: { projectId: "project:acme" },
+        workItemId: "item:nope",
+      });
+      expect(JSON.stringify(unknownItem.content)).toContain("is not on your board");
       expect(remoteChild).toMatchObject({
         environmentId: laptop.environmentId,
         threadId: taskThreadId,

@@ -314,16 +314,6 @@ export const AnimaRecordInput = Schema.Struct({
 });
 export type AnimaRecordInput = typeof AnimaRecordInput.Type;
 
-export const AnimaStartBotInput = Schema.Struct({ name: AnimaName });
-export type AnimaStartBotInput = typeof AnimaStartBotInput.Type;
-
-export const AnimaStartBotResult = Schema.Struct({
-  threadId: ThreadId,
-  /** False when this anima already had a bot, which was opened instead. */
-  created: Schema.Boolean,
-});
-export type AnimaStartBotResult = typeof AnimaStartBotResult.Type;
-
 export const AnimaSetEnabledInput = Schema.Struct({
   name: AnimaName,
   enabled: Schema.Boolean,

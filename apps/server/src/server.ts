@@ -4,6 +4,9 @@ import * as Random from "effect/Random";
 import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
+import * as BotBoards from "./bots/BotBoards.ts";
+import * as BotJournal from "./bots/BotJournal.ts";
+import * as BotService from "./bots/BotService.ts";
 import * as DiskGuard from "./diskGuard.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
@@ -665,6 +668,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
+  Layer.effectDiscard(
+    BotJournal.BotJournal.pipe(Effect.flatMap((journal) => journal.start())),
+  ).pipe(Layer.provide(BotJournal.layer)),
+  BotService.layer,
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
@@ -686,6 +693,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
   // Below hydration so the Claude adapter's pre-tool hook reaches the instance orchestration feeds.
   Layer.provideMerge(AnimaRuntime.layer),
+  // Bot memory lives in its own database beside statev2.sqlite.
+  Layer.provideMerge(BotBoards.layerProvided),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),

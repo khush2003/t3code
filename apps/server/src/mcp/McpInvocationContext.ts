@@ -29,6 +29,8 @@ export interface McpThreadCaller {
   readonly providerInstanceId: ProviderInstanceId;
   /** A delegated child task; its parent owns the work it hands back. */
   readonly subagent?: boolean;
+  /** A bot's conversation: it delegates and keeps a board, and does no work itself. */
+  readonly bot?: boolean;
 }
 
 export interface McpClientCaller {
@@ -160,6 +162,19 @@ export const hiddenFromSubagents = (): boolean => {
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   return scope?.thread?.subagent !== true;
 };
+
+const callerIsBot = () => {
+  const fiber = Fiber.getCurrent();
+  return (
+    (fiber && Context.getOrUndefined(fiber.context, McpInvocationContext))?.thread?.bot === true
+  );
+};
+
+/** `McpSchema.EnabledWhen` for a bot's own tools; no other agent sees them. */
+export const onlyForBots = (): boolean => callerIsBot();
+
+/** `McpSchema.EnabledWhen` for tools a bot has no use for, kept out of its context. */
+export const hiddenFromBots = (): boolean => !callerIsBot();
 
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */
 export const hiddenWhileLinksOff = (): boolean => {

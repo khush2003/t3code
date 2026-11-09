@@ -58,7 +58,7 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
-import { renderBotContext } from "../bots/BotContext.ts";
+import * as BotBoards from "../bots/BotBoards.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
@@ -152,6 +152,7 @@ export const layer: Layer.Layer<
   | RuntimePolicy.RuntimePolicyV2
   | ThreadAnimaWake.ThreadAnimaWake
   | AnimaRuntime.AnimaRuntime
+  | BotBoards.BotBoards
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -170,6 +171,7 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const animaWake = yield* ThreadAnimaWake.ThreadAnimaWake;
     const animaRuntime = yield* AnimaRuntime.AnimaRuntime;
+    const botBoards = yield* BotBoards.BotBoards;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
@@ -935,7 +937,9 @@ export const layer: Layer.Layer<
         });
       }
       const botContext =
-        projection.thread.bot === true ? renderBotContext(projection.subagents) : "";
+        projection.thread.bot === true
+          ? yield* botBoards.context(projection.thread.id, projection.subagents)
+          : "";
       const wakeContext = [identityContext, botContext, recallContext, runtimeNotices.text]
         .filter((part) => part !== "")
         .join("\n\n");

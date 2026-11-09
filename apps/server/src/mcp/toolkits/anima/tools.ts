@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
+import * as McpSchema from "effect/ai/McpSchema";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as AnimaService from "../../../anima/AnimaService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -39,7 +40,8 @@ const AnimaListTool = Tool.make("t3_anima_list", {
   success: AnimaListResult,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaReadTool = Tool.make("t3_anima_read", {
   ...shared,
   description:
@@ -51,28 +53,35 @@ const AnimaReadTool = Tool.make("t3_anima_read", {
   success: AnimaDetail,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaPolicyTool = Tool.make("t3_anima_policy", {
   ...shared,
   description:
     "Change an anima's policy. action.type add proposes a rule (WHEN <condition> THEN <action>, ALWAYS <action>, or NEVER <action>) as pending unless direct is true; update and remove take the 1-based operational rule index; apply promotes every pending rule. The CLI caps operational rules at 40.",
   parameters: Schema.Struct({ name: AnimaName, action: AnimaPolicyAction }),
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaAttachTool = Tool.make("t3_anima_attach", {
   ...shared,
   description:
     "Attach an anima to a project so its project instructions reference the anima. projectId defaults to the calling thread's project.",
   parameters: Schema.Struct({ name: AnimaName, projectId: Schema.optional(ProjectId) }),
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaCreateTool = Tool.make("t3_anima_create", {
   ...shared,
   description:
     "Create a new anima (a persistent agent identity) on this environment. Use it only when the user asked for a new anima. parent makes it a child that inherits that anima's identity; fromProjectPath seeds its skills from a project scan. The first anima on an environment becomes the architect and cannot take a parent or project. Afterwards fill in its identity.md and record its first breath.",
   parameters: AnimaCreateInput,
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaClinicTool = Tool.make("t3_anima_clinic", {
   ...shared,
   description:
@@ -83,7 +92,9 @@ const AnimaClinicTool = Tool.make("t3_anima_clinic", {
     accent: Schema.optional(Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/))),
   }),
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaRecordTool = Tool.make("t3_anima_record", {
   ...shared,
   description:
@@ -93,7 +104,9 @@ const AnimaRecordTool = Tool.make("t3_anima_record", {
     name: Schema.optional(AnimaName),
   })),
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaOpensListTool = Tool.make("t3_anima_opens_list", {
   ...shared,
   description:
@@ -102,14 +115,17 @@ const AnimaOpensListTool = Tool.make("t3_anima_opens_list", {
   success: Schema.Struct({ name: AnimaName, opens: Schema.Array(AnimaOpen) }),
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaOpensUpdateTool = Tool.make("t3_anima_opens_update", {
   ...shared,
   description:
     "Change the open questions of an anima's project, acting as that anima. add needs question and resolves (what answers it); close removes a resolved open; assign hands it to another anima; update sets status (active, watching, blocked), context, or resolves.",
   parameters: Schema.Struct({ name: AnimaName, action: AnimaOpensAction }),
   success: AnimaMutationResult,
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaLibraryListTool = Tool.make("t3_anima_library_list", {
   ...shared,
   description:
@@ -117,7 +133,8 @@ const AnimaLibraryListTool = Tool.make("t3_anima_library_list", {
   success: AnimaLibraryListResult,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaLibraryReadTool = Tool.make("t3_anima_library_read", {
   ...shared,
   description: "Read one anima library entry by slug, as returned by t3_anima_library_list.",
@@ -125,7 +142,8 @@ const AnimaLibraryReadTool = Tool.make("t3_anima_library_read", {
   success: AnimaLibraryReadResult,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 const AnimaHealthTool = Tool.make("t3_anima_health", {
   ...shared,
   description:
@@ -134,7 +152,8 @@ const AnimaHealthTool = Tool.make("t3_anima_health", {
   success: AnimaHealthResult,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromBots);
 export const AnimaToolkit = Toolkit.make(
   AnimaListTool,
   AnimaReadTool,

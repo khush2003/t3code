@@ -1,3 +1,4 @@
+import * as BotBoards from "../bots/BotBoards.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
@@ -197,6 +198,7 @@ function startWithMissingWorktree(
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
         Layer.mock(ThreadAnimaWake.ThreadAnimaWake)({}),
         Layer.mock(AnimaRuntime.AnimaRuntime)({}),
+        Layer.mock(BotBoards.BotBoards)({ context: () => Effect.succeed("<bot-rules />") }),
       ),
     ),
   );
@@ -1017,6 +1019,7 @@ function makeLocalCommandHarness(input: {
             : { refresh: () => Effect.succeed(""), recall: () => Effect.succeed("") },
         ),
         Layer.mock(AnimaRuntime.AnimaRuntime)(input.anima ?? {}),
+        Layer.mock(BotBoards.BotBoards)({ context: () => Effect.succeed("<bot-rules />") }),
       ),
     ),
   );

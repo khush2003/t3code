@@ -1,3 +1,4 @@
+import * as BotBoards from "../bots/BotBoards.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -186,6 +187,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerRuntimePolicyProvided,
       layerThreadAnimaWake,
       AnimaRuntime.layer,
+      BotBoards.layerProvided,
     ),
   ),
 );

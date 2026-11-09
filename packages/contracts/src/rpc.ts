@@ -142,10 +142,17 @@ import {
   AnimaWakePreviewInput,
   AnimaWakePreviewResult,
   AnimaOnboardingPromptInput,
-  AnimaStartBotInput,
-  AnimaStartBotResult,
   AnimaOnboardingPromptResult,
 } from "./anima.ts";
+import {
+  BotBoard,
+  BotBoardInput,
+  BotError,
+  BotListResult,
+  BotRejectedError,
+  BotStartInput,
+  BotStartResult,
+} from "./bots.ts";
 import {
   AssetAccessError,
   AssetCreateUrlInput,
@@ -482,7 +489,9 @@ export const WS_METHODS = {
   animaBreathe: "anima.breathe",
   animaWakePreview: "anima.wakePreview",
   animaOnboardingPrompt: "anima.onboardingPrompt",
-  animaStartBot: "anima.startBot",
+  botsStart: "bots.start",
+  botsList: "bots.list",
+  botsBoard: "bots.board",
   animaExport: "anima.export",
   animaCompare: "anima.compare",
   animaImport: "anima.import",
@@ -1575,15 +1584,22 @@ const WsAnimaOnboardingPromptRpc = Rpc.make(WS_METHODS.animaOnboardingPrompt, {
   ]),
 });
 
-const WsAnimaStartBotRpc = Rpc.make(WS_METHODS.animaStartBot, {
-  payload: AnimaStartBotInput,
-  success: AnimaStartBotResult,
-  error: Schema.Union([
-    AnimaCommandRejectedError,
-    AnimaError,
-    AnimaNotFoundError,
-    EnvironmentAuthorizationError,
-  ]),
+const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
+  payload: BotStartInput,
+  success: BotStartResult,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsListRpc = Rpc.make(WS_METHODS.botsList, {
+  payload: Schema.Struct({}),
+  success: BotListResult,
+  error: Schema.Union([BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsBoardRpc = Rpc.make(WS_METHODS.botsBoard, {
+  payload: BotBoardInput,
+  success: BotBoard,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
 });
 
 const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
@@ -2502,7 +2518,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaBreatheRpc,
   WsAnimaWakePreviewRpc,
   WsAnimaOnboardingPromptRpc,
-  WsAnimaStartBotRpc,
+  WsBotsStartRpc,
+  WsBotsListRpc,
+  WsBotsBoardRpc,
   WsAnimaExportRpc,
   WsAnimaCompareRpc,
   WsAnimaImportRpc,
