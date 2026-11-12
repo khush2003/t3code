@@ -233,6 +233,8 @@ interface OpenCodeTurnTokenUsageAccumulator {
   reasoningTokens: number;
   hasSubagents: boolean;
   complete: boolean;
+  /** The newest counted step; its prompt plus output is the context the session now holds. */
+  lastStep: { readonly tokens: OpenCodeStepUsage["tokens"]; readonly at: string } | undefined;
 }
 
 function makeOpenCodeTurnTokenUsageAccumulator(): OpenCodeTurnTokenUsageAccumulator {
@@ -248,20 +250,43 @@ function makeOpenCodeTurnTokenUsageAccumulator(): OpenCodeTurnTokenUsageAccumula
     reasoningTokens: 0,
     hasSubagents: false,
     complete: true,
+    lastStep: undefined,
   };
 }
 
+/** Returns whether the step was newly counted. */
 function accumulateOpenCodeStepUsage(
   accumulator: OpenCodeTurnTokenUsageAccumulator,
   part: OpenCodeStepUsage,
-): void {
-  if (accumulator.partIds.has(part.id)) return;
+  at: DateTime.Utc,
+): boolean {
+  if (accumulator.partIds.has(part.id)) return false;
   accumulator.partIds.add(part.id);
+  accumulator.lastStep = { tokens: part.tokens, at: DateTime.formatIso(at) };
   accumulator.inputTokens += part.tokens.input + part.tokens.cache.read + part.tokens.cache.write;
   accumulator.cachedInputTokens += part.tokens.cache.read;
   accumulator.cacheCreationTokens += part.tokens.cache.write;
   accumulator.outputTokens += part.tokens.output + part.tokens.reasoning;
   accumulator.reasoningTokens += part.tokens.reasoning;
+  return true;
+}
+
+// Matches the OpenCode 2 adapter's snapshot so the context meter reads both runtimes alike.
+// The v1 runtime does not expose the model's context window, so the maximum stays unknown.
+function openCodeContextTokenUsage(
+  lastStep: NonNullable<OpenCodeTurnTokenUsageAccumulator["lastStep"]>,
+): NonNullable<OrchestrationV2ProviderTurn["tokenUsage"]> {
+  const { tokens } = lastStep;
+  const prompt = tokens.input + tokens.cache.read + tokens.cache.write;
+  return {
+    usedTokens: prompt + tokens.output,
+    maxTokens: null,
+    inputTokens: prompt,
+    cachedInputTokens: tokens.cache.read,
+    outputTokens: tokens.output,
+    reasoningOutputTokens: tokens.reasoning,
+    updatedAt: lastStep.at,
+  };
 }
 
 interface ActiveOpenCodeTurn {
@@ -1142,6 +1167,9 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 : providerRef(turn.nativeUserMessageId, "weak"),
             status,
             completedAt,
+            ...(turn.usage.lastStep === undefined
+              ? {}
+              : { tokenUsage: openCodeContextTokenUsage(turn.usage.lastStep) }),
             ...(completedAt === null
               ? {}
               : {
@@ -2395,9 +2423,15 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             usage.assistantOwnershipByMessageId.set(message.id, ownership);
             if (ownership !== "unknown") {
               if (ownership === "owned") {
+                const at = yield* DateTime.now;
+                let counted = false;
                 for (const step of usage.unresolvedStepsByMessageId.get(message.id)?.values() ??
                   []) {
-                  accumulateOpenCodeStepUsage(usage, step);
+                  counted = accumulateOpenCodeStepUsage(usage, step, at) || counted;
+                }
+                const turn = state.activeTurn;
+                if (counted && turn !== null && !turn.finalized) {
+                  yield* emitProviderTurn(state, turn, "running", null);
                 }
               }
               usage.unresolvedStepsByMessageId.delete(message.id);
@@ -2441,8 +2475,11 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           if (part.type === "step-finish") {
             const usage = turn.usage;
             const ownership = usage.assistantOwnershipByMessageId.get(part.messageID);
-            if (ownership === "owned") accumulateOpenCodeStepUsage(usage, part);
-            else if (
+            if (ownership === "owned") {
+              if (accumulateOpenCodeStepUsage(usage, part, yield* DateTime.now)) {
+                yield* emitProviderTurn(state, turn, "running", null);
+              }
+            } else if (
               ownership === "unknown" ||
               (ownership === undefined && !state.messageRoles.has(part.messageID))
             ) {

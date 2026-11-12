@@ -379,6 +379,31 @@ describe("OpenCodeAdapterV2", () => {
                 hasSubagents: false,
               },
         );
+        // Each step's context snapshot reaches the client while the turn is still running.
+        const { updatedAt, ...context } = completed?.providerTurn.tokenUsage ?? {};
+        assert.deepEqual(
+          ending === "unavailable" ? undefined : context,
+          ending === "unavailable"
+            ? undefined
+            : {
+                usedTokens: 22,
+                maxTokens: null,
+                inputTokens: 17,
+                cachedInputTokens: 3,
+                outputTokens: 5,
+                reasoningOutputTokens: 2,
+              },
+        );
+        assert.strictEqual(
+          events.some(
+            (event) =>
+              event.type === "provider_turn.updated" &&
+              event.providerTurn.status === "running" &&
+              event.providerTurn.tokenUsage !== undefined,
+          ),
+          ending !== "unavailable",
+        );
+        if (ending !== "unavailable") assert.isString(updatedAt);
       }).pipe(
         Effect.provide(Layer.merge(IdAllocator.layer, McpProviderSessions.layer)),
         Effect.scoped,
