@@ -1,4 +1,6 @@
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -11,12 +13,14 @@ import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { unavailable } from "../../threadAccess.ts";
 import { BotToolkit } from "./tools.ts";
 
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
 const RECALL_HITS = 12;
+const BOT_MESSAGES_PER_HOUR = 12;
 const NOTE_HITS = 5;
 const RECALL_CHARS = 4_000;
 
@@ -43,8 +47,52 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
     Effect.gen(function* () {
       const { bot } = yield* callerBot;
       const boards = yield* BotBoards.BotBoards;
-      const sources = yield* boards.sources(bot.name, { includeClosed: input.includeClosed });
+      if (input.bot !== undefined && input.bot !== bot.name) {
+        const other = bot.oversees
+          ? yield* BotStore.BotStore.pipe(Effect.flatMap((store) => store.getBot(input.bot!)))
+          : null;
+        if (other === null)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: bot.oversees
+              ? `No bot is named ${input.bot}.`
+              : "Only a bot that oversees the others reads another bot's board. Ask that bot with t3_bot_tell.",
+          });
+      }
+      const sources = yield* boards.sources(input.bot ?? bot.name, {
+        includeClosed: input.includeClosed,
+      });
       return { items: deriveBoard(sources) };
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_bot_tell: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { bot } = yield* callerBot;
+      const store = yield* BotStore.BotStore;
+      const other = input.bot === bot.name ? null : yield* store.getBot(input.bot);
+      if (other === null || other.threadId === null)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `No other bot is named ${input.bot}. Your context lists the bots.`,
+        });
+      const since = DateTime.formatIso(
+        DateTime.subtractDuration(yield* DateTime.now, Duration.hours(1)),
+      );
+      const told = yield* store.countBotMessage(bot.name, other.name, since);
+      // Two bots answering each other would never stop by themselves.
+      if (told > BOT_MESSAGES_PER_HOUR)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `You told ${other.name} ${told - 1} things in the last hour. Stop, and tell your person what is going on between you.`,
+        });
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      const sent = yield* service.sendToThread(scope, {
+        threadId: other.threadId,
+        message: `From the bot "${bot.name}": ${input.message}\n\n(Answer with t3_bot_tell to "${bot.name}" only when it needs an answer.)`,
+        mode: "queue",
+      });
+      return { delivery: sent.delivery };
     }).pipe(Effect.mapError(failure)),
   ),
   t3_bot_item_save: McpToolAccess.actsAsCaller((input) =>

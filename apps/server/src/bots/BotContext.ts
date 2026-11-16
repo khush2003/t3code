@@ -5,6 +5,7 @@ import type { BotNote, BotRecord } from "./BotStore.ts";
 const ITEMS_SHOWN = 30;
 const THREADS_PER_ITEM = 8;
 const FILES_PER_ITEM = 6;
+const OTHER_ITEMS_SHOWN = 6;
 const RESULT_CHARS = 300;
 const STALE_AFTER_MS = 2 * 60_000;
 
@@ -20,6 +21,7 @@ export const BOT_RULES = [
   "- When the user states something that should hold from now on (how they like work done, a priority, a standing decision), add it to your charter with t3_bot_charter_set.",
   "- You keep this whole conversation and every message of your finished tasks' threads, even after this conversation is compacted or a machine goes offline. Before answering about earlier work, a past decision or anything you do not see here, search with t3_bot_recall and say when and where it comes from. Never answer such a question from a guess.",
   "- You cannot open files, but your tasks can hand them to you: every task is told to hand over what it makes for a person to look at (a document, a screenshot, a recording, a preview link). It is filed under the work item, where your person opens it from the board. Ask for such a file in the task when you want one, and name it when you report.",
+  "- The other bots are listed in your context. To ask one something or hand it work that fits its purpose, use t3_bot_tell, and say everything it needs. Tell another bot only what it needs to act: no thanks, no status it did not ask for.",
   "- Your notes are written for you by a background pass over this conversation and your threads; each rests on a message you can find with t3_bot_recall. When one is wrong or no longer holds, retire it with t3_bot_note_retire and say why.",
   "- Keep the user's attention: reply briefly, say what you started or what came back with its thread link, and ask only for a decision you cannot make.",
   "- To follow up on a task, t3_thread_send to its thread. To look closer, t3_thread_read. To stop one, task_cancel.",
@@ -83,12 +85,20 @@ export const renderBotStanding = (
     `<charter bot="${bot.name}">`,
     bot.charter,
     "</charter>",
+    ...(bot.oversees
+      ? [
+          "<role>You oversee the other bots and are your person's one point of contact for all of them. Every turn shows what each is doing; read one's whole board with t3_bot_board and its name. Give work to the bot whose purpose fits with t3_bot_tell, and start tasks yourself only when none fits.</role>",
+        ]
+      : []),
     ...(notes.length === 0 ? [] : ["<notes>", ...describeNotes(notes), "</notes>"]),
     "<other-bots>",
     others.length === 0
       ? "None."
       : others
-          .map((other) => `- ${other.name}: ${other.purpose} (${other.openItems} open items)`)
+          .map(
+            (other) =>
+              `- ${other.name}${other.oversees ? ", oversees the other bots" : ""}: ${other.purpose}`,
+          )
           .join("\n"),
     "</other-bots>",
   ].join("\n");
@@ -101,6 +111,11 @@ export const renderBotStanding = (
 export function renderBotContext(input: {
   readonly standing: string | undefined;
   readonly fresh?: boolean;
+  /** For a bot that oversees the others: what each of them has open, read now. */
+  readonly others?: ReadonlyArray<{
+    readonly name: string;
+    readonly items: ReadonlyArray<BotBoardItem>;
+  }>;
   readonly items: ReadonlyArray<BotBoardItem>;
   readonly unfiled: ReadonlyArray<BotBoardThread>;
   readonly now: string;
@@ -128,5 +143,24 @@ export function renderBotContext(input: {
           ...input.unfiled.map((thread) => describeThread(thread, input.now, true)),
         ]),
     "</board>",
+    ...(input.others === undefined
+      ? []
+      : [
+          `<other-bots-work now="${input.now.slice(0, 16)}">`,
+          ...input.others.map((other) =>
+            other.items.length === 0
+              ? `- ${other.name}: nothing open`
+              : [
+                  `- ${other.name}: ${other.items.length} open`,
+                  ...other.items.slice(0, OTHER_ITEMS_SHOWN).map((item) => {
+                    const count = (status: string) =>
+                      item.threads.filter((thread) => thread.status === status).length;
+                    const needs = count("needs-input");
+                    return `  - ${item.title} (${count("working")} working${needs === 0 ? "" : `, ${needs} waiting on the person`})`;
+                  }),
+                ].join("\n"),
+          ),
+          "</other-bots-work>",
+        ]),
   ].join("\n");
 }

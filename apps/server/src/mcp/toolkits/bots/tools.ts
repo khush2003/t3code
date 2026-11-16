@@ -1,6 +1,7 @@
 import {
   BotBoardItem,
   BotCharter,
+  BotName,
   BotWorkItemId,
   BotWorkItemState,
   EnvironmentId,
@@ -17,6 +18,7 @@ import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 
 const shared = {
   failure: OrchestratorMcpFailure,
@@ -26,6 +28,7 @@ const shared = {
     BotStore.BotStore,
     BotBoards.BotBoards,
     BotFiles.BotFiles,
+    OrchestratorMcpService.OrchestratorMcpService,
     ThreadManagementService.ThreadManagementService,
     ProjectService.ProjectService,
   ],
@@ -35,7 +38,11 @@ const BotBoardTool = Tool.make("t3_bot_board", {
   ...shared,
   description:
     "Your work items with their threads' live status. Your turn context already has the open ones; use this for done and dropped items.",
-  parameters: Schema.Struct({ includeClosed: Schema.optional(Schema.Boolean) }),
+  parameters: Schema.Struct({
+    includeClosed: Schema.optional(Schema.Boolean),
+    /** Another bot's board, for a bot that oversees the others. */
+    bot: Schema.optional(BotName),
+  }),
   success: Schema.Struct({ items: Schema.Array(BotBoardItem) }),
 })
   .annotate(Tool.Readonly, true)
@@ -115,6 +122,19 @@ const BotNoteRetireTool = Tool.make("t3_bot_note_retire", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
 
+const BotTellTool = Tool.make("t3_bot_tell", {
+  ...shared,
+  description:
+    "Tell another bot something, ask it a question, or hand it work that fits its purpose. It gets a turn with your message and answers the same way when an answer is needed. Say everything it needs: it does not see your conversation.",
+  parameters: Schema.Struct({
+    bot: BotName,
+    message: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),
+  }),
+  success: Schema.Struct({ delivery: Schema.String }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
+
 const BotFileGiveTool = Tool.make("t3_bot_file_give", {
   ...shared,
   description:
@@ -139,5 +159,6 @@ export const BotToolkit = Toolkit.make(
   BotCharterSetTool,
   BotRecallTool,
   BotNoteRetireTool,
+  BotTellTool,
   BotFileGiveTool,
 );

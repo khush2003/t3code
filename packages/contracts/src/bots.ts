@@ -32,6 +32,8 @@ export type BotThreadStatus = typeof BotThreadStatus.Type;
 export const BotStartInput = Schema.Struct({
   name: BotName,
   purpose: Schema.optional(BotPurpose),
+  /** It reads every other bot's board and is the one to talk to about all of them. */
+  oversees: Schema.optional(Schema.Boolean),
 });
 export type BotStartInput = typeof BotStartInput.Type;
 
@@ -43,6 +45,7 @@ export const BotSummary = Schema.Struct({
   purpose: Schema.String,
   threadId: Schema.NullOr(ThreadId),
   openItems: Schema.Number,
+  oversees: Schema.Boolean,
 });
 export type BotSummary = typeof BotSummary.Type;
 

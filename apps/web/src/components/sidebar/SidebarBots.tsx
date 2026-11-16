@@ -21,6 +21,7 @@ import {
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -54,6 +55,7 @@ function StartBotDialog(props: {
       : props.home;
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [oversees, setOversees] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const normalized = name.trim().toLowerCase().replaceAll(/\s+/g, "-");
@@ -66,7 +68,11 @@ function StartBotDialog(props: {
     setStarting(true);
     const result = await start({
       environmentId,
-      input: { name: normalized, ...(purpose.trim() === "" ? {} : { purpose: purpose.trim() }) },
+      input: {
+        name: normalized,
+        ...(purpose.trim() === "" ? {} : { purpose: purpose.trim() }),
+        ...(oversees ? { oversees: true } : {}),
+      },
     });
     setStarting(false);
     if (result._tag === "Failure") {
@@ -78,6 +84,7 @@ function StartBotDialog(props: {
     }
     setName("");
     setPurpose("");
+    setOversees(false);
     setError(null);
     props.onStarted(environmentId, result.value.threadId);
   };
@@ -156,6 +163,20 @@ function StartBotDialog(props: {
                   </span>
                 </Label>
               )}
+              <Label className="flex min-w-0 items-start">
+                <Checkbox
+                  className="mt-0.5 me-2"
+                  checked={oversees}
+                  onCheckedChange={(checked) => setOversees(checked === true)}
+                />
+                <span className="min-w-0">
+                  Oversees the other bots
+                  <span className="block text-muted-foreground text-xs font-normal">
+                    It sees what every bot is working on and passes work to the one that fits, so
+                    you can talk to it about all of them. Only a new bot can be given this.
+                  </span>
+                </span>
+              </Label>
             </div>
             {error && (
               <p role="alert" className="mt-3 text-destructive">

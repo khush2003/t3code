@@ -24,6 +24,8 @@ export interface BotRecord {
   readonly threadId: ThreadId | null;
   readonly purpose: string;
   readonly charter: string;
+  /** It reads every other bot's board and is the person's one point of contact. */
+  readonly oversees: boolean;
   /** What its model session was last sent in full, and the run that carried it. */
   readonly context: {
     readonly sent: string | null;
@@ -163,7 +165,17 @@ export class BotStore extends Context.Service<
       readonly name: BotName;
       readonly purpose: string;
       readonly charter: string;
+      readonly oversees?: boolean | undefined;
     }) => Effect.Effect<BotRecord, BotError>;
+    /**
+     * Records that one bot told another something, and returns how often it has since `since`,
+     * this time included.
+     */
+    readonly countBotMessage: (
+      from: BotName,
+      to: BotName,
+      since: string,
+    ) => Effect.Effect<number, BotError>;
     readonly setThread: (name: BotName, threadId: ThreadId) => Effect.Effect<void, BotError>;
     readonly botForThread: (threadId: ThreadId) => Effect.Effect<BotRecord | null, BotError>;
     /** The charter it replaces is kept. */
@@ -298,7 +310,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -393,6 +405,19 @@ const FILES = [
   "CREATE INDEX IF NOT EXISTS files_item ON files (item_id, created_at)",
 ];
 
+const OVERSEES_COLUMN = "ALTER TABLE bots ADD COLUMN oversees INTEGER NOT NULL DEFAULT 0";
+
+// What one bot told another, kept only to stop two of them answering each other without end.
+const BOT_MESSAGES = [
+  `CREATE TABLE IF NOT EXISTS bot_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_bot TEXT NOT NULL,
+    to_bot TEXT NOT NULL,
+    at TEXT NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS bot_messages_pair ON bot_messages (from_bot, to_bot, at)",
+];
+
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
   "ALTER TABLE bots ADD COLUMN context_run TEXT",
@@ -409,8 +434,10 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
   yield* sql.withTransaction(
     Effect.gen(function* () {
       if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
-      for (const statement of [...MESSAGE_COPIES, ...NOTES, ...FILES]) yield* sql.unsafe(statement);
+      for (const statement of [...MESSAGE_COPIES, ...NOTES, ...FILES, ...BOT_MESSAGES])
+        yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
+      if (version >= 1 && version < 6) yield* sql.unsafe(OVERSEES_COLUMN);
       if (version >= 1) {
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         return;
@@ -425,7 +452,8 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
           updated_at TEXT NOT NULL,
           context_sent TEXT,
           context_run TEXT,
-          context_due INTEGER NOT NULL DEFAULT 1
+          context_due INTEGER NOT NULL DEFAULT 1,
+          oversees INTEGER NOT NULL DEFAULT 0
         )
       `;
       yield* sql`
@@ -516,6 +544,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     context_sent: string | null;
     context_run: string | null;
     context_due: number;
+    oversees: number;
   };
   const toBot = (row: BotRow | undefined): BotRecord | null =>
     row === undefined
@@ -526,6 +555,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           purpose: row.purpose,
           charter: row.charter,
           context: { sent: row.context_sent, runId: row.context_run, due: row.context_due !== 0 },
+          oversees: row.oversees !== 0,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         };
@@ -556,8 +586,11 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     function* (input) {
       const at = yield* now;
       yield* sql`
-        INSERT INTO bots (name, purpose, charter, created_at, updated_at)
-        VALUES (${input.name}, ${input.purpose}, ${input.charter}, ${at}, ${at})
+        INSERT INTO bots (name, purpose, charter, created_at, updated_at, oversees)
+        VALUES (
+          ${input.name}, ${input.purpose}, ${input.charter}, ${at}, ${at},
+          ${input.oversees === true ? 1 : 0}
+        )
         ON CONFLICT (name) DO NOTHING
       `.pipe(Effect.mapError(fail("create a bot")));
       return (yield* getBot(input.name))!;
@@ -877,6 +910,20 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a copied thread")),
     );
 
+  const countBotMessage: BotStore["Service"]["countBotMessage"] = Effect.fn(
+    "BotStore.countBotMessage",
+  )(
+    function* (from, to, since) {
+      yield* sql`INSERT INTO bot_messages (from_bot, to_bot, at) VALUES (${from}, ${to}, ${yield* now})`;
+      const [row] = yield* sql<{ count: number }>`
+        SELECT COUNT(*) AS count FROM bot_messages
+        WHERE from_bot = ${from} AND to_bot = ${to} AND at >= ${since}
+      `;
+      return row?.count ?? 0;
+    },
+    Effect.mapError(fail("count messages between bots")),
+  );
+
   type FileRow = {
     id: string;
     bot: string;
@@ -1166,6 +1213,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     markCopied,
     recall,
     threadMessages,
+    countBotMessage,
     addFile,
     itemFiles,
     storedFileBytes,

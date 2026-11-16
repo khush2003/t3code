@@ -1142,7 +1142,10 @@ const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentHandlers.layer,
 ).pipe(Layer.provide(ThreadCommandExecutor.layer));
 
-const layerBotToolkit = toolkitRegistration(BotToolkit, BotHandlers.layer);
+const layerBotToolkit = toolkitRegistration(BotToolkit, BotHandlers.layer).pipe(
+  // One bot tells another through the same send every thread uses.
+  Layer.provide(OrchestratorMcpService.layer),
+);
 
 const layerAnimaToolkit = toolkitRegistration(AnimaToolkit, AnimaHandlers.layer).pipe(
   Layer.provide(AnimaService.layer),

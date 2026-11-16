@@ -104,6 +104,7 @@ const make = Effect.gen(function* () {
             purpose: bot.purpose,
             threadId: bot.threadId,
             openItems: items.length,
+            oversees: bot.oversees,
           })),
         ),
       ),
@@ -130,9 +131,19 @@ const make = Effect.gen(function* () {
         turn.startedRunIds.has(runId);
       if (!held) yield* store.setContextSent(bot.name, standing, turn.runId);
       const board = yield* sources(bot.name, { tasks });
+      const others = bot.oversees
+        ? yield* Effect.forEach(
+            (yield* store.listBots).filter((other) => other.name !== bot.name),
+            (other) =>
+              sources(other.name).pipe(
+                Effect.map((theirs) => ({ name: other.name, items: deriveBoard(theirs) })),
+              ),
+          )
+        : undefined;
       return renderBotContext({
         standing: held ? undefined : standing,
         fresh: turn.fresh === true,
+        ...(others === undefined ? {} : { others }),
         items: deriveBoard(board),
         unfiled: unfiledTasks(board),
         now: DateTime.formatIso(board.now),

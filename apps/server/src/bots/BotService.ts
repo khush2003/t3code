@@ -121,6 +121,7 @@ const make = Effect.gen(function* () {
       name: input.name,
       purpose,
       charter: initialCharter(purpose),
+      oversees: input.oversees,
     });
     let threadId = bot.threadId ?? ThreadId.make(`bot:${input.name}`);
     // A deleted thread keeps its id, so a bot started after one takes the next.

@@ -11,13 +11,46 @@ import * as BotStore from "./BotStore.ts";
 
 const layer = BotBoards.layer.pipe(
   Layer.provideMerge(BotStore.layerMemory),
-  Layer.provide(Layer.mock(ProjectionStore.ProjectionStoreV2)({})),
+  Layer.provide(
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({
+      getThreadRecords: () => Effect.succeed({ subagents: [] } as never),
+    }),
+  ),
   Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
 );
 const atlas = BotName.make("atlas");
 const threadId = ThreadId.make("bot:atlas");
 
 describe("BotBoards.context", () => {
+  it.effect("shows a bot that oversees the others what each of them has open", () =>
+    Effect.gen(function* () {
+      const store = yield* BotStore.BotStore;
+      const boards = yield* BotBoards.BotBoards;
+      const chief = BotName.make("chief");
+      yield* store.ensureBot({ name: chief, purpose: "Everything", charter: "c", oversees: true });
+      yield* store.setThread(chief, ThreadId.make("bot:chief"));
+      yield* store.ensureBot({ name: atlas, purpose: "Ship it", charter: "c" });
+      yield* store.setThread(atlas, threadId);
+      yield* store.saveItem(atlas, { title: "Fix the posters" });
+      const turn = { runId: "run-1", startedRunIds: new Set<string>() };
+
+      const overseer = yield* boards.context(ThreadId.make("bot:chief"), [], turn);
+      expect(overseer).toContain("You oversee the other bots");
+      expect(overseer).toContain("- atlas: 1 open");
+      expect(overseer).toContain("Fix the posters (0 working)");
+      const other = yield* boards.context(threadId, [], turn);
+      expect(other).toContain("- chief, oversees the other bots: Everything");
+      expect(other).not.toContain("other-bots-work");
+
+      // The twelfth message in an hour is the last one a bot may send another.
+      const since = "1960-01-01T00:00:00.000Z";
+      expect(yield* store.countBotMessage(chief, atlas, since)).toBe(1);
+      expect(yield* store.countBotMessage(atlas, chief, since)).toBe(1);
+      expect(yield* store.countBotMessage(chief, atlas, since)).toBe(2);
+      expect(yield* store.countBotMessage(chief, atlas, "2999-01-01T00:00:00.000Z")).toBe(0);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("sends the charter only to a session that does not hold it", () =>
     Effect.gen(function* () {
       const store = yield* BotStore.BotStore;
