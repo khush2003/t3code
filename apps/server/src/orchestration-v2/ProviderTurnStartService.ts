@@ -59,6 +59,7 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
 import * as BotBoards from "../bots/BotBoards.ts";
+import { botSessionDue, SESSION_TAIL_RUNS } from "../bots/BotSession.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
@@ -936,18 +937,37 @@ export const layer: Layer.Layer<
           cause: "A bot runs on Claude. Choose a Claude model for this thread.",
         });
       }
-      const botContext =
+      const botContextFor = (fresh: boolean) =>
         projection.thread.bot === true
-          ? yield* botBoards.context(projection.thread.id, projection.subagents, {
+          ? botBoards.context(projection.thread.id, projection.subagents, {
               runId,
+              fresh,
               startedRunIds: new Set(
                 projection.runs.flatMap((source) => (source.startedAt === null ? [] : [source.id])),
               ),
             })
-          : "";
-      const wakeContext = [identityContext, botContext, recallContext, runtimeNotices.text]
-        .filter((part) => part !== "")
-        .join("\n\n");
+          : Effect.succeed("");
+      const wakeContextWith = (botContext: string) =>
+        [identityContext, botContext, recallContext, runtimeNotices.text]
+          .filter((part) => part !== "")
+          .join("\n\n");
+      const wakeContext = wakeContextWith(yield* botContextFor(false));
+      const lastEndedRun = projection.runs.findLast(
+        (source) => source.ordinal < run.ordinal && source.completedAt !== null,
+      );
+      const replaceBotSession =
+        projection.thread.bot === true &&
+        providerThread.nativeThreadRef !== null &&
+        // A turn that only compacts needs the session it was asked to compact.
+        !isCompactionCommandMessage(message) &&
+        botSessionDue({
+          usedTokens: (
+            latestNativeContextUsage(projection, providerThread)?.usage ??
+            providerThread.contextUsage
+          )?.usedTokens,
+          lastRunEndedAt: lastEndedRun?.completedAt ?? null,
+          now: yield* DateTime.now,
+        });
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -1165,7 +1185,16 @@ export const layer: Layer.Layer<
             coveredRunOrdinals: { from: 1, to: Math.max(1, run.ordinal - 1) },
             strategy: "full_thread_summary",
             runs: projection.runs,
-            items: (yield* projectionStore.getTurnStartHistory(input.threadId)).filter(
+            items: (yield* projectionStore.getTurnStartHistory(
+              input.threadId,
+              // A bot's conversation never ends: its fresh session gets the tail, its memory the rest.
+              projection.thread.bot === true
+                ? projection.runs
+                    .filter((source) => source.ordinal < run.ordinal)
+                    .slice(-SESSION_TAIL_RUNS)
+                    .map((source) => source.id)
+                : undefined,
+            )).filter(
               (item) =>
                 item.runId === null ||
                 projection.runs.some(
@@ -1337,14 +1366,16 @@ export const layer: Layer.Layer<
             handoff.delivery?.status === "pending",
         );
         const resumed = yield* Effect.result(
-          uncertainDelivery
+          uncertainDelivery || replaceBotSession
             ? Effect.fail(
                 new ProviderAdapter.ProviderAdapterTurnStartError({
                   driver: session.driver,
                   threadId: projection.thread.id,
                   providerThreadId: providerThread.id,
                   runId,
-                  cause: "Uncertain native history injection",
+                  cause: uncertainDelivery
+                    ? "Uncertain native history injection"
+                    : "A bot's session is replaced",
                 }),
               )
             : session.resumeThread({
@@ -1424,9 +1455,11 @@ export const layer: Layer.Layer<
           runId,
           reason: uncertainDelivery
             ? "uncertain_history_delivery"
-            : resumed._tag === "Success"
-              ? "handoff_budget_exhausted"
-              : "resume_failed",
+            : replaceBotSession
+              ? "bot_session_replaced"
+              : resumed._tag === "Success"
+                ? "handoff_budget_exhausted"
+                : "resume_failed",
           errorTag: resumed._tag === "Failure" ? resumed.failure._tag : "ContextHandoffBudgetError",
         });
         const replacement = yield* loadFromProvider(
@@ -1681,7 +1714,12 @@ export const layer: Layer.Layer<
               ? ""
               : sideChatHandoff.summaryText;
           const context = [
-            compact ? "" : wakeContext,
+            // A session that turned out fresh holds nothing: the bot gets its charter and board whole.
+            compact
+              ? ""
+              : resumeFellBack && projection.thread.bot === true
+                ? wakeContextWith(yield* botContextFor(true))
+                : wakeContext,
             delivery.context,
             sideChatContext,
             restartNote,

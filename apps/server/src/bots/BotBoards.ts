@@ -40,7 +40,12 @@ export class BotBoards extends Context.Service<
     readonly context: (
       botThreadId: ThreadId,
       tasks: ReadonlyArray<OrchestrationV2Subagent>,
-      turn: { readonly runId: string; readonly startedRunIds: ReadonlySet<string> },
+      turn: {
+        readonly runId: string;
+        readonly startedRunIds: ReadonlySet<string>;
+        /** The session is new, so it holds nothing whatever was sent before. */
+        readonly fresh?: boolean;
+      },
     ) => Effect.Effect<string>;
   }
 >()("t3/bots/BotBoards") {}
@@ -116,6 +121,7 @@ const make = Effect.gen(function* () {
       const { sent, runId, due } = bot.context;
       // A run retried is sent it again: nothing shows its first try reached the model.
       const held =
+        turn.fresh !== true &&
         !due &&
         sent === standing &&
         runId !== null &&
@@ -125,6 +131,7 @@ const make = Effect.gen(function* () {
       const board = yield* sources(bot.name, { tasks });
       return renderBotContext({
         standing: held ? undefined : standing,
+        fresh: turn.fresh === true,
         items: deriveBoard(board),
         unfiled: unfiledTasks(board),
         now: DateTime.formatIso(board.now),

@@ -90,6 +90,7 @@ export const renderBotStanding = (
  */
 export function renderBotContext(input: {
   readonly standing: string | undefined;
+  readonly fresh?: boolean;
   readonly items: ReadonlyArray<BotBoardItem>;
   readonly unfiled: ReadonlyArray<BotBoardThread>;
   readonly now: string;
@@ -97,6 +98,11 @@ export function renderBotContext(input: {
   const full = input.standing !== undefined;
   const shown = input.items.slice(0, ITEMS_SHOWN);
   return [
+    ...(input.fresh === true
+      ? [
+          "<session>This is a fresh session of your one ongoing conversation. You were handed its last few turns; everything earlier is in your memory, so search it with t3_bot_recall before you say you do not know.</session>",
+        ]
+      : []),
     ...(input.standing === undefined ? [] : [input.standing]),
     `<board now="${input.now.slice(0, 16)}">`,
     shown.length === 0

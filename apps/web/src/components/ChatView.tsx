@@ -2485,6 +2485,8 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const resumeCompactionTokens =
     activeContextWindow &&
+    // A bot's large or idle session is replaced on its next turn, so there is nothing to compact.
+    activeThread?.bot !== true &&
     resolveIdleCompaction(
       settings,
       activeProviderInstanceId ?? ProviderInstanceId.make("claudeAgent"),

@@ -39,8 +39,17 @@ describe("BotBoards.context", () => {
       expect(yield* hasCharter("run-4", ["run-2", "run-3"])).toBe(true);
       expect(yield* hasCharter("run-5", ["run-4"])).toBe(false);
 
+      // A fresh session holds nothing, whatever an earlier one was sent.
+      const fresh = yield* boards.context(threadId, [], {
+        runId: "run-5b",
+        startedRunIds: new Set(["run-4", "run-5"]),
+        fresh: true,
+      });
+      expect(fresh).toContain("Ships daily");
+      expect(fresh).toContain("fresh session");
+
       yield* store.markContextLost(threadId);
-      expect(yield* hasCharter("run-6", ["run-4", "run-5"])).toBe(true);
+      expect(yield* hasCharter("run-6", ["run-4", "run-5", "run-5b"])).toBe(true);
       expect((yield* store.charterHistory(atlas)).map((past) => past.charter)).toEqual([
         "Prefers small PRs.",
       ]);
