@@ -75,7 +75,8 @@ export const BotBoardItem = Schema.Struct({
 export type BotBoardItem = typeof BotBoardItem.Type;
 
 export const BotBoardInput = Schema.Struct({
-  name: BotName,
+  /** The bot's own thread. */
+  threadId: ThreadId,
   includeClosed: Schema.optional(Schema.Boolean),
 });
 export type BotBoardInput = typeof BotBoardInput.Type;
@@ -84,6 +85,8 @@ export const BotBoard = Schema.Struct({
   name: BotName,
   purpose: Schema.String,
   items: Schema.Array(BotBoardItem),
+  /** Running tasks the bot started that sit on no item. */
+  unfiled: Schema.Array(BotBoardThread),
 });
 export type BotBoard = typeof BotBoard.Type;
 

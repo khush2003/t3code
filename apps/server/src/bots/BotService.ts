@@ -25,7 +25,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { deriveBoard } from "./BotBoard.ts";
+import { deriveBoard, unfiledTasks } from "./BotBoard.ts";
 import * as BotBoards from "./BotBoards.ts";
 import * as BotStore from "./BotStore.ts";
 
@@ -173,10 +173,15 @@ const make = Effect.gen(function* () {
   );
 
   const board: BotService["Service"]["board"] = Effect.fn("BotService.board")(function* (input) {
-    const bot = yield* store.getBot(input.name);
-    if (bot === null) return yield* new BotRejectedError({ reason: `No bot named ${input.name}.` });
-    const sources = yield* boards.sources(input.name, { includeClosed: input.includeClosed });
-    return { name: bot.name, purpose: bot.purpose, items: deriveBoard(sources) };
+    const bot = yield* store.botForThread(input.threadId);
+    if (bot === null) return yield* new BotRejectedError({ reason: "This thread is not a bot." });
+    const sources = yield* boards.sources(bot.name, { includeClosed: input.includeClosed });
+    return {
+      name: bot.name,
+      purpose: bot.purpose,
+      items: deriveBoard(sources),
+      unfiled: unfiledTasks(sources),
+    };
   });
 
   return BotService.of({ start, list, board });

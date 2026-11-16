@@ -5,14 +5,19 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
-import { BotName, type ThreadId } from "@t3tools/contracts";
+import { BotName, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { PlusIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { botsEnvironment } from "../../state/bots";
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
+import {
+  useConnectedEnvironmentIds,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../../state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Button } from "../ui/button";
@@ -27,6 +32,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
 
@@ -35,11 +41,17 @@ const isBotName = Schema.is(BotName);
 function StartBotDialog(props: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onStarted: (threadId: ThreadId) => void;
-  readonly environmentId: NonNullable<ReturnType<typeof usePrimaryEnvironmentId>>;
+  readonly onStarted: (environmentId: EnvironmentId, threadId: ThreadId) => void;
+  readonly machines: readonly BotMachine[];
+  readonly home: EnvironmentId;
 }) {
   const id = useId();
   const start = useAtomCommand(botsEnvironment.start, { reportFailure: false });
+  const [chosen, setChosen] = useState<EnvironmentId | null>(null);
+  const environmentId =
+    chosen !== null && props.machines.some((machine) => machine.environmentId === chosen)
+      ? chosen
+      : props.home;
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +65,7 @@ function StartBotDialog(props: {
     }
     setStarting(true);
     const result = await start({
-      environmentId: props.environmentId,
+      environmentId,
       input: { name: normalized, ...(purpose.trim() === "" ? {} : { purpose: purpose.trim() }) },
     });
     setStarting(false);
@@ -67,7 +79,7 @@ function StartBotDialog(props: {
     setName("");
     setPurpose("");
     setError(null);
-    props.onStarted(result.value.threadId);
+    props.onStarted(environmentId, result.value.threadId);
   };
 
   return (
@@ -114,6 +126,36 @@ function StartBotDialog(props: {
                   onChange={(event) => setPurpose(event.target.value)}
                 />
               </Label>
+              {props.machines.length < 2 ? null : (
+                <Label className="flex min-w-0 flex-col items-stretch">
+                  Runs on
+                  <Select
+                    value={environmentId}
+                    onValueChange={(value) => {
+                      if (value !== null) setChosen(value as EnvironmentId);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Machine the bot runs on">
+                      <SelectValue>
+                        {
+                          props.machines.find((machine) => machine.environmentId === environmentId)
+                            ?.label
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {props.machines.map((machine) => (
+                        <SelectItem key={machine.environmentId} value={machine.environmentId}>
+                          {machine.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <span className="text-muted-foreground text-xs font-normal">
+                    Its memory stays on this machine, so keep your bots on one that is always on.
+                  </span>
+                </Label>
+              )}
             </div>
             {error && (
               <p role="alert" className="mt-3 text-destructive">
@@ -140,9 +182,17 @@ export function SidebarBots(props: {
   readonly routeThreadKey: string | null;
 }) {
   const router = useRouter();
-  const environmentId = usePrimaryEnvironmentId();
+  const primary = usePrimaryEnvironmentId();
+  const connected = useConnectedEnvironmentIds();
+  const { environments } = useEnvironments();
   const [starting, setStarting] = useState(false);
   const bots = props.threads.filter((thread) => thread.bot === true && thread.archivedAt === null);
+  const machines = environments
+    .filter((environment) => connected.includes(environment.environmentId))
+    .map(({ environmentId, label }) => ({ environmentId, label }));
+  const home = resolveBotHome(bots, machines, primary);
+  // Two machines each hosting bots is the case to notice: those bots share no memory.
+  const spread = new Set(bots.map((bot) => bot.environmentId)).size > 1;
 
   const open = (ref: ReturnType<typeof scopeThreadRef>) =>
     router.navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
@@ -151,7 +201,7 @@ export function SidebarBots(props: {
     <div data-testid="sidebar-bots" className="mb-1">
       <div className="flex h-7 items-center justify-between ps-2 pe-1 text-muted-foreground text-xs">
         <span>Bots</span>
-        {environmentId === null ? null : (
+        {home === null ? null : (
           <Button
             variant="ghost-muted"
             size="icon-xs"
@@ -162,12 +212,13 @@ export function SidebarBots(props: {
           </Button>
         )}
       </div>
-      {environmentId === null ? null : (
+      {home === null ? null : (
         <StartBotDialog
           open={starting}
           onOpenChange={setStarting}
-          environmentId={environmentId}
-          onStarted={(threadId) => {
+          machines={machines}
+          home={home}
+          onStarted={(environmentId, threadId) => {
             setStarting(false);
             void open(scopeThreadRef(environmentId, threadId));
           }}
@@ -185,6 +236,13 @@ export function SidebarBots(props: {
                   onClick={() => void open(ref)}
                 >
                   <span className="min-w-0 flex-1 truncate">{bot.title}</span>
+                  {spread ? (
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {environments.find(
+                        (environment) => environment.environmentId === bot.environmentId,
+                      )?.label ?? ""}
+                    </span>
+                  ) : null}
                   {isThreadWorking(bot) ? (
                     <span
                       aria-label="Working"

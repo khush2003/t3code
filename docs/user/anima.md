@@ -22,11 +22,19 @@ and steer that thread like any other. When a thread finishes, the bot wakes and 
 In the sidebar, press **+** next to **Bots**, give the bot a name and say what it is for. Starting a
 name you used before reopens that bot. Archive its thread to put a bot away.
 
+A bot's memory stays on the machine it was started on, and bots on different machines do not know
+each other. Keep your bots on one machine that is always on. With more than one machine connected,
+the dialog asks where the bot runs and suggests the machine your bots are already on.
+
 - A bot keeps a board: each piece of work is a work item with its threads, and their status is read
   from the threads themselves, including threads on linked machines. The bot sees the board on
-  every turn, so it keeps track even after its conversation is compacted.
+  every turn, so it keeps track even after its conversation is compacted. You see the same board in
+  the bot's thread details, where a thread that is waiting for you says so.
+- When a thread a bot started stops to ask a question, the bot is told. It answers when the answer
+  follows from what you said, and asks you otherwise.
 - A bot's charter holds what it is for and what you told it should hold from now on. Tell it, and it
   updates its charter.
+- A bot uses T3 Code's own tools only. MCP servers you set up for Claude are not loaded into it.
 - Every bot knows the others and what they are for.
 - When a thread finishes, its result is kept with the bot, so it stays answerable after the thread's
   machine goes offline.
