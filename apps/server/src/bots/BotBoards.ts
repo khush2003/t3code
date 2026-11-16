@@ -16,7 +16,7 @@ import * as Option from "effect/Option";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { type BoardSources, deriveBoard, taskThread, unfiledTasks } from "./BotBoard.ts";
-import { renderBotContext } from "./BotContext.ts";
+import { renderBotContext, renderBotStanding } from "./BotContext.ts";
 import * as BotStore from "./BotStore.ts";
 
 /** Reads a bot's board from its store and the threads it points at. */
@@ -32,10 +32,15 @@ export class BotBoards extends Context.Service<
       },
     ) => Effect.Effect<BoardSources, BotError>;
     readonly summaries: Effect.Effect<ReadonlyArray<BotSummary>, BotError>;
-    /** The context a bot's turn starts with; the rules alone when its store cannot be read. */
+    /**
+     * The context a bot's turn starts with, or "" when its store cannot be read. The charter
+     * and full board go only to a session that does not hold them: `startedRunIds` shows
+     * whether the run that last carried them ever reached the model.
+     */
     readonly context: (
       botThreadId: ThreadId,
       tasks: ReadonlyArray<OrchestrationV2Subagent>,
+      turn: { readonly runId: string; readonly startedRunIds: ReadonlySet<string> },
     ) => Effect.Effect<string>;
   }
 >()("t3/bots/BotBoards") {}
@@ -100,21 +105,25 @@ const make = Effect.gen(function* () {
   );
 
   const context: BotBoards["Service"]["context"] = Effect.fn("BotBoards.context")(
-    function* (botThreadId, tasks) {
+    function* (botThreadId, tasks, turn) {
       const bot = yield* store.botForThread(botThreadId);
-      const others = (yield* summaries).filter((other) => other.name !== bot?.name);
-      if (bot === null)
-        return renderBotContext({
-          bot: null,
-          others,
-          items: [],
-          unfiled: [],
-          now: DateTime.formatIso(yield* DateTime.now),
-        });
+      if (bot === null) return "";
+      const standing = renderBotStanding(
+        bot,
+        (yield* summaries).filter((other) => other.name !== bot.name),
+      );
+      const { sent, runId, due } = bot.context;
+      // A run retried is sent it again: nothing shows its first try reached the model.
+      const held =
+        !due &&
+        sent === standing &&
+        runId !== null &&
+        runId !== turn.runId &&
+        turn.startedRunIds.has(runId);
+      if (!held) yield* store.setContextSent(bot.name, standing, turn.runId);
       const board = yield* sources(bot.name, { tasks });
       return renderBotContext({
-        bot,
-        others,
+        standing: held ? undefined : standing,
         items: deriveBoard(board),
         unfiled: unfiledTasks(board),
         now: DateTime.formatIso(board.now),
@@ -123,18 +132,7 @@ const make = Effect.gen(function* () {
     (effect, botThreadId) =>
       effect.pipe(
         Effect.catch((error) =>
-          Effect.logWarning("bot context unavailable", { botThreadId, error }).pipe(
-            Effect.andThen(DateTime.now),
-            Effect.map((now) =>
-              renderBotContext({
-                bot: null,
-                others: [],
-                items: [],
-                unfiled: [],
-                now: DateTime.formatIso(now),
-              }),
-            ),
-          ),
+          Effect.logWarning("bot context unavailable", { botThreadId, error }).pipe(Effect.as("")),
         ),
       ),
   );
@@ -142,7 +140,7 @@ const make = Effect.gen(function* () {
   return BotBoards.of({ sources, summaries, context });
 });
 
-const layer = Layer.effect(BotBoards, make);
+export const layer = Layer.effect(BotBoards, make);
 
 /** With its store and projections; layers memoize by reference, so every user shares one store. */
 export const layerProvided = layer.pipe(

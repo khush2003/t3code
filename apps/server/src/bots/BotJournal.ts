@@ -1,8 +1,10 @@
 import type { OrchestrationV2Subagent, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
@@ -77,11 +79,20 @@ const make = Effect.gen(function* () {
     const bots = yield* store.listBots.pipe(Effect.orElseSucceed(() => []));
     for (const bot of bots) if (bot.threadId !== null) yield* recordFinished(bot.threadId);
     yield* forkParked(
+      store.backup.pipe(
+        Effect.catch((error) => Effect.logWarning("bot memory was not backed up", { error })),
+        Effect.repeat(Schedule.spaced(Duration.hours(6))),
+      ),
+    );
+    yield* forkParked(
       // Per domain event; most return at the type check.
       Stream.runForEach(engine.streamDomainEvents, (event) =>
         event.type === "subagent.updated" && event.payload.result !== null
           ? recordFinished(event.threadId).pipe(Effect.asVoid)
-          : Effect.void,
+          : // A compacted session may have lost the charter: the next turn sends it again.
+            event.type === "turn-item.updated" && event.payload.type === "compaction"
+            ? store.markContextLost(event.threadId).pipe(Effect.ignore)
+            : Effect.void,
       ),
     );
   });

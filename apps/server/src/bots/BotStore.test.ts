@@ -2,8 +2,15 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { BotName, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import * as ServerConfig from "../config.ts";
 
 import * as BotStore from "./BotStore.ts";
 
@@ -14,6 +21,40 @@ const atlas = BotName.make("atlas");
 const here = EnvironmentId.make("here");
 
 describe("BotStore", () => {
+  it.effect("backs the store up once a day and keeps the last week", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const base = yield* fs.makeTempDirectoryScoped({ prefix: "bot-store-" });
+      const config = yield* Layer.build(ServerConfig.ServerConfig.layerTest(process.cwd(), base));
+      const { stateDir } = Context.get(config, ServerConfig.ServerConfig);
+      const directory = path.join(stateDir, "bots-backups");
+      yield* Effect.gen(function* () {
+        const store = yield* BotStore.BotStore;
+        yield* store.ensureBot({ name: atlas, purpose: "Ship it", charter: "c" });
+        yield* fs.makeDirectory(directory, { recursive: true });
+        // The test clock starts in 1970, so these are the older copies.
+        for (let day = 1; day <= 8; day++)
+          yield* fs.writeFileString(path.join(directory, `bots-1960-01-0${day}.sqlite`), "old");
+        yield* store.backup;
+        yield* store.backup;
+      }).pipe(Effect.provide(BotStore.layer.pipe(Layer.provide(Layer.succeedContext(config)))));
+
+      const kept = (yield* fs.readDirectory(directory)).toSorted();
+      expect(kept).toHaveLength(7);
+      expect(kept.slice(0, 6)).toEqual(
+        [3, 4, 5, 6, 7, 8].map((day) => `bots-1960-01-0${day}.sqlite`),
+      );
+      const copy = yield* Layer.build(
+        NodeSqliteClient.layer({ filename: path.join(directory, kept[6]!) }),
+      );
+      const rows = yield* Context.get(copy, SqlClient.SqlClient)<{
+        name: string;
+      }>`SELECT name FROM bots`;
+      expect(rows.map((row) => row.name)).toEqual(["atlas"]);
+    }).pipe(Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer))),
+  );
+
   it.effect("keeps a bot's items, moves a thread between them, and records each result once", () =>
     Effect.gen(function* () {
       const store = yield* BotStore.BotStore;

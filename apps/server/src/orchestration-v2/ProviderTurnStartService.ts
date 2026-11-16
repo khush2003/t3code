@@ -938,7 +938,12 @@ export const layer: Layer.Layer<
       }
       const botContext =
         projection.thread.bot === true
-          ? yield* botBoards.context(projection.thread.id, projection.subagents)
+          ? yield* botBoards.context(projection.thread.id, projection.subagents, {
+              runId,
+              startedRunIds: new Set(
+                projection.runs.flatMap((source) => (source.startedAt === null ? [] : [source.id])),
+              ),
+            })
           : "";
       const wakeContext = [identityContext, botContext, recallContext, runtimeNotices.text]
         .filter((part) => part !== "")

@@ -11,7 +11,9 @@ import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
@@ -22,6 +24,13 @@ export interface BotRecord {
   readonly threadId: ThreadId | null;
   readonly purpose: string;
   readonly charter: string;
+  /** What its model session was last sent in full, and the run that carried it. */
+  readonly context: {
+    readonly sent: string | null;
+    readonly runId: string | null;
+    /** The session lost its earlier messages since, so the next turn sends it all again. */
+    readonly due: boolean;
+  };
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -82,7 +91,21 @@ export class BotStore extends Context.Service<
     }) => Effect.Effect<BotRecord, BotError>;
     readonly setThread: (name: BotName, threadId: ThreadId) => Effect.Effect<void, BotError>;
     readonly botForThread: (threadId: ThreadId) => Effect.Effect<BotRecord | null, BotError>;
+    /** The charter it replaces is kept. */
     readonly setCharter: (name: BotName, charter: string) => Effect.Effect<void, BotError>;
+    /** Charters a bot had before, newest first. */
+    readonly charterHistory: (
+      name: BotName,
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly replacedAt: string; readonly charter: string }>,
+      BotError
+    >;
+    readonly setContextSent: (
+      name: BotName,
+      sent: string,
+      runId: string,
+    ) => Effect.Effect<void, BotError>;
+    readonly markContextLost: (threadId: ThreadId) => Effect.Effect<void, BotError>;
     readonly listItems: (
       bot: BotName,
       options?: { readonly includeClosed?: boolean | undefined },
@@ -101,22 +124,48 @@ export class BotStore extends Context.Service<
     readonly itemForThread: (thread: BotThreadRef) => Effect.Effect<BotWorkItemId | null, BotError>;
     /** Idempotent per thread and run. */
     readonly recordEpisode: (episode: BotEpisodeRecord) => Effect.Effect<boolean, BotError>;
+    /** One copy of the whole store a day, the last week of them kept. */
+    readonly backup: Effect.Effect<void, BotError>;
     readonly latestEpisodes: (
       threads: ReadonlyArray<BotThreadRef>,
     ) => Effect.Effect<ReadonlyArray<BotEpisodeRecord>, BotError>;
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const BACKUPS_KEPT = 7;
+const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
+
+const CHARTER_HISTORY = `
+  CREATE TABLE IF NOT EXISTS charters (
+    bot TEXT NOT NULL,
+    replaced_at TEXT NOT NULL,
+    charter TEXT NOT NULL,
+    PRIMARY KEY (bot, replaced_at)
+  )
+`;
+
+const CONTEXT_COLUMNS = [
+  "ALTER TABLE bots ADD COLUMN context_sent TEXT",
+  "ALTER TABLE bots ADD COLUMN context_run TEXT",
+  "ALTER TABLE bots ADD COLUMN context_due INTEGER NOT NULL DEFAULT 1",
+];
 
 const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClient) {
   yield* sql`PRAGMA journal_mode = WAL`;
   yield* sql`PRAGMA synchronous = NORMAL`;
   yield* sql`PRAGMA busy_timeout = 5000`;
   const [row] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
-  if ((row?.user_version ?? 0) >= SCHEMA_VERSION) return;
+  const version = row?.user_version ?? 0;
+  if (version >= SCHEMA_VERSION) return;
   yield* sql.withTransaction(
     Effect.gen(function* () {
+      if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
+      if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
+      if (version >= 1) {
+        yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+        return;
+      }
       yield* sql`
         CREATE TABLE IF NOT EXISTS bots (
           name TEXT PRIMARY KEY,
@@ -124,7 +173,10 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
           purpose TEXT NOT NULL,
           charter TEXT NOT NULL,
           created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          context_sent TEXT,
+          context_run TEXT,
+          context_due INTEGER NOT NULL DEFAULT 1
         )
       `;
       yield* sql`
@@ -196,7 +248,10 @@ const toItem = (row: ItemRow): BotItemRecord => ({
 });
 
 /** An open SQLite client on its own file, so bot memory never waits on orchestration writes. */
-const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient) {
+const makeWith = Effect.fn("BotStore.make")(function* (
+  sql: SqlClient.SqlClient,
+  backup: BotStore["Service"]["backup"] = Effect.void,
+) {
   yield* migrate(sql);
   const random = yield* SecureRandom.SecureRandom;
   const fail = (operation: string) => (cause: unknown) => new BotError({ operation, cause });
@@ -209,6 +264,9 @@ const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient)
     charter: string;
     created_at: string;
     updated_at: string;
+    context_sent: string | null;
+    context_run: string | null;
+    context_due: number;
   };
   const toBot = (row: BotRow | undefined): BotRecord | null =>
     row === undefined
@@ -218,6 +276,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient)
           threadId: row.thread_id as ThreadId | null,
           purpose: row.purpose,
           charter: row.charter,
+          context: { sent: row.context_sent, runId: row.context_run, due: row.context_due !== 0 },
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         };
@@ -256,13 +315,42 @@ const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient)
     },
   );
 
-  const setCharter: BotStore["Service"]["setCharter"] = (name, charter) =>
-    now.pipe(
-      Effect.flatMap(
-        (at) => sql`UPDATE bots SET charter = ${charter}, updated_at = ${at} WHERE name = ${name}`,
+  const setCharter: BotStore["Service"]["setCharter"] = Effect.fn("BotStore.setCharter")(
+    function* (name, charter) {
+      const at = yield* now;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+            INSERT OR IGNORE INTO charters (bot, replaced_at, charter)
+            SELECT name, ${at}, charter FROM bots WHERE name = ${name} AND charter <> ${charter}
+          `;
+          yield* sql`UPDATE bots SET charter = ${charter}, updated_at = ${at} WHERE name = ${name}`;
+        }),
+      );
+    },
+    Effect.mapError(fail("update a charter")),
+  );
+
+  const charterHistory: BotStore["Service"]["charterHistory"] = (name) =>
+    sql<{ replaced_at: string; charter: string }>`
+      SELECT replaced_at, charter FROM charters WHERE bot = ${name} ORDER BY replaced_at DESC
+    `.pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({ replacedAt: row.replaced_at, charter: row.charter })),
       ),
+      Effect.mapError(fail("read a charter's history")),
+    );
+
+  const setContextSent: BotStore["Service"]["setContextSent"] = (name, sent, runId) =>
+    sql`
+      UPDATE bots SET context_sent = ${sent}, context_run = ${runId}, context_due = 0
+      WHERE name = ${name}
+    `.pipe(Effect.asVoid, Effect.mapError(fail("record a bot's context")));
+
+  const markContextLost: BotStore["Service"]["markContextLost"] = (threadId) =>
+    sql`UPDATE bots SET context_due = 1 WHERE thread_id = ${threadId}`.pipe(
       Effect.asVoid,
-      Effect.mapError(fail("update a charter")),
+      Effect.mapError(fail("record a bot's context")),
     );
 
   const listItems: BotStore["Service"]["listItems"] = (bot, options) =>
@@ -438,6 +526,9 @@ const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient)
     setThread,
     botForThread,
     setCharter,
+    charterHistory,
+    setContextSent,
+    markContextLost,
     listItems,
     getItem,
     saveItem,
@@ -446,6 +537,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (sql: SqlClient.SqlClient)
     itemForThread,
     recordEpisode,
     latestEpisodes,
+    backup,
   });
 });
 
@@ -454,10 +546,28 @@ export const layer = Layer.effect(
   BotStore,
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const context = yield* Layer.build(
-      NodeSqliteClient.layer({ filename: `${config.stateDir}/bots.sqlite` }),
+      NodeSqliteClient.layer({ filename: path.join(config.stateDir, "bots.sqlite") }),
     );
-    return yield* makeWith(Context.get(context, SqlClient.SqlClient));
+    const sql = Context.get(context, SqlClient.SqlClient);
+    const directory = path.join(config.stateDir, "bots-backups");
+    const backup = Effect.gen(function* () {
+      const day = DateTime.formatIso(yield* DateTime.now).slice(0, 10);
+      const target = path.join(directory, `bots-${day}.sqlite`);
+      yield* fs.makeDirectory(directory, { recursive: true });
+      if (yield* fs.exists(target)) return;
+      // Written beside its name, so a copy cut short is never taken for a whole one.
+      const partial = `${target}.partial`;
+      yield* fs.remove(partial, { force: true });
+      yield* sql.unsafe(`VACUUM INTO '${partial.replaceAll("'", "''")}'`);
+      yield* fs.rename(partial, target);
+      const copies = (yield* fs.readDirectory(directory)).filter((name) => BACKUP_NAME.test(name));
+      for (const name of copies.toSorted().slice(0, -BACKUPS_KEPT))
+        yield* fs.remove(path.join(directory, name));
+    }).pipe(Effect.mapError((cause) => new BotError({ operation: "back up bot memory", cause })));
+    return yield* makeWith(sql, backup);
   }).pipe(Effect.orDie),
 );
 
