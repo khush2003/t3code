@@ -16,6 +16,7 @@ import { BotToolkit } from "./tools.ts";
 
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
 const RECALL_HITS = 12;
+const NOTE_HITS = 5;
 const RECALL_CHARS = 4_000;
 
 const failure = (error: { readonly _tag: string; readonly message: string }) =>
@@ -99,17 +100,50 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
               { environmentId: input.environmentId ?? hereId, threadId: input.threadId },
               input.limit ?? RECALL_HITS,
             );
+      const notes =
+        input.threadId === undefined
+          ? yield* store.searchNotes(bot.name, input.query ?? "", NOTE_HITS)
+          : [];
       return {
-        results: hits.map((hit) => ({
-          when: hit.createdAt,
-          source: hit.threadId === bot.threadId ? "this conversation" : (hit.title ?? hit.threadId),
-          where: hit.where,
-          role: hit.role,
-          text: hit.text.length <= RECALL_CHARS ? hit.text : `${hit.text.slice(0, RECALL_CHARS)}…`,
-          threadId: hit.threadId,
-          environmentId: hit.environmentId,
-        })),
+        results: [
+          ...notes.map((note) => ({
+            when: note.createdAt,
+            source: `${note.id}${note.outdatedAt === null ? "" : ", no longer holds"}`,
+            where: null,
+            role: "note",
+            text:
+              note.outdatedReason === null
+                ? note.text
+                : `${note.text} (Retired: ${note.outdatedReason})`,
+            threadId: note.threadId,
+            environmentId: note.environmentId,
+          })),
+          ...hits.map((hit) => ({
+            when: hit.createdAt,
+            source:
+              hit.threadId === bot.threadId ? "this conversation" : (hit.title ?? hit.threadId),
+            where: hit.where,
+            role: hit.role,
+            text:
+              hit.text.length <= RECALL_CHARS ? hit.text : `${hit.text.slice(0, RECALL_CHARS)}…`,
+            threadId: hit.threadId,
+            environmentId: hit.environmentId,
+          })),
+        ],
       };
+    }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
+  ),
+  t3_bot_note_retire: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { bot } = yield* callerBot;
+      const store = yield* BotStore.BotStore;
+      const retired = yield* store.retireNote(bot.name, input.id.trim(), input.reason.trim());
+      if (!retired)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `${input.id} is not one of your current notes.`,
+        });
+      return { retired };
     }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
   ),
   t3_bot_charter_set: McpToolAccess.actsAsCaller((input) =>

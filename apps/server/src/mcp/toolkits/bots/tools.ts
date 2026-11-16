@@ -100,9 +100,23 @@ const BotRecallTool = Tool.make("t3_bot_recall", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
 
+const BotNoteRetireTool = Tool.make("t3_bot_note_retire", {
+  ...shared,
+  description:
+    "Mark one of your notes wrong or no longer true, with the reason. It is kept as history and leaves your context.",
+  parameters: Schema.Struct({
+    id: Schema.String.check(Schema.isMaxLength(40)),
+    reason: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(500)),
+  }),
+  success: Schema.Struct({ retired: Schema.Boolean }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
+
 export const BotToolkit = Toolkit.make(
   BotBoardTool,
   BotItemSaveTool,
   BotCharterSetTool,
   BotRecallTool,
+  BotNoteRetireTool,
 );

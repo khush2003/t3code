@@ -65,6 +65,33 @@ export interface BotRecallHit extends BotThreadRef {
   readonly where: string | null;
 }
 
+/** Something worth knowing later, always resting on a copied message. */
+export interface BotNote extends BotThreadRef {
+  readonly id: string;
+  readonly text: string;
+  readonly createdAt: string;
+  readonly messageId: string;
+  /** The passage of that message the note rests on. */
+  readonly quote: string;
+  readonly outdatedAt: string | null;
+  readonly outdatedReason: string | null;
+  readonly replacedBy: string | null;
+}
+
+/** A copied message a reflection pass has not read yet. */
+export interface BotUnreadMessage extends BotRecallHit {
+  readonly row: number;
+}
+
+export interface BotReflectionState {
+  /** Copied messages no pass has read. */
+  readonly unread: number;
+  readonly lastAt: string | null;
+  readonly passesSince: number;
+  /** A work item was closed after the last pass. */
+  readonly itemClosed: boolean;
+}
+
 export interface BotThreadRef {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -170,6 +197,54 @@ export class BotStore extends Context.Service<
       thread: BotThreadRef,
       limit: number,
     ) => Effect.Effect<ReadonlyArray<BotRecallHit>, BotError>;
+    /** Notes that still hold, newest first. */
+    readonly activeNotes: (bot: BotName) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
+    readonly searchNotes: (
+      bot: BotName,
+      query: string,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
+    /** Marks a note outdated; false when it is not an active note of this bot. */
+    readonly retireNote: (
+      bot: BotName,
+      id: string,
+      reason: string,
+    ) => Effect.Effect<boolean, BotError>;
+    /** The oldest unread copied messages, up to `maxChars` of text. */
+    readonly unreadMessages: (
+      bot: BotName,
+      maxChars: number,
+    ) => Effect.Effect<ReadonlyArray<BotUnreadMessage>, BotError>;
+    readonly reflectionState: (
+      bot: BotName,
+      since: string,
+    ) => Effect.Effect<BotReflectionState, BotError>;
+    /**
+     * One reflection pass, whole or not at all: the notes it adds and retires, and how far it
+     * read. Notes are never deleted; a retired one keeps its reason and what replaced it.
+     */
+    readonly recordReflection: (
+      bot: BotName,
+      pass: {
+        readonly throughRow: number;
+        readonly messages: number;
+        readonly rejected: number;
+        readonly error: string | null;
+        readonly add: ReadonlyArray<
+          BotThreadRef & {
+            readonly text: string;
+            readonly messageId: string;
+            readonly quote: string;
+          }
+        >;
+        readonly retire: ReadonlyArray<{
+          readonly id: string;
+          readonly reason: string;
+          /** Position in `add` of the note that replaces it. */
+          readonly replacedBy: number | null;
+        }>;
+      },
+    ) => Effect.Effect<{ readonly added: number; readonly retired: number }, BotError>;
     /** One copy of the whole store a day, the last week of them kept. */
     readonly backup: Effect.Effect<void, BotError>;
     readonly latestEpisodes: (
@@ -178,7 +253,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -225,6 +300,35 @@ const MESSAGE_COPIES = [
   )`,
 ];
 
+const NOTES = [
+  `CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    bot TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    outdated_at TEXT,
+    outdated_reason TEXT,
+    replaced_by TEXT
+  )`,
+  "CREATE INDEX IF NOT EXISTS notes_bot ON notes (bot, outdated_at, created_at)",
+  `CREATE TABLE IF NOT EXISTS reflections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot TEXT NOT NULL,
+    at TEXT NOT NULL,
+    through_row INTEGER NOT NULL,
+    messages INTEGER NOT NULL,
+    added INTEGER NOT NULL,
+    retired INTEGER NOT NULL,
+    rejected INTEGER NOT NULL,
+    error TEXT
+  )`,
+  "CREATE INDEX IF NOT EXISTS reflections_bot ON reflections (bot, at)",
+];
+
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
   "ALTER TABLE bots ADD COLUMN context_run TEXT",
@@ -241,7 +345,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
   yield* sql.withTransaction(
     Effect.gen(function* () {
       if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
-      for (const statement of MESSAGE_COPIES) yield* sql.unsafe(statement);
+      for (const statement of [...MESSAGE_COPIES, ...NOTES]) yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1) {
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -709,6 +813,172 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a copied thread")),
     );
 
+  type NoteRow = {
+    id: string;
+    text: string;
+    created_at: string;
+    environment_id: string;
+    thread_id: string;
+    message_id: string;
+    quote: string;
+    outdated_at: string | null;
+    outdated_reason: string | null;
+    replaced_by: string | null;
+  };
+  const toNote = (row: NoteRow): BotNote => ({
+    id: row.id,
+    text: row.text,
+    createdAt: row.created_at,
+    environmentId: row.environment_id as EnvironmentId,
+    threadId: row.thread_id as ThreadId,
+    messageId: row.message_id,
+    quote: row.quote,
+    outdatedAt: row.outdated_at,
+    outdatedReason: row.outdated_reason,
+    replacedBy: row.replaced_by,
+  });
+
+  const activeNotes: BotStore["Service"]["activeNotes"] = (bot) =>
+    sql<NoteRow>`
+      SELECT * FROM notes WHERE bot = ${bot} AND outdated_at IS NULL ORDER BY created_at DESC
+    `.pipe(
+      Effect.map((rows) => rows.map(toNote)),
+      Effect.mapError(fail("read notes")),
+    );
+
+  // Notes are few, so every word is matched in turn, outdated notes included.
+  const searchNotes: BotStore["Service"]["searchNotes"] = (bot, query, limit) => {
+    const words = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((word) => word.toLowerCase());
+    return words.length === 0
+      ? Effect.succeed([])
+      : sql<NoteRow>`
+          SELECT * FROM notes WHERE bot = ${bot} ORDER BY created_at DESC
+        `.pipe(
+          Effect.map((rows) =>
+            rows
+              .filter((row) => words.every((word) => row.text.toLowerCase().includes(word)))
+              .slice(0, limit)
+              .map(toNote),
+          ),
+          Effect.mapError(fail("search notes")),
+        );
+  };
+
+  const retireNote: BotStore["Service"]["retireNote"] = Effect.fn("BotStore.retireNote")(
+    function* (bot, id, reason) {
+      const at = yield* now;
+      const rows = yield* sql<{ id: string }>`
+        UPDATE notes SET outdated_at = ${at}, outdated_reason = ${reason}
+        WHERE id = ${id} AND bot = ${bot} AND outdated_at IS NULL
+        RETURNING id
+      `;
+      return rows.length > 0;
+    },
+    Effect.mapError(fail("retire a note")),
+  );
+
+  const reflectedRow = (bot: BotName) =>
+    sql<{ row: number | null }>`
+      SELECT MAX(through_row) AS row FROM reflections WHERE bot = ${bot}
+    `.pipe(Effect.map(([found]) => found?.row ?? 0));
+
+  const unreadMessages: BotStore["Service"]["unreadMessages"] = Effect.fn(
+    "BotStore.unreadMessages",
+  )(
+    function* (bot, maxChars) {
+      const after = yield* reflectedRow(bot);
+      const rows = yield* sql<RecallRow & { row: number }>`
+        SELECT m.rowid AS row, m.environment_id, m.thread_id, m.message_id, m.role, m.created_at,
+          m.text, t.title, t.location
+        FROM messages m
+        LEFT JOIN item_threads t
+          ON t.environment_id = m.environment_id AND t.thread_id = m.thread_id
+        WHERE m.bot = ${bot} AND m.rowid > ${after}
+        ORDER BY m.rowid
+        LIMIT 400
+      `;
+      const batch: Array<BotUnreadMessage> = [];
+      let chars = 0;
+      for (const row of rows) {
+        chars += row.text.length;
+        if (batch.length > 0 && chars > maxChars) break;
+        batch.push({ ...toHit(row), row: row.row });
+      }
+      return batch;
+    },
+    Effect.mapError(fail("read unread messages")),
+  );
+
+  const reflectionState: BotStore["Service"]["reflectionState"] = Effect.fn(
+    "BotStore.reflectionState",
+  )(
+    function* (bot, since) {
+      const after = yield* reflectedRow(bot);
+      const [unread] = yield* sql<{ count: number }>`
+        SELECT COUNT(*) AS count FROM messages WHERE bot = ${bot} AND rowid > ${after}
+      `;
+      const [last] = yield* sql<{ at: string | null; passes: number }>`
+        SELECT MAX(at) AS at, COALESCE(SUM(at >= ${since}), 0) AS passes
+        FROM reflections WHERE bot = ${bot}
+      `;
+      const lastAt = last?.at ?? null;
+      const [closed] = yield* sql<{ count: number }>`
+        SELECT COUNT(*) AS count FROM items
+        WHERE bot = ${bot} AND state <> 'open' AND updated_at > ${lastAt ?? ""}
+      `;
+      return {
+        unread: unread?.count ?? 0,
+        lastAt,
+        passesSince: last?.passes ?? 0,
+        itemClosed: (closed?.count ?? 0) > 0,
+      };
+    },
+    Effect.mapError(fail("read a bot's reflection state")),
+  );
+
+  const recordReflection: BotStore["Service"]["recordReflection"] = Effect.fn(
+    "BotStore.recordReflection",
+  )(
+    function* (bot, pass) {
+      const at = yield* now;
+      const ids: Array<string> = [];
+      for (const _ of pass.add) ids.push(`note:${(yield* random.uuidV4()).slice(0, 8)}`);
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          for (const [index, note] of pass.add.entries())
+            yield* sql`
+              INSERT INTO notes (
+                id, bot, text, created_at, environment_id, thread_id, message_id, quote
+              ) VALUES (
+                ${ids[index]!}, ${bot}, ${note.text}, ${at}, ${note.environmentId},
+                ${note.threadId}, ${note.messageId}, ${note.quote}
+              )
+            `;
+          let retired = 0;
+          for (const note of pass.retire) {
+            const rows = yield* sql<{ id: string }>`
+              UPDATE notes
+              SET outdated_at = ${at}, outdated_reason = ${note.reason},
+                replaced_by = ${note.replacedBy === null ? null : (ids[note.replacedBy] ?? null)}
+              WHERE id = ${note.id} AND bot = ${bot} AND outdated_at IS NULL
+              RETURNING id
+            `;
+            retired += rows.length;
+          }
+          yield* sql`
+            INSERT INTO reflections (bot, at, through_row, messages, added, retired, rejected, error)
+            VALUES (
+              ${bot}, ${at}, ${pass.throughRow}, ${pass.messages}, ${ids.length}, ${retired},
+              ${pass.rejected}, ${pass.error}
+            )
+          `;
+          return { added: ids.length, retired };
+        }),
+      );
+    },
+    Effect.mapError(fail("record a reflection")),
+  );
+
   return BotStore.of({
     getBot,
     listBots,
@@ -732,6 +1002,12 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     markCopied,
     recall,
     threadMessages,
+    activeNotes,
+    searchNotes,
+    retireNote,
+    unreadMessages,
+    reflectionState,
+    recordReflection,
     backup,
   });
 });

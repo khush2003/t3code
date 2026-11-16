@@ -1,6 +1,6 @@
 import type { BotBoardItem, BotBoardThread, BotSummary } from "@t3tools/contracts";
 
-import type { BotRecord } from "./BotStore.ts";
+import type { BotNote, BotRecord } from "./BotStore.ts";
 
 const ITEMS_SHOWN = 30;
 const THREADS_PER_ITEM = 8;
@@ -18,6 +18,7 @@ export const BOT_RULES = [
   "- Keep each item's next step current with t3_bot_item_save, and mark it done or dropped when the user agrees it is. A thread finishing does not finish its item.",
   "- When the user states something that should hold from now on (how they like work done, a priority, a standing decision), add it to your charter with t3_bot_charter_set.",
   "- You keep this whole conversation and every message of your finished tasks' threads, even after this conversation is compacted or a machine goes offline. Before answering about earlier work, a past decision or anything you do not see here, search with t3_bot_recall and say when and where it comes from. Never answer such a question from a guess.",
+  "- Your notes are written for you by a background pass over this conversation and your threads; each rests on a message you can find with t3_bot_recall. When one is wrong or no longer holds, retire it with t3_bot_note_retire and say why.",
   "- Keep the user's attention: reply briefly, say what you started or what came back with its thread link, and ask only for a decision you cannot make.",
   "- To follow up on a task, t3_thread_send to its thread. To look closer, t3_thread_read. To stop one, task_cancel.",
   "- A status with an old as-of time comes from a machine that is not reachable now; say so instead of guessing.",
@@ -45,11 +46,34 @@ const describeItem = (item: BotBoardItem, now: string, full: boolean) =>
   ].join("\n");
 
 /** What a bot keeps for good; resent only when it changed or the session lost it. */
-export const renderBotStanding = (bot: BotRecord, others: ReadonlyArray<BotSummary>) =>
+const NOTES_CHARS = 2_500;
+
+const describeNotes = (notes: ReadonlyArray<BotNote>) => {
+  const lines: Array<string> = [];
+  let chars = 0;
+  for (const note of notes) {
+    chars += note.text.length;
+    if (lines.length > 0 && chars > NOTES_CHARS) break;
+    lines.push(`- [${note.id}] ${note.text}`);
+  }
+  return [
+    ...lines,
+    ...(notes.length > lines.length
+      ? [`(${notes.length - lines.length} older notes; t3_bot_recall finds them.)`]
+      : []),
+  ];
+};
+
+export const renderBotStanding = (
+  bot: BotRecord,
+  others: ReadonlyArray<BotSummary>,
+  notes: ReadonlyArray<BotNote>,
+) =>
   [
     `<charter bot="${bot.name}">`,
     bot.charter,
     "</charter>",
+    ...(notes.length === 0 ? [] : ["<notes>", ...describeNotes(notes), "</notes>"]),
     "<other-bots>",
     others.length === 0
       ? "None."

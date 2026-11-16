@@ -111,6 +111,7 @@ const make = Effect.gen(function* () {
       const standing = renderBotStanding(
         bot,
         (yield* summaries).filter((other) => other.name !== bot.name),
+        yield* store.activeNotes(bot.name),
       );
       const { sent, runId, due } = bot.context;
       // A run retried is sent it again: nothing shows its first try reached the model.

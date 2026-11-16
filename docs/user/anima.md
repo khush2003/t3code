@@ -42,6 +42,13 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   thread's messages to itself; the bot still has the thread's result.
 - Every thread a bot starts belongs to a work item the bot made for it, so the board has one entry
   per piece of work.
+- A background pass reads what is new in a bot's conversation and threads and keeps what is worth
+  knowing later as notes: decisions with their reasons, your standing preferences, how work ended.
+  It runs after a work item is closed, after a lot of new messages, or once a day, on the
+  **Text generation** model from Settings, at most eight times a day per bot. Each note
+  names the message and the passage it rests on, and one whose passage is not in that message is
+  thrown away. A note that stops being true is marked so and kept, never deleted. If a pass fails,
+  the bot still has everything it copied.
 - A bot runs on Claude, on a lighter model by default, and has no shell or file tools, so it
   cannot do the work itself. Its threads use each project's default model.
 - A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.

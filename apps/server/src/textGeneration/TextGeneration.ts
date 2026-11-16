@@ -44,7 +44,8 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
-  | "generateReviewGuide";
+  | "generateReviewGuide"
+  | "generateStructured";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -72,13 +73,13 @@ export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const generate = Effect.fn("TextGeneration.generate")(function* <A>(
+  const generate = Effect.fn("TextGeneration.generate")(function* <A, R = never>(
     operation: TextGenerationOp,
     selection: ModelSelection,
     invoke: (
       service: ProviderTextGeneration,
       modelSelection: ModelSelection,
-    ) => Effect.Effect<A, TextGenerationError>,
+    ) => Effect.Effect<A, TextGenerationError, R>,
   ) {
     const snapshots = yield* registry.listInstances.pipe(
       Effect.flatMap((instances) =>
@@ -145,6 +146,18 @@ export const make = Effect.gen(function* () {
     generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")(function (input) {
       return generate("generateReviewGuide", input.modelSelection, (service, modelSelection) =>
         service.generateReviewGuide({ ...input, modelSelection }),
+      );
+    }),
+    generateStructured: Effect.fn("TextGeneration.generateStructured")(function (input) {
+      return generate("generateStructured", input.modelSelection, (service, modelSelection) =>
+        service.generateStructured === undefined
+          ? Effect.fail(
+              new TextGenerationError({
+                operation: "generateStructured",
+                detail: "This provider cannot generate structured text.",
+              }),
+            )
+          : service.generateStructured({ ...input, modelSelection }),
       );
     }),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {

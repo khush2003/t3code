@@ -173,5 +173,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateStructured: (input) => run({ operation: "generateStructured", ...input }),
   } satisfies ProviderTextGeneration;
 }

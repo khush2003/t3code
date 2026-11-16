@@ -6,6 +6,7 @@ import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BotBoards from "./bots/BotBoards.ts";
 import * as BotJournal from "./bots/BotJournal.ts";
+import * as BotReflection from "./bots/BotReflection.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as DiskGuard from "./diskGuard.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
@@ -804,6 +805,9 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.effectDiscard(
     BotJournal.BotJournal.pipe(Effect.flatMap((journal) => journal.start())),
   ).pipe(Layer.provide(BotJournal.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    BotReflection.BotReflection.pipe(Effect.flatMap((reflection) => reflection.start())),
+  ).pipe(Layer.provide(BotReflection.layer)),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
