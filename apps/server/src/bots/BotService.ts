@@ -1,7 +1,11 @@
 import {
   type BotBoard,
   type BotBoardInput,
+  type BotCharterSetInput,
   BotError,
+  type BotMemory,
+  type BotMemoryInput,
+  type BotNoteRetireInput,
   type BotListResult,
   type BotName,
   BotRejectedError,
@@ -13,6 +17,8 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -29,6 +35,7 @@ import * as BotBoards from "./BotBoards.ts";
 import * as BotStore from "./BotStore.ts";
 
 const DEFAULT_BOT_PURPOSE = "Help with work across my projects.";
+const PASSES_SHOWN = 10;
 
 const initialCharter = (purpose: string) =>
   [`What I am for: ${purpose}`, "", "How my person wants work done: nothing recorded yet."].join(
@@ -43,6 +50,16 @@ export class BotService extends Context.Service<
     ) => Effect.Effect<BotStartResult, BotRejectedError | BotError>;
     readonly list: Effect.Effect<BotListResult, BotError>;
     readonly board: (input: BotBoardInput) => Effect.Effect<BotBoard, BotRejectedError | BotError>;
+    /** What a bot keeps, for the person it works for to read and correct. */
+    readonly memory: (
+      input: BotMemoryInput,
+    ) => Effect.Effect<BotMemory, BotRejectedError | BotError>;
+    readonly retireNote: (
+      input: BotNoteRetireInput,
+    ) => Effect.Effect<void, BotRejectedError | BotError>;
+    readonly setCharter: (
+      input: BotCharterSetInput,
+    ) => Effect.Effect<void, BotRejectedError | BotError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -184,7 +201,42 @@ const make = Effect.gen(function* () {
     };
   });
 
-  return BotService.of({ start, list, board });
+  const memory: BotService["Service"]["memory"] = Effect.fn("BotService.memory")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      const since = DateTime.formatIso(
+        DateTime.subtractDuration(yield* DateTime.now, Duration.days(1)),
+      );
+      return {
+        name: bot.name,
+        charter: bot.charter,
+        charterHistory: yield* store.charterHistory(bot.name),
+        notes: yield* store.allNotes(bot.name),
+        passes: yield* store.reflectionPasses(bot.name, PASSES_SHOWN),
+        unread: (yield* store.reflectionState(bot.name, since)).unread,
+      };
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
+  const retireNote: BotService["Service"]["retireNote"] = Effect.fn("BotService.retireNote")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      if (!(yield* store.retireNote(bot.name, input.id, input.reason.trim())))
+        return yield* new BotRejectedError({ reason: "That note is not a current note." });
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
+  const setCharter: BotService["Service"]["setCharter"] = Effect.fn("BotService.setCharter")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      yield* store.setCharter(bot.name, input.charter.trim());
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
+  return BotService.of({ start, list, board, memory, retireNote, setCharter });
 });
 
 export const layer = Layer.effect(BotService, make);

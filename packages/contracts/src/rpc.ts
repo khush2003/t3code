@@ -147,6 +147,10 @@ import {
 import {
   BotBoard,
   BotBoardInput,
+  BotCharterSetInput,
+  BotMemory,
+  BotMemoryInput,
+  BotNoteRetireInput,
   BotError,
   BotListResult,
   BotRejectedError,
@@ -492,6 +496,9 @@ export const WS_METHODS = {
   botsStart: "bots.start",
   botsList: "bots.list",
   botsBoard: "bots.board",
+  botsMemory: "bots.memory",
+  botsNoteRetire: "bots.noteRetire",
+  botsCharterSet: "bots.charterSet",
   animaExport: "anima.export",
   animaCompare: "anima.compare",
   animaImport: "anima.import",
@@ -1602,6 +1609,24 @@ const WsBotsBoardRpc = Rpc.make(WS_METHODS.botsBoard, {
   error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
 });
 
+const WsBotsMemoryRpc = Rpc.make(WS_METHODS.botsMemory, {
+  payload: BotMemoryInput,
+  success: BotMemory,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsNoteRetireRpc = Rpc.make(WS_METHODS.botsNoteRetire, {
+  payload: BotNoteRetireInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsCharterSetRpc = Rpc.make(WS_METHODS.botsCharterSet, {
+  payload: BotCharterSetInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
 const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
   payload: AnimaWakePreviewInput,
   success: AnimaWakePreviewResult,
@@ -2521,6 +2546,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsBotsStartRpc,
   WsBotsListRpc,
   WsBotsBoardRpc,
+  WsBotsMemoryRpc,
+  WsBotsNoteRetireRpc,
+  WsBotsCharterSetRpc,
   WsAnimaExportRpc,
   WsAnimaCompareRpc,
   WsAnimaImportRpc,

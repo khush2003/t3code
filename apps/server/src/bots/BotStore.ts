@@ -73,9 +73,20 @@ export interface BotNote extends BotThreadRef {
   readonly messageId: string;
   /** The passage of that message the note rests on. */
   readonly quote: string;
+  /** The title of the thread it comes from; null for the bot's own conversation. */
+  readonly source: string | null;
   readonly outdatedAt: string | null;
   readonly outdatedReason: string | null;
   readonly replacedBy: string | null;
+}
+
+export interface BotReflectionPass {
+  readonly at: string;
+  readonly messages: number;
+  readonly added: number;
+  readonly retired: number;
+  readonly rejected: number;
+  readonly error: string | null;
 }
 
 /** A copied message a reflection pass has not read yet. */
@@ -199,6 +210,12 @@ export class BotStore extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<BotRecallHit>, BotError>;
     /** Notes that still hold, newest first. */
     readonly activeNotes: (bot: BotName) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
+    /** Every note, current ones first, each group newest first. */
+    readonly allNotes: (bot: BotName) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
+    readonly reflectionPasses: (
+      bot: BotName,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<BotReflectionPass>, BotError>;
     readonly searchNotes: (
       bot: BotName,
       query: string,
@@ -824,6 +841,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     outdated_at: string | null;
     outdated_reason: string | null;
     replaced_by: string | null;
+    source: string | null;
   };
   const toNote = (row: NoteRow): BotNote => ({
     id: row.id,
@@ -833,17 +851,37 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     threadId: row.thread_id as ThreadId,
     messageId: row.message_id,
     quote: row.quote,
+    source: row.source,
     outdatedAt: row.outdated_at,
     outdatedReason: row.outdated_reason,
     replacedBy: row.replaced_by,
   });
 
-  const activeNotes: BotStore["Service"]["activeNotes"] = (bot) =>
-    sql<NoteRow>`
-      SELECT * FROM notes WHERE bot = ${bot} AND outdated_at IS NULL ORDER BY created_at DESC
-    `.pipe(
+  const notesOf = (bot: BotName) => sql<NoteRow>`
+    SELECT n.*, t.title AS source
+    FROM notes n
+    LEFT JOIN item_threads t
+      ON t.environment_id = n.environment_id AND t.thread_id = n.thread_id
+    WHERE n.bot = ${bot}
+    ORDER BY n.outdated_at IS NOT NULL, n.created_at DESC
+  `;
+
+  const allNotes: BotStore["Service"]["allNotes"] = (bot) =>
+    notesOf(bot).pipe(
       Effect.map((rows) => rows.map(toNote)),
       Effect.mapError(fail("read notes")),
+    );
+
+  const activeNotes: BotStore["Service"]["activeNotes"] = (bot) =>
+    allNotes(bot).pipe(Effect.map((notes) => notes.filter((note) => note.outdatedAt === null)));
+
+  const reflectionPasses: BotStore["Service"]["reflectionPasses"] = (bot, limit) =>
+    sql<BotReflectionPass>`
+      SELECT at, messages, added, retired, rejected, error FROM reflections
+      WHERE bot = ${bot} ORDER BY id DESC LIMIT ${limit}
+    `.pipe(
+      Effect.map((rows) => rows.map((row) => ({ ...row }))),
+      Effect.mapError(fail("read reflection passes")),
     );
 
   // Notes are few, so every word is matched in turn, outdated notes included.
@@ -851,9 +889,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     const words = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((word) => word.toLowerCase());
     return words.length === 0
       ? Effect.succeed([])
-      : sql<NoteRow>`
-          SELECT * FROM notes WHERE bot = ${bot} ORDER BY created_at DESC
-        `.pipe(
+      : notesOf(bot).pipe(
           Effect.map((rows) =>
             rows
               .filter((row) => words.every((word) => row.text.toLowerCase().includes(word)))
@@ -1003,6 +1039,8 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     recall,
     threadMessages,
     activeNotes,
+    allNotes,
+    reflectionPasses,
     searchNotes,
     retireNote,
     unreadMessages,

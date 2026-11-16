@@ -29,6 +29,30 @@ export function createBotEnvironmentAtoms<R, E>(
       refreshIntervalMs: BOT_BOARD_REFRESH_MS,
       idleTtlMs: 30_000,
     }),
+    memory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:bots:memory",
+      tag: WS_METHODS.botsMemory,
+      staleTimeMs: 30_000,
+      idleTtlMs: 30_000,
+    }),
+    retireNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:note-retire",
+      tag: WS_METHODS.botsNoteRetire,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
+    setCharter: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:charter-set",
+      tag: WS_METHODS.botsCharterSet,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
     start: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:start",
       tag: WS_METHODS.botsStart,

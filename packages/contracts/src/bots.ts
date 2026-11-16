@@ -90,6 +90,63 @@ export const BotBoard = Schema.Struct({
 });
 export type BotBoard = typeof BotBoard.Type;
 
+/** Something a bot keeps for later, with the message and passage it rests on. */
+export const BotNote = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  createdAt: Schema.String,
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  messageId: Schema.String,
+  quote: Schema.String,
+  /** The title of the thread it comes from; absent for the bot's own conversation. */
+  source: Schema.NullOr(Schema.String),
+  outdatedAt: Schema.NullOr(Schema.String),
+  outdatedReason: Schema.NullOr(Schema.String),
+  replacedBy: Schema.NullOr(Schema.String),
+});
+export type BotNote = typeof BotNote.Type;
+
+/** One background pass over what a bot had not read yet. */
+export const BotReflectionPass = Schema.Struct({
+  at: Schema.String,
+  messages: Schema.Number,
+  added: Schema.Number,
+  retired: Schema.Number,
+  /** Notes the pass proposed that had no passage in the message they named. */
+  rejected: Schema.Number,
+  error: Schema.NullOr(Schema.String),
+});
+export type BotReflectionPass = typeof BotReflectionPass.Type;
+
+export const BotMemoryInput = Schema.Struct({ threadId: ThreadId });
+export type BotMemoryInput = typeof BotMemoryInput.Type;
+
+export const BotMemory = Schema.Struct({
+  name: BotName,
+  charter: Schema.String,
+  /** Charters it had before, newest first. */
+  charterHistory: Schema.Array(
+    Schema.Struct({ replacedAt: Schema.String, charter: Schema.String }),
+  ),
+  /** Current notes first, then retired ones, each newest first. */
+  notes: Schema.Array(BotNote),
+  passes: Schema.Array(BotReflectionPass),
+  /** Copied messages no pass has read yet. */
+  unread: Schema.Number,
+});
+export type BotMemory = typeof BotMemory.Type;
+
+export const BotNoteRetireInput = Schema.Struct({
+  threadId: ThreadId,
+  id: Schema.String,
+  reason: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(500)),
+});
+export type BotNoteRetireInput = typeof BotNoteRetireInput.Type;
+
+export const BotCharterSetInput = Schema.Struct({ threadId: ThreadId, charter: BotCharter });
+export type BotCharterSetInput = typeof BotCharterSetInput.Type;
+
 export class BotError extends Schema.TaggedError<BotError>()("BotError", {
   operation: Schema.String,
   cause: Schema.Defect(),

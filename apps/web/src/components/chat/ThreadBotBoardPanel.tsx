@@ -16,6 +16,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { RelativeTime } from "../RelativeTime";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ThreadBotMemoryDialog } from "./ThreadBotMemoryDialog";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 
@@ -146,6 +147,7 @@ export function ThreadBotBoardPanel(props: {
   readonly threadId: ThreadId;
 }) {
   const [showClosed, setShowClosed] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const query = useEnvironmentQuery(
     botsEnvironment.board({
       environmentId: props.environmentId,
@@ -160,19 +162,36 @@ export function ThreadBotBoardPanel(props: {
       title="Board"
       data-thread-bot-board
       actions={
-        <ThreadDetailsControl
-          size="xs"
-          variant="ghost"
-          part="meta"
-          tone="muted"
-          aria-pressed={showClosed}
-          onClick={() => setShowClosed(!showClosed)}
-        >
-          {showClosed ? "Hide closed" : "Show closed"}
-        </ThreadDetailsControl>
+        <>
+          <ThreadDetailsControl
+            size="xs"
+            variant="ghost"
+            part="meta"
+            tone="muted"
+            onClick={() => setMemoryOpen(true)}
+          >
+            Memory
+          </ThreadDetailsControl>
+          <ThreadDetailsControl
+            size="xs"
+            variant="ghost"
+            part="meta"
+            tone="muted"
+            aria-pressed={showClosed}
+            onClick={() => setShowClosed(!showClosed)}
+          >
+            {showClosed ? "Hide closed" : "Show closed"}
+          </ThreadDetailsControl>
+        </>
       }
     >
       <div>
+        <ThreadBotMemoryDialog
+          environmentId={props.environmentId}
+          threadId={props.threadId}
+          open={memoryOpen}
+          onOpenChange={setMemoryOpen}
+        />
         {board === null ? (
           query.error === null ? null : (
             <p className="px-2.5 py-1 text-2xs text-muted-foreground">

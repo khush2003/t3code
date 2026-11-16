@@ -49,6 +49,14 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   names the message and the passage it rests on, and one whose passage is not in that message is
   thrown away. A note that stops being true is marked so and kept, never deleted. If a pass fails,
   the bot still has everything it copied.
+- **Memory**, in the Board heading of a bot's thread details, shows what the bot carries into every
+  session: its charter with every earlier version to restore, its notes with the passage each rests
+  on, and what each background pass read, added and threw out. Edit the charter there, and retire a
+  note that is wrong.
+- A bot's model session is replaced when it grows large or has been idle for six hours. The new
+  session gets the charter, the notes, the board and the last few turns; everything earlier is in
+  the bot's memory, which it searches. Nothing is summarized, so replacing a session costs no extra
+  turn.
 - A bot runs on Claude, on a lighter model by default, and has no shell or file tools, so it
   cannot do the work itself. Its threads use each project's default model.
 - A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.
