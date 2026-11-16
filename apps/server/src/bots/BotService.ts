@@ -9,7 +9,6 @@ import {
   type BotStartResult,
   type BotWorkItemId,
   CommandId,
-  type EnvironmentId,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -57,33 +56,34 @@ export const requireBot = (threadId: ThreadId) =>
     ),
   );
 
-/** Before a bot starts a task: the item it names must be one of its own. */
+const ITEMS_NAMED = 12;
+
+/**
+ * Before a bot starts a task: it names the item the task is for, one of its own. An item made
+ * for it without being asked would sit beside the one the bot just made for the same work.
+ */
 export const assertWorkItem = Effect.fn("BotService.assertWorkItem")(function* (
   bot: BotName,
   workItemId: BotWorkItemId | undefined,
 ) {
-  if (workItemId === undefined) return;
   const store = yield* BotStore.BotStore;
+  if (workItemId === undefined) {
+    const open = yield* store.listItems(bot);
+    return yield* new BotRejectedError({
+      reason:
+        open.length === 0
+          ? "Every task is for a work item. Create one with t3_bot_item_save, then pass its id as workItemId."
+          : `Pass workItemId: the work item this task is for. Open items: ${open
+              .slice(0, ITEMS_NAMED)
+              .map((item) => `${item.id} "${item.title}"`)
+              .join(", ")}. For new work, create an item with t3_bot_item_save first.`,
+    });
+  }
   const item = yield* store.getItem(workItemId);
   if (item === null || item.bot !== bot)
     return yield* new BotRejectedError({
-      reason: `Work item ${workItemId} is not on your board. Pass one listed there, or omit workItemId to start a new item.`,
+      reason: `Work item ${workItemId} is not on your board. Pass one listed there, or create one with t3_bot_item_save.`,
     });
-});
-
-/** Every task a bot starts sits on a work item, so none of it drops out of sight. */
-export const fileTask = Effect.fn("BotService.fileTask")(function* (input: {
-  readonly bot: BotName;
-  readonly workItemId: BotWorkItemId | undefined;
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly title: string;
-  readonly where: string;
-}) {
-  const store = yield* BotStore.BotStore;
-  const itemId = input.workItemId ?? (yield* store.saveItem(input.bot, { title: input.title })).id;
-  yield* store.linkThread(itemId, input);
-  return itemId;
 });
 
 const make = Effect.gen(function* () {

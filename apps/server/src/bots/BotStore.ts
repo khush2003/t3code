@@ -46,6 +46,25 @@ export interface BotItemRecord {
   readonly updatedAt: string;
 }
 
+/** One message of a thread, as the bot keeps it. */
+export interface BotMessage {
+  readonly id: string;
+  readonly role: "user" | "assistant";
+  readonly createdAt: string;
+  readonly text: string;
+}
+
+export interface BotRecallHit extends BotThreadRef {
+  readonly messageId: string;
+  readonly role: string;
+  readonly createdAt: string;
+  /** The passage that matched, or the whole message when a thread is read. */
+  readonly text: string;
+  /** Absent for the bot's own conversation. */
+  readonly title: string | null;
+  readonly where: string | null;
+}
+
 export interface BotThreadRef {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -124,6 +143,33 @@ export class BotStore extends Context.Service<
     readonly itemForThread: (thread: BotThreadRef) => Effect.Effect<BotWorkItemId | null, BotError>;
     /** Idempotent per thread and run. */
     readonly recordEpisode: (episode: BotEpisodeRecord) => Effect.Effect<boolean, BotError>;
+    /** Adds a thread's messages to what the bot can search; one sent again replaces itself. */
+    readonly saveMessages: (
+      bot: BotName,
+      thread: BotThreadRef,
+      messages: ReadonlyArray<BotMessage>,
+    ) => Effect.Effect<void, BotError>;
+    /** Finished threads whose messages are not copied yet, or have a later run than the copy. */
+    readonly threadsToCopy: (
+      bot: BotName,
+      since: string,
+    ) => Effect.Effect<
+      ReadonlyArray<BotThreadRef & { readonly runKey: string; readonly endedAt: string }>,
+      BotError
+    >;
+    readonly markCopied: (thread: BotThreadRef, endedAt: string) => Effect.Effect<void, BotError>;
+    /** Passages matching every word of `query`, or any of them when none match all. */
+    readonly recall: (
+      bot: BotName,
+      query: string,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<BotRecallHit>, BotError>;
+    /** The latest copied messages of one thread, oldest first. */
+    readonly threadMessages: (
+      bot: BotName,
+      thread: BotThreadRef,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<BotRecallHit>, BotError>;
     /** One copy of the whole store a day, the last week of them kept. */
     readonly backup: Effect.Effect<void, BotError>;
     readonly latestEpisodes: (
@@ -132,7 +178,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -144,6 +190,40 @@ const CHARTER_HISTORY = `
     PRIMARY KEY (bot, replaced_at)
   )
 `;
+
+// The originals a bot's memory rests on: copied once, never rewritten by a model.
+const MESSAGE_COPIES = [
+  `CREATE TABLE IF NOT EXISTS messages (
+    bot TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (environment_id, thread_id, message_id)
+  )`,
+  "CREATE INDEX IF NOT EXISTS messages_thread ON messages (bot, environment_id, thread_id, created_at)",
+  `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    text, content='messages', content_rowid='rowid', tokenize='porter unicode61'
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text);
+  END`,
+  `CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+  END`,
+  `CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+    INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text);
+  END`,
+  `CREATE TABLE IF NOT EXISTS copied (
+    environment_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    PRIMARY KEY (environment_id, thread_id)
+  )`,
+];
 
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
@@ -161,6 +241,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
   yield* sql.withTransaction(
     Effect.gen(function* () {
       if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
+      for (const statement of MESSAGE_COPIES) yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1) {
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -519,6 +600,115 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read results")),
     );
 
+  const saveMessages: BotStore["Service"]["saveMessages"] = (bot, thread, messages) =>
+    sql
+      .withTransaction(
+        Effect.forEach(
+          messages,
+          (message) => sql`
+            INSERT INTO messages (bot, environment_id, thread_id, message_id, role, created_at, text)
+            VALUES (
+              ${bot}, ${thread.environmentId}, ${thread.threadId}, ${message.id}, ${message.role},
+              ${message.createdAt}, ${message.text}
+            )
+            ON CONFLICT (environment_id, thread_id, message_id) DO UPDATE
+            SET text = excluded.text WHERE messages.text <> excluded.text
+          `,
+          { discard: true },
+        ),
+      )
+      .pipe(Effect.mapError(fail("copy a thread's messages")));
+
+  const threadsToCopy: BotStore["Service"]["threadsToCopy"] = (bot, since) =>
+    sql<{ environment_id: string; thread_id: string; run_key: string; ended_at: string }>`
+      SELECT e.environment_id, e.thread_id, e.run_key, MAX(e.ended_at) AS ended_at
+      FROM episodes e
+      LEFT JOIN copied c ON c.environment_id = e.environment_id AND c.thread_id = e.thread_id
+      WHERE e.bot = ${bot} AND e.ended_at >= ${since}
+      GROUP BY e.environment_id, e.thread_id
+      HAVING c.ended_at IS NULL OR c.ended_at < MAX(e.ended_at)
+    `.pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          environmentId: row.environment_id as EnvironmentId,
+          threadId: row.thread_id as ThreadId,
+          runKey: row.run_key,
+          endedAt: row.ended_at,
+        })),
+      ),
+      Effect.mapError(fail("list threads to copy")),
+    );
+
+  const markCopied: BotStore["Service"]["markCopied"] = (thread, endedAt) =>
+    sql`
+      INSERT INTO copied (environment_id, thread_id, ended_at)
+      VALUES (${thread.environmentId}, ${thread.threadId}, ${endedAt})
+      ON CONFLICT (environment_id, thread_id) DO UPDATE SET ended_at = excluded.ended_at
+    `.pipe(Effect.asVoid, Effect.mapError(fail("record a copied thread")));
+
+  type RecallRow = {
+    environment_id: string;
+    thread_id: string;
+    message_id: string;
+    role: string;
+    created_at: string;
+    text: string;
+    title: string | null;
+    location: string | null;
+  };
+  const toHit = (row: RecallRow): BotRecallHit => ({
+    environmentId: row.environment_id as EnvironmentId,
+    threadId: row.thread_id as ThreadId,
+    messageId: row.message_id,
+    role: row.role,
+    createdAt: row.created_at,
+    text: row.text,
+    title: row.title,
+    where: row.location,
+  });
+  const search = (bot: BotName, match: string, limit: number) =>
+    sql<RecallRow>`
+      SELECT m.environment_id, m.thread_id, m.message_id, m.role, m.created_at,
+        snippet(messages_fts, 0, '', '', ' … ', 60) AS text, t.title, t.location
+      FROM messages_fts
+      JOIN messages m ON m.rowid = messages_fts.rowid
+      LEFT JOIN item_threads t
+        ON t.environment_id = m.environment_id AND t.thread_id = m.thread_id
+      WHERE messages_fts MATCH ${match} AND m.bot = ${bot}
+      ORDER BY bm25(messages_fts), m.created_at DESC
+      LIMIT ${limit}
+    `;
+  const recall: BotStore["Service"]["recall"] = Effect.fn("BotStore.recall")(
+    function* (bot, query, limit) {
+      // Quoted, so a word of the query is never read as search syntax.
+      const words = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((word) => `"${word}"`);
+      if (words.length === 0) return [];
+      const all = yield* search(bot, words.join(" "), limit);
+      const rows =
+        all.length > 0 || words.length === 1 ? all : yield* search(bot, words.join(" OR "), limit);
+      return rows.map(toHit);
+    },
+    Effect.mapError(fail("search a bot's memory")),
+  );
+
+  const threadMessages: BotStore["Service"]["threadMessages"] = (bot, thread, limit) =>
+    sql<RecallRow>`
+      SELECT * FROM (
+        SELECT m.environment_id, m.thread_id, m.message_id, m.role, m.created_at, m.text,
+          t.title, t.location
+        FROM messages m
+        LEFT JOIN item_threads t
+          ON t.environment_id = m.environment_id AND t.thread_id = m.thread_id
+        WHERE m.bot = ${bot} AND m.environment_id = ${thread.environmentId}
+          AND m.thread_id = ${thread.threadId}
+        ORDER BY m.created_at DESC
+        LIMIT ${limit}
+      ) ORDER BY created_at
+    `.pipe(
+      Effect.map((rows) => rows.map(toHit)),
+      Effect.mapError(fail("read a copied thread")),
+    );
+
   return BotStore.of({
     getBot,
     listBots,
@@ -537,6 +727,11 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     itemForThread,
     recordEpisode,
     latestEpisodes,
+    saveMessages,
+    threadsToCopy,
+    markCopied,
+    recall,
+    threadMessages,
     backup,
   });
 });

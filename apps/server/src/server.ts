@@ -668,9 +668,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
-  Layer.effectDiscard(
-    BotJournal.BotJournal.pipe(Effect.flatMap((journal) => journal.start())),
-  ).pipe(Layer.provide(BotJournal.layer)),
   BotService.layer,
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,
@@ -803,6 +800,10 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.effectDiscard(
     RemoteDelegation.RemoteDelegation.pipe(Effect.flatMap((remote) => remote.start())),
   ),
+  // Reads a task's messages from its machine through the delegation above.
+  Layer.effectDiscard(
+    BotJournal.BotJournal.pipe(Effect.flatMap((journal) => journal.start())),
+  ).pipe(Layer.provide(BotJournal.layer), Layer.provide(ProjectionStoreV2.layer)),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),

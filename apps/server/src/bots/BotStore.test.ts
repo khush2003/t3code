@@ -21,6 +21,46 @@ const atlas = BotName.make("atlas");
 const here = EnvironmentId.make("here");
 
 describe("BotStore", () => {
+  it.effect("searches a bot's copied messages and reads a copied thread", () =>
+    Effect.gen(function* () {
+      const store = yield* BotStore.BotStore;
+      const other = BotName.make("other");
+      const posters = { environmentId: here, threadId: ThreadId.make("posters") };
+      const item = yield* store.saveItem(atlas, { title: "Launch" });
+      yield* store.linkThread(item.id, { ...posters, title: "Fix the posters", where: "site" });
+      const message = (id: string, text: string, createdAt = "2026-03-01T10:00:00.000Z") => ({
+        id,
+        role: "assistant" as const,
+        createdAt,
+        text,
+      });
+      yield* store.saveMessages(atlas, posters, [
+        message("m1", "The poster fonts were switched to Inter after the review."),
+        message("m2", "Exported all posters as PDF.", "2026-03-01T11:00:00.000Z"),
+      ]);
+      yield* store.saveMessages(other, { environmentId: here, threadId: ThreadId.make("x") }, [
+        message("m1", "Posters are not this bot's business."),
+      ]);
+
+      // Every word first, any word when none has them all; stemmed, and never search syntax.
+      expect((yield* store.recall(atlas, "poster fonts", 5)).map((hit) => hit.messageId)).toEqual([
+        "m1",
+      ]);
+      expect(yield* store.recall(atlas, 'fonts "AND (videos', 5)).toMatchObject([
+        { messageId: "m1", title: "Fix the posters", where: "site" },
+      ]);
+      expect(yield* store.recall(atlas, "!!!", 5)).toEqual([]);
+
+      // A message sent again replaces itself, in the search too.
+      yield* store.saveMessages(atlas, posters, [message("m1", "The headings use Geist now.")]);
+      expect(yield* store.recall(atlas, "Inter", 5)).toEqual([]);
+      expect((yield* store.recall(atlas, "Geist", 5)).map((hit) => hit.messageId)).toEqual(["m1"]);
+      expect((yield* store.threadMessages(atlas, posters, 1)).map((hit) => hit.text)).toEqual([
+        "Exported all posters as PDF.",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("backs the store up once a day and keeps the last week", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

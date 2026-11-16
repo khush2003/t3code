@@ -849,9 +849,23 @@ it.effect("a bot's task runs as a thread in a project here and wakes the bot whe
       expect(withoutProject.isError).toBe(true);
       expect(JSON.stringify(withoutProject.content)).toContain("target.projectId");
 
+      // A task with no item is refused, so none lands beside the item made for the same work.
+      const unfiled = yield* a.call("delegate_task", {
+        task: "Run the suite.",
+        target: { projectId: "project:acme" },
+      });
+      expect(JSON.stringify(unfiled.content)).toContain("Create one with t3_bot_item_save");
+      const item = yield* a.bots.saveItem(atlas, { title: "Green suite" });
+      const unnamed = yield* a.call("delegate_task", {
+        task: "Run the suite.",
+        target: { projectId: "project:acme" },
+      });
+      expect(JSON.stringify(unnamed.content)).toContain(`Open items: ${item.id}`);
+
       const started = yield* a.call("delegate_task", {
         task: "Run the suite.",
         target: { projectId: "project:acme" },
+        workItemId: item.id,
         clientRequestId: "suite",
       });
       expect(started.isError, JSON.stringify(started.content)).toBe(false);
@@ -860,10 +874,8 @@ it.effect("a bot's task runs as a thread in a project here and wakes the bot whe
         remoteChild: { environmentId: string; threadId: ThreadId; label: string };
       };
       expect(yield* Ref.get(launchedIn)).toBe("project:acme");
-      // Every task a bot starts sits on a work item, here a new one named after it.
-      const [item] = yield* a.bots.listItems(atlas);
-      expect(item?.title).toBe("Run the suite.");
-      expect(yield* a.bots.itemThreads([item!.id])).toMatchObject([
+      expect(yield* a.bots.listItems(atlas)).toHaveLength(1);
+      expect(yield* a.bots.itemThreads([item.id])).toMatchObject([
         { threadId: taskThreadId, where: "Acme app" },
       ]);
       const unknownItem = yield* a.call("delegate_task", {

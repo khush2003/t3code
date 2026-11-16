@@ -15,6 +15,8 @@ import { unavailable } from "../../threadAccess.ts";
 import { BotToolkit } from "./tools.ts";
 
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
+const RECALL_HITS = 12;
+const RECALL_CHARS = 4_000;
 
 const failure = (error: { readonly _tag: string; readonly message: string }) =>
   isMcpFailure(error)
@@ -78,6 +80,36 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         });
       }
       return { id: item.id };
+    }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
+  ),
+  t3_bot_recall: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { bot, hereId } = yield* callerBot;
+      const store = yield* BotStore.BotStore;
+      if (input.threadId === undefined && (input.query ?? "").trim() === "")
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Pass query to search, or threadId to read a thread's copied messages.",
+        });
+      const hits =
+        input.threadId === undefined
+          ? yield* store.recall(bot.name, input.query ?? "", input.limit ?? RECALL_HITS)
+          : yield* store.threadMessages(
+              bot.name,
+              { environmentId: input.environmentId ?? hereId, threadId: input.threadId },
+              input.limit ?? RECALL_HITS,
+            );
+      return {
+        results: hits.map((hit) => ({
+          when: hit.createdAt,
+          source: hit.threadId === bot.threadId ? "this conversation" : (hit.title ?? hit.threadId),
+          where: hit.where,
+          role: hit.role,
+          text: hit.text.length <= RECALL_CHARS ? hit.text : `${hit.text.slice(0, RECALL_CHARS)}…`,
+          threadId: hit.threadId,
+          environmentId: hit.environmentId,
+        })),
+      };
     }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
   ),
   t3_bot_charter_set: McpToolAccess.actsAsCaller((input) =>

@@ -36,8 +36,12 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   updates its charter.
 - A bot uses T3 Code's own tools only. MCP servers you set up for Claude are not loaded into it.
 - Every bot knows the others and what they are for.
-- When a thread finishes, its result is kept with the bot, so it stays answerable after the thread's
-  machine goes offline.
+- A bot keeps its whole conversation with you and every message of the threads it finished, in its
+  own store. It searches them when you ask about earlier work, and can answer while a thread's
+  machine is offline. A machine that stays unreachable for 14 days after a thread ends keeps that
+  thread's messages to itself; the bot still has the thread's result.
+- Every thread a bot starts belongs to a work item the bot made for it, so the board has one entry
+  per piece of work.
 - A bot runs on Claude, on a lighter model by default, and has no shell or file tools, so it
   cannot do the work itself. Its threads use each project's default model.
 - A thread can run no broader than the bot's permission mode. Set the mode in the bot's composer.

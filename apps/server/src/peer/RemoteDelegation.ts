@@ -50,6 +50,8 @@ import * as PeerLinks from "./PeerLinks.ts";
 const FOLLOW_WAIT_MS = 10 * 60 * 1_000;
 /** A linked environment that stops answering is retried, backing off to this. */
 const FOLLOW_MAX_BACKOFF = Duration.minutes(5);
+/** The most of one message a bot's copy keeps; the rest stays with the thread. */
+export const TRANSCRIPT_MESSAGE_CHARS = 20_000;
 /** How a follower retries; tests step it by hand. */
 export const FollowRetrySchedule = Context.Reference<Schedule.Schedule<unknown>>(
   "t3/peer/RemoteDelegation/FollowRetrySchedule",
@@ -103,6 +105,14 @@ export class RemoteDelegation extends Context.Service<
         readonly clientRequestId?: string | undefined;
       },
     ) => Effect.Effect<OrchestratorMcpTaskCancelResult, OrchestratorMcpFailure>;
+    /**
+     * Every message of a task's thread on a linked machine, for a bot that keeps its own copy.
+     * Fails while that machine cannot be reached.
+     */
+    readonly readTranscript: (
+      parentThreadId: ThreadId,
+      taskId: NodeId,
+    ) => Effect.Effect<ReadonlyArray<BotStore.BotMessage>, OrchestratorMcpFailure>;
     /**
      * Follows every open remote task until it ends, including after a
      * restart, and a finished one again when a Stop here owes it a stop there.
@@ -380,22 +390,20 @@ const make = Effect.gen(function* () {
       });
     }
     yield* followOne(scope.thread.threadId, taskId).pipe(Effect.forkIn(followers));
-    const bot = yield* bots
-      .botForThread(scope.thread.threadId)
-      .pipe(Effect.orElseSucceed(() => null));
-    if (bot !== null)
+    if (input.workItemId !== undefined)
       // The task already runs; a board that failed to take it shows it as not on any item.
-      yield* BotService.fileTask({
-        bot: bot.name,
-        workItemId: input.workItemId,
-        environmentId: remoteChild.environmentId,
-        threadId: remoteChild.threadId,
-        title: input.title ?? task.slice(0, 60).trim(),
-        where: remoteChild.label,
-      }).pipe(
-        Effect.provideService(BotStore.BotStore, bots),
-        Effect.catch((error) => Effect.logWarning("bot could not file a task", { taskId, error })),
-      );
+      yield* bots
+        .linkThread(input.workItemId, {
+          environmentId: remoteChild.environmentId,
+          threadId: remoteChild.threadId,
+          title: input.title ?? task.slice(0, 60).trim(),
+          where: remoteChild.label,
+        })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("bot could not file a task", { taskId, error }),
+          ),
+        );
     return { taskId };
   });
 
@@ -404,15 +412,16 @@ const make = Effect.gen(function* () {
     scope: ThreadScope,
     input: OrchestratorMcpDelegateTaskInput,
   ) {
-    if (input.workItemId === undefined) return;
     const bot = yield* bots
       .botForThread(scope.thread.threadId)
       .pipe(Effect.orElseSucceed(() => null));
-    if (bot === null)
+    if (bot === null) {
+      if (input.workItemId === undefined) return;
       return yield* new OrchestratorMcpFailure({
         code: "invalid_request",
         message: "workItemId is for bots. Omit it.",
       });
+    }
     yield* BotService.assertWorkItem(bot.name, input.workItemId).pipe(
       Effect.provideService(BotStore.BotStore, bots),
       Effect.mapError(
@@ -926,7 +935,56 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.ignoreCause({ log: true })),
     );
 
-  return RemoteDelegation.of({ delegate, delegateToProject, cancel, start });
+  const readTranscript: RemoteDelegation["Service"]["readTranscript"] = Effect.fn(
+    "RemoteDelegation.readTranscript",
+  )(function* (parentThreadId, taskId) {
+    const { thread, task } = yield* readTask(parentThreadId, taskId).pipe(
+      Effect.mapError(
+        () =>
+          new OrchestratorMcpFailure({
+            code: "orchestration_error",
+            message: "The task could not be read.",
+          }),
+      ),
+    );
+    const remote = task?.remoteChild;
+    if (remote === undefined || remote.environmentId === hereId) return [];
+    const scope = followScope(
+      { threadId: parentThreadId, providerInstanceId: thread.providerInstanceId },
+      remote,
+    );
+    const messages: Array<BotStore.BotMessage> = [];
+    let afterPosition: number | undefined;
+    while (true) {
+      const read = yield* forwarding.readThread(scope, remote.environmentId, {
+        threadId: remote.threadId,
+        view: "messages",
+        limit: 100,
+        maxCharsPerItem: TRANSCRIPT_MESSAGE_CHARS,
+        ...(afterPosition === undefined ? {} : { afterPosition }),
+      });
+      for (const item of read.items) {
+        const role =
+          item.type === "user_message"
+            ? "user"
+            : item.type === "assistant_message"
+              ? "assistant"
+              : undefined;
+        if (role === undefined || item.text === null || item.text.trim() === "") continue;
+        messages.push({
+          id: item.messageId ?? item.itemId,
+          role,
+          createdAt: item.updatedAt,
+          text: item.textTruncated ? `${item.text}…` : item.text,
+        });
+      }
+      if (!read.hasMore || read.nextPosition === null) break;
+      afterPosition = read.nextPosition;
+    }
+    return messages;
+  });
+
+  return RemoteDelegation.of({ delegate, delegateToProject, cancel, readTranscript, start });
 });
 
 const isTerminal = (status: string) =>

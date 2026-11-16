@@ -71,4 +71,38 @@ const BotCharterSetTool = Tool.make("t3_bot_charter_set", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
 
-export const BotToolkit = Toolkit.make(BotBoardTool, BotItemSaveTool, BotCharterSetTool);
+const BotRecallTool = Tool.make("t3_bot_recall", {
+  ...shared,
+  description:
+    "Search what you keep: this whole conversation and every message of your finished tasks' threads, readable while their machine is offline. query finds passages; threadId returns that thread's copied messages instead. Cite what you find by its date and thread.",
+  parameters: Schema.Struct({
+    query: Schema.optional(Schema.String.check(Schema.isMaxLength(300))),
+    threadId: Schema.optional(ThreadId),
+    environmentId: Schema.optional(EnvironmentId),
+    limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 40 }))),
+  }),
+  success: Schema.Struct({
+    results: Schema.Array(
+      Schema.Struct({
+        when: Schema.String,
+        /** The thread's title, or "this conversation". */
+        source: Schema.String,
+        where: Schema.NullOr(Schema.String),
+        role: Schema.String,
+        text: Schema.String,
+        threadId: ThreadId,
+        environmentId: EnvironmentId,
+      }),
+    ),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
+
+export const BotToolkit = Toolkit.make(
+  BotBoardTool,
+  BotItemSaveTool,
+  BotCharterSetTool,
+  BotRecallTool,
+);
