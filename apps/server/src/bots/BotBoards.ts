@@ -90,7 +90,8 @@ const make = Effect.gen(function* () {
           yield* projections.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null)),
         );
       const episodes = yield* store.latestEpisodes(links);
-      return { hereId, now: yield* DateTime.now, items, links, episodes, tasks, shells };
+      const files = yield* store.itemFiles(items.map((item) => item.id));
+      return { hereId, now: yield* DateTime.now, items, links, files, episodes, tasks, shells };
     },
   );
 

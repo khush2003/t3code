@@ -1,4 +1,5 @@
 import { BotBoards } from "../bots/BotBoards.ts";
+import { BotFiles } from "../bots/BotFiles.ts";
 import { BotStore } from "../bots/BotStore.ts";
 import { DiskGuard } from "../diskGuard.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
@@ -64,6 +65,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(DiskGuard)({}),
   Layer.mock(BotStore)({}),
   Layer.mock(BotBoards)({}),
+  Layer.mock(BotFiles)({}),
   Layer.mock(ProjectStoreV2)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),

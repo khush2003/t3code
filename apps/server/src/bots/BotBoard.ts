@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 
 import type {
   BotEpisodeRecord,
+  BotFile,
   BotItemRecord,
   BotItemThreadRecord,
   BotThreadRef,
@@ -92,6 +93,7 @@ export interface BoardSources {
   readonly now: DateTime.Utc;
   readonly items: ReadonlyArray<BotItemRecord>;
   readonly links: ReadonlyArray<BotItemThreadRecord>;
+  readonly files: ReadonlyArray<BotFile>;
   readonly episodes: ReadonlyArray<BotEpisodeRecord>;
   /** The bot thread's task records: they follow work on other machines too. */
   readonly tasks: ReadonlyArray<OrchestrationV2Subagent>;
@@ -147,6 +149,19 @@ export function deriveBoard(sources: BoardSources): ReadonlyArray<BotBoardItem> 
     threads: sources.links
       .filter((link) => link.itemId === item.id)
       .map((link) => boardThread(link, sources)),
+    files: sources.files
+      .filter((file) => file.itemId === item.id)
+      .map((file) => ({
+        id: file.id,
+        title: file.title,
+        name: file.name,
+        mimeType: file.mimeType,
+        sizeBytes: file.bytes,
+        attachmentId: file.attachmentId,
+        url: file.url,
+        sourcePath: file.sourcePath,
+        createdAt: file.createdAt,
+      })),
   }));
 }
 

@@ -49,6 +49,11 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   names the message and the passage it rests on, and one whose passage is not in that message is
   thrown away. A note that stops being true is marked so and kept, never deleted. If a pass fails,
   the bot still has everything it copied.
+- A thread a bot started can hand it something to show you: a document, a screenshot, a recording,
+  or a preview link. It appears under the work item on the board, and clicking it opens it. A file
+  up to 200 MB is copied and kept on the bot's machine; a larger one stays where it was and the
+  board says where. Kept copies share 10 GB across all bots, and past that the oldest are dropped
+  while their entries stay. A thread on another machine cannot hand a file over yet.
 - **Memory**, in the Board heading of a bot's thread details, shows what the bot carries into every
   session: its charter with every earlier version to restore, its notes with the passage each rests
   on, and what each background pass read, added and threw out. Edit the charter there, and retire a

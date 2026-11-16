@@ -63,6 +63,21 @@ export const BotBoardThread = Schema.Struct({
 });
 export type BotBoardThread = typeof BotBoardThread.Type;
 
+/** Something a task handed over: a file kept as an attachment, or a link. */
+export const BotBoardFile = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  mimeType: Schema.NullOr(Schema.String),
+  sizeBytes: Schema.Number,
+  /** The kept copy; null for a link, a file too large to copy, or one whose copy was evicted. */
+  attachmentId: Schema.NullOr(Schema.String),
+  url: Schema.NullOr(Schema.String),
+  sourcePath: Schema.NullOr(Schema.String),
+  createdAt: Schema.String,
+});
+export type BotBoardFile = typeof BotBoardFile.Type;
+
 export const BotBoardItem = Schema.Struct({
   id: BotWorkItemId,
   title: Schema.String,
@@ -71,6 +86,7 @@ export const BotBoardItem = Schema.Struct({
   state: BotWorkItemState,
   updatedAt: Schema.String,
   threads: Schema.Array(BotBoardThread),
+  files: Schema.Array(BotBoardFile),
 });
 export type BotBoardItem = typeof BotBoardItem.Type;
 

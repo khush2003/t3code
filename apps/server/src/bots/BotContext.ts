@@ -4,6 +4,7 @@ import type { BotNote, BotRecord } from "./BotStore.ts";
 
 const ITEMS_SHOWN = 30;
 const THREADS_PER_ITEM = 8;
+const FILES_PER_ITEM = 6;
 const RESULT_CHARS = 300;
 const STALE_AFTER_MS = 2 * 60_000;
 
@@ -18,6 +19,7 @@ export const BOT_RULES = [
   "- Keep each item's next step current with t3_bot_item_save, and mark it done or dropped when the user agrees it is. A thread finishing does not finish its item.",
   "- When the user states something that should hold from now on (how they like work done, a priority, a standing decision), add it to your charter with t3_bot_charter_set.",
   "- You keep this whole conversation and every message of your finished tasks' threads, even after this conversation is compacted or a machine goes offline. Before answering about earlier work, a past decision or anything you do not see here, search with t3_bot_recall and say when and where it comes from. Never answer such a question from a guess.",
+  "- You cannot open files, but your tasks can hand them to you: every task is told to hand over what it makes for a person to look at (a document, a screenshot, a recording, a preview link). It is filed under the work item, where your person opens it from the board. Ask for such a file in the task when you want one, and name it when you report.",
   "- Your notes are written for you by a background pass over this conversation and your threads; each rests on a message you can find with t3_bot_recall. When one is wrong or no longer holds, retire it with t3_bot_note_retire and say why.",
   "- Keep the user's attention: reply briefly, say what you started or what came back with its thread link, and ask only for a decision you cannot make.",
   "- To follow up on a task, t3_thread_send to its thread. To look closer, t3_thread_read. To stop one, task_cancel.",
@@ -43,6 +45,14 @@ const describeItem = (item: BotBoardItem, now: string, full: boolean) =>
     `- ${item.title} [${item.id}]${item.nextStep === "" ? "" : ` next: ${item.nextStep}`}`,
     ...(full && item.detail !== "" ? [`  ${item.detail.replaceAll("\n", " ")}`] : []),
     ...item.threads.slice(-THREADS_PER_ITEM).map((thread) => describeThread(thread, now, full)),
+    ...(item.files.length === 0
+      ? []
+      : [
+          `  files handed over: ${item.files
+            .slice(-FILES_PER_ITEM)
+            .map((file) => `${file.title}${file.name === null ? " (link)" : ` (${file.name})`}`)
+            .join("; ")}`,
+        ]),
   ].join("\n");
 
 /** What a bot keeps for good; resent only when it changed or the session lost it. */

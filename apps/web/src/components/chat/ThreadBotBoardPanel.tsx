@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type {
+  BotBoardFile,
   BotBoardItem,
   BotBoardThread,
   BotThreadStatus,
@@ -7,12 +8,19 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { PaperclipIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+
+import { formatBytes } from "../../lib/formatBytes";
+import { ensureLocalApi } from "../../localApi";
+import { assetEnvironment } from "../../state/assets";
 import { botsEnvironment } from "../../state/bots";
-import { useEnvironment } from "../../state/environments";
+import { useEnvironment, useEnvironmentHttpBaseUrl } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { RelativeTime } from "../RelativeTime";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -102,7 +110,80 @@ function BoardThreadRow(props: { readonly thread: BotBoardThread; readonly readA
   );
 }
 
-function BoardItem(props: { readonly item: BotBoardItem; readonly readAt: number }) {
+/** A file a task handed over: its kept copy opens, a link opens, one too large says where it is. */
+function BoardFileRow(props: {
+  readonly environmentId: EnvironmentId;
+  readonly file: BotBoardFile;
+}) {
+  const { file } = props;
+  const httpBaseUrl = useEnvironmentHttpBaseUrl(props.environmentId);
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
+    reportFailure: false,
+    refresh: true,
+  });
+  const opens = file.url !== null || (file.attachmentId !== null && httpBaseUrl !== null);
+  const open = async () => {
+    if (file.url !== null) return ensureLocalApi().shell.openExternal(file.url);
+    if (file.attachmentId === null || httpBaseUrl === null) return;
+    const result = await createAssetUrl({
+      environmentId: props.environmentId,
+      input: {
+        resource: {
+          _tag: "attachment",
+          attachmentId: file.attachmentId,
+          disposition: "inline",
+          ...(file.name === null ? {} : { fileName: file.name }),
+          ...(file.mimeType === null ? {} : { mimeType: file.mimeType }),
+        },
+      },
+    });
+    if (result._tag !== "Success") return;
+    const url = resolveAssetUrl(httpBaseUrl, result.value.relativeUrl);
+    if (url !== null) await ensureLocalApi().shell.openExternal(url);
+  };
+  return (
+    <li className="flex h-8 items-center rounded-lg">
+      <Tooltip>
+        <TooltipTrigger
+          delay={200}
+          render={
+            <ThreadDetailsControl
+              size="sm"
+              variant="ghost"
+              part="row"
+              aria-disabled={!opens || undefined}
+              onClick={() => void open().catch(() => undefined)}
+            />
+          }
+        >
+          <PaperclipIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-medium leading-4 text-foreground/85">
+            {file.title}
+          </span>
+          <span className="shrink-0 text-2xs text-muted-foreground">
+            {file.url !== null ? "Link" : formatBytes(file.sizeBytes)}
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="left">
+          <span className="block max-w-72">
+            {file.name === null ? null : <span className="block font-medium">{file.name}</span>}
+            <span className="block text-muted-foreground">
+              {opens
+                ? "Open"
+                : `No copy is kept. It was at ${file.sourcePath ?? "an unknown place"} when handed over.`}
+            </span>
+          </span>
+        </TooltipPopup>
+      </Tooltip>
+    </li>
+  );
+}
+
+function BoardItem(props: {
+  readonly environmentId: EnvironmentId;
+  readonly item: BotBoardItem;
+  readonly readAt: number;
+}) {
   const { item } = props;
   return (
     <li>
@@ -134,6 +215,13 @@ function BoardItem(props: { readonly item: BotBoardItem; readonly readAt: number
               thread={thread}
               readAt={props.readAt}
             />
+          ))}
+        </ul>
+      )}
+      {item.files.length === 0 ? null : (
+        <ul className="m-0 list-none p-0">
+          {item.files.map((file) => (
+            <BoardFileRow key={file.id} environmentId={props.environmentId} file={file} />
           ))}
         </ul>
       )}
@@ -205,7 +293,12 @@ export function ThreadBotBoardPanel(props: {
         ) : (
           <ul className="m-0 max-h-[min(28rem,55dvh)] list-none overflow-y-auto overscroll-contain p-0">
             {board.items.map((item) => (
-              <BoardItem key={item.id} item={item} readAt={query.dataUpdatedAt} />
+              <BoardItem
+                key={item.id}
+                environmentId={props.environmentId}
+                item={item}
+                readAt={query.dataUpdatedAt}
+              />
             ))}
             {board.unfiled.length === 0 ? null : (
               <li>

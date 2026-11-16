@@ -80,6 +80,24 @@ export interface BotNote extends BotThreadRef {
   readonly replacedBy: string | null;
 }
 
+/** Something a task handed to its bot: a file, kept as a copy when it fits, or a link. */
+export interface BotFile extends BotThreadRef {
+  readonly id: string;
+  readonly bot: BotName;
+  readonly itemId: BotWorkItemId | null;
+  readonly title: string;
+  /** The file's own name; null for a link. */
+  readonly name: string | null;
+  readonly mimeType: string | null;
+  readonly bytes: number;
+  /** The copy in T3's attachment store; null for a link, a file too large, or one evicted. */
+  readonly attachmentId: string | null;
+  readonly url: string | null;
+  /** Where the file was when it was handed over. */
+  readonly sourcePath: string | null;
+  readonly createdAt: string;
+}
+
 export interface BotReflectionPass {
   readonly at: string;
   readonly messages: number;
@@ -210,6 +228,16 @@ export class BotStore extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<BotRecallHit>, BotError>;
     /** Notes that still hold, newest first. */
     readonly activeNotes: (bot: BotName) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
+    readonly addFile: (file: Omit<BotFile, "id" | "createdAt">) => Effect.Effect<BotFile, BotError>;
+    readonly itemFiles: (
+      itemIds: ReadonlyArray<BotWorkItemId>,
+    ) => Effect.Effect<ReadonlyArray<BotFile>, BotError>;
+    /** Bytes of every copy kept, across all bots. */
+    readonly storedFileBytes: Effect.Effect<number, BotError>;
+    /** The oldest copies kept, for eviction. */
+    readonly oldestStoredFiles: (limit: number) => Effect.Effect<ReadonlyArray<BotFile>, BotError>;
+    /** Drops a file's copy and keeps its record. */
+    readonly markFileEvicted: (id: string) => Effect.Effect<void, BotError>;
     /** Every note, current ones first, each group newest first. */
     readonly allNotes: (bot: BotName) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
     readonly reflectionPasses: (
@@ -270,7 +298,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -346,6 +374,25 @@ const NOTES = [
   "CREATE INDEX IF NOT EXISTS reflections_bot ON reflections (bot, at)",
 ];
 
+const FILES = [
+  `CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    bot TEXT NOT NULL,
+    item_id TEXT,
+    environment_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    name TEXT,
+    mime_type TEXT,
+    bytes INTEGER NOT NULL,
+    attachment_id TEXT,
+    url TEXT,
+    source_path TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS files_item ON files (item_id, created_at)",
+];
+
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
   "ALTER TABLE bots ADD COLUMN context_run TEXT",
@@ -362,7 +409,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
   yield* sql.withTransaction(
     Effect.gen(function* () {
       if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
-      for (const statement of [...MESSAGE_COPIES, ...NOTES]) yield* sql.unsafe(statement);
+      for (const statement of [...MESSAGE_COPIES, ...NOTES, ...FILES]) yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1) {
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -830,6 +877,87 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a copied thread")),
     );
 
+  type FileRow = {
+    id: string;
+    bot: string;
+    item_id: string | null;
+    environment_id: string;
+    thread_id: string;
+    title: string;
+    name: string | null;
+    mime_type: string | null;
+    bytes: number;
+    attachment_id: string | null;
+    url: string | null;
+    source_path: string | null;
+    created_at: string;
+  };
+  const toFile = (row: FileRow): BotFile => ({
+    id: row.id,
+    bot: row.bot as BotName,
+    itemId: row.item_id as BotWorkItemId | null,
+    environmentId: row.environment_id as EnvironmentId,
+    threadId: row.thread_id as ThreadId,
+    title: row.title,
+    name: row.name,
+    mimeType: row.mime_type,
+    bytes: row.bytes,
+    attachmentId: row.attachment_id,
+    url: row.url,
+    sourcePath: row.source_path,
+    createdAt: row.created_at,
+  });
+
+  const addFile: BotStore["Service"]["addFile"] = Effect.fn("BotStore.addFile")(
+    function* (file) {
+      const id = `file:${(yield* random.uuidV4()).slice(0, 8)}`;
+      const createdAt = yield* now;
+      yield* sql`
+        INSERT INTO files (
+          id, bot, item_id, environment_id, thread_id, title, name, mime_type, bytes,
+          attachment_id, url, source_path, created_at
+        ) VALUES (
+          ${id}, ${file.bot}, ${file.itemId}, ${file.environmentId}, ${file.threadId},
+          ${file.title}, ${file.name}, ${file.mimeType}, ${file.bytes}, ${file.attachmentId},
+          ${file.url}, ${file.sourcePath}, ${createdAt}
+        )
+      `;
+      return { ...file, id, createdAt };
+    },
+    Effect.mapError(fail("record a file")),
+  );
+
+  const itemFiles: BotStore["Service"]["itemFiles"] = (itemIds) =>
+    itemIds.length === 0
+      ? Effect.succeed([])
+      : sql<FileRow>`
+          SELECT * FROM files WHERE item_id IN ${sql.in(itemIds)} ORDER BY created_at
+        `.pipe(
+          Effect.map((rows) => rows.map(toFile)),
+          Effect.mapError(fail("read files")),
+        );
+
+  const storedFileBytes: BotStore["Service"]["storedFileBytes"] = sql<{ total: number | null }>`
+    SELECT SUM(bytes) AS total FROM files WHERE attachment_id IS NOT NULL
+  `.pipe(
+    Effect.map(([row]) => row?.total ?? 0),
+    Effect.mapError(fail("measure kept files")),
+  );
+
+  const oldestStoredFiles: BotStore["Service"]["oldestStoredFiles"] = (limit) =>
+    sql<FileRow>`
+      SELECT * FROM files WHERE attachment_id IS NOT NULL ORDER BY created_at LIMIT ${limit}
+    `.pipe(
+      Effect.map((rows) => rows.map(toFile)),
+      Effect.mapError(fail("read files")),
+    );
+
+  const markFileEvicted: BotStore["Service"]["markFileEvicted"] = (id) =>
+    sql`UPDATE files SET attachment_id = NULL WHERE id = ${id}`.pipe(
+      Effect.asVoid,
+      Effect.mapError(fail("record an evicted file")),
+    );
+
   type NoteRow = {
     id: string;
     text: string;
@@ -1038,6 +1166,11 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     markCopied,
     recall,
     threadMessages,
+    addFile,
+    itemFiles,
+    storedFileBytes,
+    oldestStoredFiles,
+    markFileEvicted,
     activeNotes,
     allNotes,
     reflectionPasses,

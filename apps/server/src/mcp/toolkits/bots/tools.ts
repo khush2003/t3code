@@ -12,6 +12,7 @@ import { Tool, Toolkit } from "effect/ai";
 import * as McpSchema from "effect/ai/McpSchema";
 
 import * as BotBoards from "../../../bots/BotBoards.ts";
+import * as BotFiles from "../../../bots/BotFiles.ts";
 import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -24,6 +25,7 @@ const shared = {
     McpInvocationContext.McpInvocationContext,
     BotStore.BotStore,
     BotBoards.BotBoards,
+    BotFiles.BotFiles,
     ThreadManagementService.ThreadManagementService,
     ProjectService.ProjectService,
   ],
@@ -113,10 +115,29 @@ const BotNoteRetireTool = Tool.make("t3_bot_note_retire", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
 
+const BotFileGiveTool = Tool.make("t3_bot_file_give", {
+  ...shared,
+  description:
+    "Hand the bot that started this thread something to show its person: a document, screenshot, recording or other file by path, or a preview link by url. It is filed with your task. Give only finished things worth keeping, then name them in your reply.",
+  parameters: Schema.Struct({
+    title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+    path: Schema.optional(Schema.String.check(Schema.isMaxLength(4_096))),
+    url: Schema.optional(Schema.String.check(Schema.isMaxLength(2_048))),
+  }),
+  success: Schema.Struct({
+    id: Schema.String,
+    /** False when the file was too large to copy, so only where it is was recorded. */
+    kept: Schema.Boolean,
+  }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForDelegatedTasks);
+
 export const BotToolkit = Toolkit.make(
   BotBoardTool,
   BotItemSaveTool,
   BotCharterSetTool,
   BotRecallTool,
   BotNoteRetireTool,
+  BotFileGiveTool,
 );

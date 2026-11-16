@@ -46,6 +46,7 @@ const task = (fields: Partial<OrchestrationV2Subagent>) =>
   }) as OrchestrationV2Subagent;
 
 const sources = (overrides: Partial<BoardSources>): BoardSources => ({
+  files: [],
   hereId: here,
   now,
   items: [item],

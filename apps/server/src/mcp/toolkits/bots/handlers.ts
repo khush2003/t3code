@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 
 import { deriveBoard } from "../../../bots/BotBoard.ts";
 import * as BotBoards from "../../../bots/BotBoards.ts";
+import * as BotFiles from "../../../bots/BotFiles.ts";
 import { requireBot } from "../../../bots/BotService.ts";
 import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -132,6 +133,24 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         ],
       };
     }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
+  ),
+  t3_bot_file_give: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      if (scope.thread === undefined)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Only a thread a bot started can hand it a file.",
+        });
+      const files = yield* BotFiles.BotFiles;
+      const { file, kept } = yield* files.give({
+        taskThreadId: scope.thread.threadId,
+        title: input.title,
+        path: input.path,
+        url: input.url,
+      });
+      return { id: file.id, kept };
+    }).pipe(Effect.mapError(failure)),
   ),
   t3_bot_note_retire: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {

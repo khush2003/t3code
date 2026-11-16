@@ -33,6 +33,10 @@ import * as ServerSettings from "../serverSettings.ts";
 
 /** Tasks a bot may start after the user last spoke, so tasks waking it cannot run away. */
 export const BOT_TASKS_PER_USER_MESSAGE = 20;
+
+/** Said by the server, since a bot asked to pass it on sometimes leaves it out. */
+const BOT_TASK_NOTE =
+  "(From T3 Code: a bot started this thread and cannot open files. If the work ends in something for its person to look at, such as a document, a screenshot, a recording or a preview link, hand it over with t3_bot_file_give before your last reply and name it there.)";
 const RUNS_SCANNED = 40;
 
 const unavailable = (action: string) =>
@@ -203,7 +207,12 @@ const make = Effect.gen(function* () {
             input.isolation === "worktree"
               ? { type: "worktree", baseRef: "HEAD", startFromOrigin: false }
               : { type: "root" },
-          initialMessage: { messageId, senderThreadId: parent.id, text: task, attachments: [] },
+          initialMessage: {
+            messageId,
+            senderThreadId: parent.id,
+            text: `${task}\n\n${BOT_TASK_NOTE}`,
+            attachments: [],
+          },
           createdBy: "agent",
           creationSource: "mcp",
           // The project thread shows which bot started it, and storage cleanup reclaims it.

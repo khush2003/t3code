@@ -5,6 +5,7 @@ import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BotBoards from "./bots/BotBoards.ts";
+import * as BotFiles from "./bots/BotFiles.ts";
 import * as BotJournal from "./bots/BotJournal.ts";
 import * as BotReflection from "./bots/BotReflection.ts";
 import * as BotService from "./bots/BotService.ts";
@@ -812,6 +813,8 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
   ),
+  // What a bot's tasks hand it, from /mcp.
+  Layer.provide(BotFiles.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // delegate_task to a linked environment, from /mcp and the follower above.
   Layer.provide(
     RemoteDelegation.layer.pipe(

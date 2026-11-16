@@ -31,6 +31,8 @@ export interface McpThreadCaller {
   readonly subagent?: boolean;
   /** A bot's conversation: it delegates and keeps a board, and does no work itself. */
   readonly bot?: boolean;
+  /** A thread another thread started as its task, which may be a bot's. */
+  readonly delegated?: boolean;
 }
 
 export interface McpClientCaller {
@@ -172,6 +174,15 @@ const callerIsBot = () => {
 
 /** `McpSchema.EnabledWhen` for a bot's own tools; no other agent sees them. */
 export const onlyForBots = (): boolean => callerIsBot();
+
+/** `McpSchema.EnabledWhen` for tools only a delegated task uses, such as handing a file back. */
+export const onlyForDelegatedTasks = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  return (
+    (fiber && Context.getOrUndefined(fiber.context, McpInvocationContext))?.thread?.delegated ===
+    true
+  );
+};
 
 /** `McpSchema.EnabledWhen` for tools a bot has no use for, kept out of its context. */
 export const hiddenFromBots = (): boolean => !callerIsBot();
