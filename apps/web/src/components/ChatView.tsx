@@ -3477,6 +3477,7 @@ export default function ChatView(props: ChatViewProps) {
                   onFileOpen={openFileAttachmentStable}
                   onFileDownload={downloadFileAttachmentStable}
                   markdownCwd={gitCwd ?? undefined}
+                  botThread={activeThread?.bot === true}
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}
                   workspaceRoot={activeWorkspaceRoot}

@@ -38,7 +38,14 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     <>
       <div className="relative min-w-0 px-1 py-0.5">
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <div data-thread-find-text="true">
+        <div
+          data-thread-find-text="true"
+          className={
+            ctx.botThread
+              ? "w-fit max-w-4/5 rounded-2xl rounded-es-md bg-muted px-3.5 py-2"
+              : undefined
+          }
+        >
           <AssistantCitationSource
             messageId={row.message.id}
             {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}

@@ -55,6 +55,8 @@ export interface TimelineRowSharedState {
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
+  /** A bot's conversation reads as a chat: its replies sit in bubbles. */
+  botThread: boolean;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<ServerProviderSkill>;
