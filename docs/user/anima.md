@@ -36,8 +36,9 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   updates its charter.
 - A bot uses T3 Code's own tools only. MCP servers you set up for Claude are not loaded into it.
 - Every bot knows the others and what they are for, and one bot can tell another something or hand
-  it work. The other gets a turn with the message and answers the same way. A bot may tell another
-  twelve things an hour, so two of them cannot keep answering each other.
+  it work. The other gets a turn with the message, and what it says at the end of that turn goes
+  back to the first bot, which then tells you. A bot may tell another twelve things an hour, so two
+  of them cannot keep talking to each other.
 - Tick **Oversees the other bots** when you start a bot to make it your one point of contact. Every
   turn it sees what each bot has open, it can read any bot's whole board, and it passes work to the
   bot whose purpose fits. Only a new bot can be given this.

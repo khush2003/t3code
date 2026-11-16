@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import { deriveBoard } from "../../../bots/BotBoard.ts";
 import * as BotBoards from "../../../bots/BotBoards.ts";
 import * as BotFiles from "../../../bots/BotFiles.ts";
+import { renderBotMessage } from "../../../bots/BotRelay.ts";
 import { requireBot } from "../../../bots/BotService.ts";
 import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -78,20 +79,21 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
       const since = DateTime.formatIso(
         DateTime.subtractDuration(yield* DateTime.now, Duration.hours(1)),
       );
-      const told = yield* store.countBotMessage(bot.name, other.name, since);
-      // Two bots answering each other would never stop by themselves.
-      if (told > BOT_MESSAGES_PER_HOUR)
+      const told = yield* store.countBotMessages(bot.name, other.name, since);
+      // Two bots telling each other things would never stop by themselves.
+      if (told >= BOT_MESSAGES_PER_HOUR)
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
-          message: `You told ${other.name} ${told - 1} things in the last hour. Stop, and tell your person what is going on between you.`,
+          message: `You told ${other.name} ${told} things in the last hour. Stop, and tell your person what is going on between you.`,
         });
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       const sent = yield* service.sendToThread(scope, {
         threadId: other.threadId,
-        message: `From the bot "${bot.name}": ${input.message}\n\n(Answer with t3_bot_tell to "${bot.name}" only when it needs an answer.)`,
+        message: renderBotMessage(bot.name, input.message),
         mode: "queue",
       });
+      yield* store.addBotMessage({ from: bot.name, to: other.name, messageId: sent.messageId });
       return { delivery: sent.delivery };
     }).pipe(Effect.mapError(failure)),
   ),

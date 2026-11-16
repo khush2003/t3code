@@ -42,7 +42,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
           data-thread-find-text="true"
           className={
             ctx.botThread
-              ? "w-fit max-w-4/5 rounded-2xl rounded-es-md bg-muted px-3.5 py-2"
+              ? "w-fit max-w-4/5 rounded-2xl rounded-es-md bg-message px-3.5 py-2 text-message-foreground"
               : undefined
           }
         >

@@ -125,7 +125,7 @@ const BotNoteRetireTool = Tool.make("t3_bot_note_retire", {
 const BotTellTool = Tool.make("t3_bot_tell", {
   ...shared,
   description:
-    "Tell another bot something, ask it a question, or hand it work that fits its purpose. It gets a turn with your message and answers the same way when an answer is needed. Say everything it needs: it does not see your conversation.",
+    "Tell another bot something, ask it a question, or hand it work that fits its purpose. Say everything it needs: it does not see your conversation. It gets a turn with your message, and what it says at the end of that turn comes back to you as a message by itself, so end your turn after telling it.",
   parameters: Schema.Struct({
     bot: BotName,
     message: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),

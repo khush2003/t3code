@@ -83,6 +83,14 @@ export interface BotNote extends BotThreadRef {
 }
 
 /** Something a task handed to its bot: a file, kept as a copy when it fits, or a link. */
+/** Something one bot told another, as the message it became in the other's thread. */
+export interface BotToldMessage {
+  readonly id: number;
+  readonly from: BotName;
+  readonly to: BotName;
+  readonly messageId: string;
+}
+
 export interface BotFile extends BotThreadRef {
   readonly id: string;
   readonly bot: BotName;
@@ -167,15 +175,27 @@ export class BotStore extends Context.Service<
       readonly charter: string;
       readonly oversees?: boolean | undefined;
     }) => Effect.Effect<BotRecord, BotError>;
-    /**
-     * Records that one bot told another something, and returns how often it has since `since`,
-     * this time included.
-     */
-    readonly countBotMessage: (
+    /** How often one bot has told another something since `since`. */
+    readonly countBotMessages: (
       from: BotName,
       to: BotName,
       since: string,
     ) => Effect.Effect<number, BotError>;
+    /** Records what one bot told another: the message it became in the other's thread. */
+    readonly addBotMessage: (input: {
+      readonly from: BotName;
+      readonly to: BotName;
+      readonly messageId: string;
+    }) => Effect.Effect<void, BotError>;
+    /** Of these messages, the ones another bot sent and has had no answer to. */
+    readonly unansweredBotMessages: (
+      messageIds: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<BotToldMessage>, BotError>;
+    /** Everything one bot told another since `since` that has had no answer. */
+    readonly unansweredBotMessagesSince: (
+      since: string,
+    ) => Effect.Effect<ReadonlyArray<BotToldMessage>, BotError>;
+    readonly markBotMessageAnswered: (id: number) => Effect.Effect<void, BotError>;
     readonly setThread: (name: BotName, threadId: ThreadId) => Effect.Effect<void, BotError>;
     readonly botForThread: (threadId: ThreadId) => Effect.Effect<BotRecord | null, BotError>;
     /** The charter it replaces is kept. */
@@ -310,7 +330,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -418,6 +438,11 @@ const BOT_MESSAGES = [
   "CREATE INDEX IF NOT EXISTS bot_messages_pair ON bot_messages (from_bot, to_bot, at)",
 ];
 
+const BOT_MESSAGE_ANSWER_COLUMNS = [
+  "ALTER TABLE bot_messages ADD COLUMN message_id TEXT",
+  "ALTER TABLE bot_messages ADD COLUMN answered_at TEXT",
+];
+
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
   "ALTER TABLE bots ADD COLUMN context_run TEXT",
@@ -438,6 +463,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
         yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1 && version < 6) yield* sql.unsafe(OVERSEES_COLUMN);
+      for (const column of BOT_MESSAGE_ANSWER_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1) {
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         return;
@@ -910,18 +936,55 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a copied thread")),
     );
 
-  const countBotMessage: BotStore["Service"]["countBotMessage"] = Effect.fn(
-    "BotStore.countBotMessage",
-  )(
-    function* (from, to, since) {
-      yield* sql`INSERT INTO bot_messages (from_bot, to_bot, at) VALUES (${from}, ${to}, ${yield* now})`;
-      const [row] = yield* sql<{ count: number }>`
-        SELECT COUNT(*) AS count FROM bot_messages
-        WHERE from_bot = ${from} AND to_bot = ${to} AND at >= ${since}
+  const countBotMessages: BotStore["Service"]["countBotMessages"] = (from, to, since) =>
+    sql<{ count: number }>`
+      SELECT COUNT(*) AS count FROM bot_messages
+      WHERE from_bot = ${from} AND to_bot = ${to} AND at >= ${since}
+    `.pipe(
+      Effect.map(([row]) => row?.count ?? 0),
+      Effect.mapError(fail("count messages between bots")),
+    );
+
+  const addBotMessage: BotStore["Service"]["addBotMessage"] = Effect.fn("BotStore.addBotMessage")(
+    function* (input) {
+      yield* sql`
+        INSERT INTO bot_messages (from_bot, to_bot, at, message_id)
+        VALUES (${input.from}, ${input.to}, ${yield* now}, ${input.messageId})
       `;
-      return row?.count ?? 0;
     },
-    Effect.mapError(fail("count messages between bots")),
+    Effect.mapError(fail("record a message between bots")),
+  );
+
+  type BotToldRow = { id: number; from_bot: string; to_bot: string; message_id: string };
+  const toTold = (rows: ReadonlyArray<BotToldRow>): ReadonlyArray<BotToldMessage> =>
+    rows.map((row) => ({
+      id: row.id,
+      from: row.from_bot as BotName,
+      to: row.to_bot as BotName,
+      messageId: row.message_id,
+    }));
+
+  const unansweredBotMessages: BotStore["Service"]["unansweredBotMessages"] = (messageIds) =>
+    messageIds.length === 0
+      ? Effect.succeed([])
+      : sql<BotToldRow>`
+          SELECT id, from_bot, to_bot, message_id FROM bot_messages
+          WHERE answered_at IS NULL AND message_id IN ${sql.in(messageIds)}
+        `.pipe(Effect.map(toTold), Effect.mapError(fail("read messages between bots")));
+
+  const unansweredBotMessagesSince: BotStore["Service"]["unansweredBotMessagesSince"] = (since) =>
+    sql<BotToldRow>`
+      SELECT id, from_bot, to_bot, message_id FROM bot_messages
+      WHERE answered_at IS NULL AND message_id IS NOT NULL AND at >= ${since}
+    `.pipe(Effect.map(toTold), Effect.mapError(fail("read messages between bots")));
+
+  const markBotMessageAnswered: BotStore["Service"]["markBotMessageAnswered"] = Effect.fn(
+    "BotStore.markBotMessageAnswered",
+  )(
+    function* (id) {
+      yield* sql`UPDATE bot_messages SET answered_at = ${yield* now} WHERE id = ${id}`;
+    },
+    Effect.mapError(fail("record an answer between bots")),
   );
 
   type FileRow = {
@@ -1213,7 +1276,11 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     markCopied,
     recall,
     threadMessages,
-    countBotMessage,
+    countBotMessages,
+    addBotMessage,
+    unansweredBotMessages,
+    unansweredBotMessagesSince,
+    markBotMessageAnswered,
     addFile,
     itemFiles,
     storedFileBytes,

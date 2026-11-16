@@ -44,10 +44,12 @@ describe("BotBoards.context", () => {
 
       // The twelfth message in an hour is the last one a bot may send another.
       const since = "1960-01-01T00:00:00.000Z";
-      expect(yield* store.countBotMessage(chief, atlas, since)).toBe(1);
-      expect(yield* store.countBotMessage(atlas, chief, since)).toBe(1);
-      expect(yield* store.countBotMessage(chief, atlas, since)).toBe(2);
-      expect(yield* store.countBotMessage(chief, atlas, "2999-01-01T00:00:00.000Z")).toBe(0);
+      yield* store.addBotMessage({ from: chief, to: atlas, messageId: "m1" });
+      yield* store.addBotMessage({ from: atlas, to: chief, messageId: "m2" });
+      yield* store.addBotMessage({ from: chief, to: atlas, messageId: "m3" });
+      expect(yield* store.countBotMessages(chief, atlas, since)).toBe(2);
+      expect(yield* store.countBotMessages(atlas, chief, since)).toBe(1);
+      expect(yield* store.countBotMessages(chief, atlas, "2999-01-01T00:00:00.000Z")).toBe(0);
     }).pipe(Effect.provide(layer)),
   );
 

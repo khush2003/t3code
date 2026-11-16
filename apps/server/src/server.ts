@@ -8,6 +8,7 @@ import * as BotBoards from "./bots/BotBoards.ts";
 import * as BotFiles from "./bots/BotFiles.ts";
 import * as BotJournal from "./bots/BotJournal.ts";
 import * as BotReflection from "./bots/BotReflection.ts";
+import * as BotRelay from "./bots/BotRelay.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as DiskGuard from "./diskGuard.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
@@ -809,6 +810,10 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.effectDiscard(
     BotReflection.BotReflection.pipe(Effect.flatMap((reflection) => reflection.start())),
   ).pipe(Layer.provide(BotReflection.layer)),
+  Layer.effectDiscard(BotRelay.BotRelay.pipe(Effect.flatMap((relay) => relay.start()))).pipe(
+    Layer.provide(BotRelay.layer),
+    Layer.provide(ProjectionStoreV2.layer),
+  ),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
