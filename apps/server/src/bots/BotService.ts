@@ -219,6 +219,14 @@ const make = Effect.gen(function* () {
         return yield* new BotRejectedError({
           reason: "A thread starts from a message in the bot's main chat.",
         });
+      // A message has one thread: replying to it again opens the thread it already has.
+      const existing =
+        input.anchorMessageId === undefined
+          ? undefined
+          : (yield* boards.conversations(bot.name).pipe(Effect.mapError(failed))).find(
+              (conversation) => conversation.anchor?.messageId === input.anchorMessageId,
+            );
+      if (existing !== undefined) return { threadId: existing.threadId };
       const title =
         input.title?.trim() ||
         anchorText?.trim().split("\n")[0]?.slice(0, THREAD_TITLE_CHARS).trim() ||
@@ -270,6 +278,7 @@ const make = Effect.gen(function* () {
                     threadId: conversation.threadId,
                     title: conversation.title,
                     anchorMessageId: conversation.anchor?.messageId ?? null,
+                    anchorText: conversation.anchor?.text ?? null,
                     replies,
                     lastReplyAt:
                       replies === 0 || shell === null ? null : DateTime.formatIso(shell.updatedAt),

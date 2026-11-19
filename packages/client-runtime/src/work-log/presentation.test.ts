@@ -5,6 +5,7 @@ import * as DateTime from "effect/DateTime";
 
 import {
   resolveWorkEntryToolPresentation,
+  summarizeToolGroup,
   toolItemForDisplay,
   type WorkLogPresentationEntry,
   workEntryIndicatesToolFailure,
@@ -130,6 +131,37 @@ describe("resolveWorkEntryToolPresentation", () => {
       toolData: { output: { taskId: "child", status: "failed", summary: "command not found" } },
     };
     expect(workEntryDisplayIndicatesToolFailure(childFailure)).toBe(false);
+  });
+  it("sums a bot's turn up briefly: what it did, without lookups, retries or the rest", () => {
+    const call = (
+      tool: string,
+      toolLifecycleStatus: "completed" | "failed",
+      input: Record<string, unknown> = {},
+    ): WorkLogPresentationEntry => ({
+      id: `${tool}:${toolLifecycleStatus}`,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      label: `mcp__t3-code__${tool}`,
+      tone: "tool",
+      toolLifecycleStatus,
+      toolData: { input },
+    });
+    const turn = [
+      call("orchestrator_capabilities", "completed"),
+      call("t3_project_list", "completed"),
+      call("delegate_task", "failed"),
+      call("t3_bot_board", "completed"),
+      call("t3_bot_tell", "completed", { bot: "rover" }),
+    ];
+    expect(summarizeToolGroup(turn, { brief: true }).summary).toBe(
+      "Read the board and asked rover",
+    );
+    expect(summarizeToolGroup(turn).summary).toBe(
+      "Tried to delegate 1 task, asked rover, and performed 3 other actions",
+    );
+    expect(
+      resolveWorkEntryToolPresentation(call("t3_bot_tell", "completed", { bot: "rover" }))
+        ?.displayName,
+    ).toBe("Asked rover");
   });
   it.each([
     "mcp__t3-code__preview_click",

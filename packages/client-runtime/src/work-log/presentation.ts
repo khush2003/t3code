@@ -207,7 +207,11 @@ function resolveT3McpToolPresentation(
     Number.isSafeInteger(number) &&
     number > 0
       ? `${shortLabel} #${number}`
-      : detail;
+      : definition.summaryAction === "bot-tell" && typeof input?.bot === "string"
+        ? input.bot
+        : definition.summaryAction === "bot-item-save" && typeof input?.title === "string"
+          ? `work item ${input.title}`
+          : detail;
   return {
     displayName: `${verb} ${target}`,
     icon: definition.icon,
@@ -533,6 +537,9 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "attachment-prepare":
     case "attachment-discard":
     case "attachment-send":
+    case "bot-item-save":
+    case "bot-tell":
+    case "bot-file-give":
       return 0;
     case "other":
     case "update":
@@ -542,7 +549,20 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
   }
 }
 
-export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEntry>): {
+/** Finding out where things are, which a brief summary leaves out when anything was done. */
+const BRIEF_LOOKUPS: ReadonlySet<ToolGroupAction | T3McpToolSummaryAction> = new Set([
+  "capabilities",
+  "project-list",
+  "project-read",
+  "environment-read",
+  "environment-links",
+]);
+
+export function summarizeToolGroup(
+  entries: ReadonlyArray<WorkLogPresentationEntry>,
+  /** `brief` names what was done and leaves out lookups, retried failures and the uncounted rest. */
+  options?: { readonly brief?: boolean },
+): {
   summary: string;
   hasFailure: boolean;
 } {
@@ -578,7 +598,7 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
     if (group) group.entries.push(entry);
     else groups.set(key, { action, t3Action, entries: [entry] });
   }
-  const summaries = [...groups].map(([action, group], index) => ({
+  const allSummaries = [...groups].map(([action, group], index) => ({
     index,
     count: group.entries.length,
     priority: summaryActionPriority(action),
@@ -592,6 +612,11 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
           failedCount: group.entries.filter(workEntryDisplayIndicatesToolFailure).length,
         }),
   }));
+  const told = allSummaries.filter(
+    (group, index) =>
+      !BRIEF_LOOKUPS.has([...groups.keys()][index]!) && group.failedCount < group.count,
+  );
+  const summaries = options?.brief === true && told.length > 0 ? told : allSummaries;
   const selected = [...summaries]
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
     .slice(0, 2)
@@ -618,7 +643,7 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
   ).length;
   const remainingCount =
     entries.length - sourcedCount - selected.reduce((count, group) => count + group.count, 0);
-  if (remainingCount > 0) {
+  if (remainingCount > 0 && (options?.brief !== true || labels.length === 0)) {
     labels.push(`Performed ${remainingCount} other ${remainingCount === 1 ? "action" : "actions"}`);
   }
   const sentenceLabels = labels.map((label, index) =>

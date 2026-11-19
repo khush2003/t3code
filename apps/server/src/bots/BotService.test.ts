@@ -57,7 +57,18 @@ describe("BotService.start", () => {
         BotService.layer.pipe(
           Layer.provide(
             Layer.mergeAll(
-              Layer.mock(BotBoards.BotBoards)({}),
+              // Every stored conversation counts as live here.
+              Layer.effect(
+                BotBoards.BotBoards,
+                Effect.map(
+                  BotStore.BotStore,
+                  (stored) =>
+                    ({
+                      conversations: stored.conversations,
+                      summaries: Effect.succeed([]),
+                    }) as never,
+                ),
+              ).pipe(Layer.provide(store)),
               Layer.mock(ThreadManagementService.ThreadManagementService)({
                 getThreadShell: (threadId: string) =>
                   Effect.succeed((options.shells?.[threadId] ?? null) as never),
@@ -134,6 +145,10 @@ describe("BotService.start", () => {
           const { threadId } = yield* service.startThread({
             threadId: main,
             anchorMessageId: "m1",
+          });
+          // Replying to the same message again opens the thread it already has.
+          expect(yield* service.startThread({ threadId: main, anchorMessageId: "m1" })).toEqual({
+            threadId,
           });
           return {
             threadId,

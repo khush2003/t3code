@@ -47,6 +47,7 @@ export const BotThread = Schema.Struct({
   title: Schema.String,
   /** The message of the bot's main chat it was opened from. */
   anchorMessageId: Schema.NullOr(Schema.String),
+  anchorText: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   /** Messages in the thread, and when the last one came. */
   replies: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   lastReplyAt: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),

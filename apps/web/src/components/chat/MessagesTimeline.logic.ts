@@ -559,6 +559,8 @@ type MessagesTimelineRowContent =
       createdAt: string;
       runId: RunId;
       label: string;
+      /** How long the turn took, where the label says what was done instead. */
+      meta?: string;
       expanded: boolean;
     }
   | {
@@ -715,6 +717,8 @@ interface TurnFold {
   /** Every entry in the segment, including the cards a fold never hides. */
   entryIds: ReadonlySet<string>;
   label: string;
+  /** How long a finished turn worked, when the label is only that. */
+  worked?: string;
 }
 
 interface SupersededAttemptFold {
@@ -1194,6 +1198,7 @@ function deriveTurnFolds(input: {
       hiddenEntryIds: segmentHiddenIds(firstSegment),
       entryIds: new Set(firstSegment.map((entry) => entry.id)),
       label,
+      ...(isLatestInterruptedTurn || duration === null ? {} : { worked: duration }),
     });
     for (const [index, { startIndex, steer }] of group.steerSegments.entries()) {
       const entries = group.entries.slice(startIndex, group.steerSegments[index + 1]?.startIndex);
@@ -1407,6 +1412,8 @@ export function deriveMessagesTimelineRows(input: {
   threadStartCheckpointReady?: boolean;
   availableRevertTurnCounts?: ReadonlySet<number> | undefined;
   worktreeSetup?: WorktreeSetupSnapshot | null;
+  /** A bot's folded turn says what it did ("Read the board and asked rover"), not that it worked. */
+  foldInWords?: boolean;
 }): MessagesTimelineRow[] {
   const timelineEntries = timelineRowEntries(input.timelineEntries);
   const isPendingApproval = (entry: WorkLogEntry) => {
@@ -1436,7 +1443,17 @@ export function deriveMessagesTimelineRows(input: {
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineEntries);
   const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun ?? null);
   const itemizedRunIds = itemizedFailedRunIds(timelineEntries, failedRunIds);
-  const liveSubagentEntryIds = liveSubagentCardEntryIds(timelineEntries);
+  // A bot's tasks are what its person asked for, so they stay in view after they finish.
+  const liveSubagentEntryIds =
+    input.foldInWords === true
+      ? new Set(
+          timelineEntries.flatMap((entry) =>
+            entry.kind === "event" && entry.projectedItem.item.type === "subagent"
+              ? [entry.id]
+              : [],
+          ),
+        )
+      : liveSubagentCardEntryIds(timelineEntries);
   const completeSupersededReplyIds = completeSupersededReplyEntryIds(timelineEntries);
   const supersededFoldsByAnchorEntryId = deriveSupersededAttemptFolds(
     timelineEntries,
@@ -1716,13 +1733,25 @@ export function deriveMessagesTimelineRows(input: {
           ? [String(entry.entry.projectedItem.sourceItemId)]
           : [];
       });
+      const foldWork =
+        input.foldInWords === true && turnFold.worked !== undefined
+          ? [...turnFold.entryIds].flatMap((entryId) => {
+              const entry = timelineEntryById.get(entryId);
+              return entry?.kind === "work" ? [entry.entry] : [];
+            })
+          : [];
       nextRows.push({
         kind: "turn-fold",
         id: `turn-fold:${turnFold.runId}`,
         ...(deferredWorkItemIds.length > 0 ? { deferredWorkItemIds } : {}),
         createdAt: turnFold.createdAt,
         runId: turnFold.runId,
-        label: turnFold.label,
+        ...(foldWork.length === 0 || turnFold.worked === undefined
+          ? { label: turnFold.label }
+          : {
+              label: summarizeToolGroup(foldWork, { brief: true }).summary,
+              meta: turnFold.worked,
+            }),
         expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
       });
     }
@@ -2418,6 +2447,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.createdAt === bf.createdAt &&
         a.label === bf.label &&
+        (a.kind !== "turn-fold" || bf.kind !== "turn-fold" || a.meta === bf.meta) &&
         a.expanded === bf.expanded &&
         anchors.length === nextAnchors.length &&
         anchors.every((id, index) => id === nextAnchors[index])

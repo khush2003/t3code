@@ -8,11 +8,16 @@ import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { BotName, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
-import { PlusIcon } from "lucide-react";
+import { MessagesSquareIcon, PlusIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { botsEnvironment } from "../../state/bots";
 import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
+import { botMainThreadId, isBotThreadId } from "../bots/botView";
+import { useOpenBotThread } from "../bots/useBot";
+import { hasUnseenCompletion } from "../Sidebar.logic";
+
+const botNameOfThread = (threadId: ThreadId) => botMainThreadId(threadId).replace(/^bot:/, "");
 import {
   useConnectedEnvironmentIds,
   useEnvironments,
@@ -207,7 +212,20 @@ export function SidebarBots(props: {
   const connected = useConnectedEnvironmentIds();
   const { environments } = useEnvironments();
   const [starting, setStarting] = useState(false);
-  const bots = props.threads.filter((thread) => thread.bot === true && thread.archivedAt === null);
+  const [threadsOpen, setThreadsOpen] = useState(false);
+  const openThread = useOpenBotThread();
+  const conversations = props.threads.filter(
+    (thread) => thread.bot === true && thread.archivedAt === null,
+  );
+  const bots = conversations.filter((thread) => !isBotThreadId(thread.id));
+  // A thread opened and left without a message is not listed, and a settled one is put away.
+  const botThreads = conversations
+    .filter(
+      (thread) =>
+        isBotThreadId(thread.id) && thread.itemCount > 0 && thread.settledOverride !== "settled",
+    )
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const unseenThreads = botThreads.filter(hasUnseenCompletion).length;
   const machines = environments
     .filter((environment) => connected.includes(environment.environmentId))
     .map(({ environmentId, label }) => ({ environmentId, label }));
@@ -244,6 +262,51 @@ export function SidebarBots(props: {
             void open(scopeThreadRef(environmentId, threadId));
           }}
         />
+      )}
+      {botThreads.length === 0 ? null : (
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              aria-expanded={threadsOpen}
+              onClick={() => setThreadsOpen(!threadsOpen)}
+            >
+              <MessagesSquareIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">Threads</span>
+              {unseenThreads === 0 ? null : (
+                <span
+                  aria-label={`${unseenThreads} with new replies`}
+                  className="shrink-0 text-xs font-medium text-primary"
+                >
+                  {unseenThreads}
+                </span>
+              )}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          {threadsOpen
+            ? botThreads.map((thread) => (
+                <SidebarMenuItem
+                  key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
+                >
+                  <SidebarMenuButton
+                    size="sm"
+                    onClick={() => openThread(thread.environmentId, thread.id)}
+                  >
+                    <span className="min-w-0 flex-1 truncate ps-5.5">{thread.title}</span>
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {botNameOfThread(thread.id)}
+                    </span>
+                    {hasUnseenCompletion(thread) ? (
+                      <span
+                        aria-label="New replies"
+                        className="size-1.5 shrink-0 rounded-full bg-primary"
+                      />
+                    ) : null}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))
+            : null}
+        </SidebarMenu>
       )}
       {bots.length === 0 ? null : (
         <SidebarMenu>

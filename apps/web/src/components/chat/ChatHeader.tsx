@@ -10,7 +10,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { BotIcon, ChevronDownIcon } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -46,6 +46,7 @@ import type { DraftId } from "../../composerDraftStore";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import type { PopoverCreateHandle } from "../ui/popover";
 import { ThreadAnimaChip } from "./ThreadAnimaChip";
+import { BotViewSwitch } from "../bots/BotViewSwitch";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -64,6 +65,8 @@ interface ChatHeaderProps {
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
   onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
+  /** A bot's header leads with Bots, not its project, and switches between its chat and board. */
+  bot?: boolean;
 }
 
 function resolveRenameCommit(input: {
@@ -95,6 +98,7 @@ export const ChatHeader = memo(function ChatHeader({
   onNewThreadInProject,
   onOpenProjectSettings,
   onFindInThread,
+  bot = false,
 }: ChatHeaderProps) {
   const activeProjectName = activeProject?.isScratch ? "No project" : activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
@@ -302,9 +306,19 @@ export const ChatHeader = memo(function ChatHeader({
     >
       <WorkspaceBreadcrumb
         ariaLabel="Thread breadcrumb"
-        className="flex-1 overflow-clip [overflow-clip-margin:2px]"
+        className={cn("overflow-clip [overflow-clip-margin:2px]", bot ? "shrink" : "flex-1")}
       >
-        {activeProject ? (
+        {bot ? (
+          <>
+            <WorkspaceBreadcrumbItem>
+              <BotIcon aria-hidden className="me-1.5 size-3.5" />
+              <WorkspaceBreadcrumbText>Bots</WorkspaceBreadcrumbText>
+            </WorkspaceBreadcrumbItem>
+            <WorkspaceBreadcrumbSeparator>
+              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+            </WorkspaceBreadcrumbSeparator>
+          </>
+        ) : activeProject ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
@@ -365,7 +379,7 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+        <WorkspaceBreadcrumbItem current className={cn("min-w-10", !bot && "flex-1")}>
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -442,6 +456,12 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {bot ? (
+        <>
+          <BotViewSwitch environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
+          <div className="flex-1" />
+        </>
+      ) : null}
       <ThreadAnimaChip
         environmentId={activeThreadEnvironmentId}
         threadId={activeThreadId}

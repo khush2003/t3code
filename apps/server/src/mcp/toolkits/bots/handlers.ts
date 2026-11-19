@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import { deriveBoard } from "../../../bots/BotBoard.ts";
 import * as BotBoards from "../../../bots/BotBoards.ts";
 import * as BotFiles from "../../../bots/BotFiles.ts";
-import { renderBotMessage } from "../../../bots/BotRelay.ts";
+import { renderBotMessage } from "@t3tools/shared/botMessages";
 import { requireBot } from "../../../bots/BotService.ts";
 import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";

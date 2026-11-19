@@ -1,4 +1,5 @@
-import { type BotName, CommandId, MessageId, type RunId, type ThreadId } from "@t3tools/contracts";
+import { CommandId, MessageId, type RunId, type ThreadId } from "@t3tools/contracts";
+import { renderBotAnswer } from "@t3tools/shared/botMessages";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -12,19 +13,9 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as BotStore from "./BotStore.ts";
 
-const ANSWER_CHARS = 20_000;
 /** An answer older than this is no longer owed after a restart. */
 const OWED_FOR = Duration.days(1);
 const RUN_ENDED = new Set(["completed", "failed", "cancelled", "interrupted"]);
-
-/** What a bot reads when another bot tells it something. */
-export const renderBotMessage = (from: BotName, message: string) =>
-  `From the bot "${from}": ${message}\n\n(Your last message this turn is sent back to ${from} by itself, so write it for ${from} and put in it everything ${from} asked for. Do not call t3_bot_tell for it. When the work ends in a later turn, tell ${from} then with t3_bot_tell.)`;
-
-const renderAnswer = (from: BotName, said: string | undefined, status: string) =>
-  said === undefined
-    ? `The bot "${from}" ended its turn on what you told it without an answer (${status}). Tell it again when you still need one, and tell your person when this holds their work up.`
-    : `The bot "${from}" answers what you told it:\n\n${said.length <= ANSWER_CHARS ? said : `${said.slice(0, ANSWER_CHARS)}…`}\n\n(This is its answer and it is not waiting on you. Carry on with what you needed it for, and tell your person what matters in it.)`;
 
 /**
  * Carries a bot's reply back to the bot that told it something. A bot writes its reply in its own
@@ -73,7 +64,7 @@ const make = Effect.gen(function* () {
             threadId: askedFrom,
             messageId: MessageId.make(`message:bot-answer:${message.id}`),
             senderThreadId: botThreadId,
-            text: renderAnswer(bot.name, said, status),
+            text: renderBotAnswer(bot.name, said, status),
             attachments: [],
             dispatchMode: { type: "queue_after_active" },
             createdBy: "agent",

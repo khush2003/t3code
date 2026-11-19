@@ -79,6 +79,8 @@ import { markdownProseDirection } from "~/textDirection";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
+import { parseBotMessage } from "@t3tools/shared/botMessages";
+import { BotReplyInThreadButton, BotThreadMarker } from "../bots/BotChatThreads";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import {
   MESSAGE_HEADING_LEVEL,
@@ -449,9 +451,13 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const userMessage = resolveUserMessagePresentation(row.message);
+  const presented = resolveUserMessagePresentation(row.message);
+  // Between bots, the text carries instructions for the model; a person reads who said what.
+  const botMessage =
+    ctx.botThread && presented.attribution !== null ? parseBotMessage(presented.text) : null;
+  const userMessage = botMessage === null ? presented : { ...presented, text: botMessage.body };
   // Messages from other agents fold to one line so the user's own messages stay easy to find.
-  const folded = userMessage.attribution === "agent";
+  const folded = userMessage.attribution === "agent" || botMessage !== null;
   const [expanded, setExpanded] = useState(false);
   const revealFoldRef = findRevealRef(() => setExpanded(true));
   const senderShell = useQuietThreadShell(
@@ -459,7 +465,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ? { environmentId: ctx.activeThreadEnvironmentId, threadId: senderThreadId }
       : null,
   );
-  const senderLabel = senderShell?.title.trim() || "Agent";
+  const senderLabel =
+    botMessage === null
+      ? senderShell?.title.trim() || "Agent"
+      : `${botMessage.bot} ${botMessage.kind === "asks" ? "asked" : "answered"}`;
   const resolvedContext = resolveUserMessageContext({ ...row.message, text: userMessage.text });
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
@@ -795,6 +804,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </TooltipPopup>
       </Tooltip>
       <div className={cn("flex items-center gap-0.5", floatActions && "flex-wrap justify-end")}>
+        {folded ? null : <BotReplyInThreadButton messageId={row.message.id} />}
         {typeof revertTurnCount === "number" && (
           <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
         )}
@@ -827,7 +837,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       className="group @container flex flex-col items-end gap-1"
       data-user-message-attribution={folded ? "agent" : undefined}
     >
-      {userMessage.attribution === "t3code" ? (
+      {userMessage.attribution === "t3code" && botMessage === null ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"
           data-user-message-attribution="t3code"
@@ -1038,6 +1048,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           {messageActions}
         </div>
       ) : null}
+      {folded ? null : <BotThreadMarker messageId={row.message.id} align="end" />}
     </div>
   );
 }

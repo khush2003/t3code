@@ -19,7 +19,9 @@ export function createBotEnvironmentAtoms<R, E>(
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:bots:list",
       tag: WS_METHODS.botsList,
-      staleTimeMs: 30_000,
+      // Reply counts and last-reply times move while a thread is open beside the chat.
+      staleTimeMs: BOT_BOARD_REFRESH_MS,
+      refreshIntervalMs: BOT_BOARD_REFRESH_MS,
       idleTtlMs: 60_000,
     }),
     board: createEnvironmentRpcQueryAtomFamily(runtime, {

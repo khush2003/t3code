@@ -28,8 +28,15 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
 
 - A bot keeps a board: each piece of work is a work item with its threads, and their status is read
   from the threads themselves, including threads on linked machines. The bot sees the board on
-  every turn, so it keeps track even after its conversation is compacted. You see the same board in
-  the bot's thread details, where a thread that is waiting for you says so.
+  every turn, so it keeps track even after its conversation is compacted. You see the same board
+  under **Board** at the top of the bot's page: work that waits on you, work that is running, quiet
+  work and finished work. Open a work item for its tasks and files. **Files** lists everything the
+  bot's tasks handed over.
+- To keep one piece of work apart from the rest of the chat, use **Reply in thread** on any message
+  in the bot's chat. The thread opens beside the chat and has its own conversation with the same
+  bot, which keeps its charter, notes and board there. A message has one thread; the message shows
+  how many replies it has, and **Threads** in the sidebar lists the threads of all your bots. A
+  thread you open and close without writing in it is not kept. Nothing from a thread is posted in the main chat, and the bot can still recall it there.
 - When a thread a bot started stops to ask a question, the bot is told. It answers when the answer
   follows from what you said, and asks you otherwise.
 - A bot's charter holds what it is for and what you told it should hold from now on. Tell it, and it
@@ -60,7 +67,7 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   up to 200 MB is copied and kept on the bot's machine; a larger one stays where it was and the
   board says where. Kept copies share 10 GB across all bots, and past that the oldest are dropped
   while their entries stay. A thread on another machine cannot hand a file over yet.
-- **Memory**, in the Board heading of a bot's thread details, shows what the bot carries into every
+- **Memory**, at the foot of the card beside a bot's chat, shows what the bot carries into every
   session: its charter with every earlier version to restore, its notes with the passage each rests
   on, and what each background pass read, added and threw out. Edit the charter there, and retire a
   note that is wrong.

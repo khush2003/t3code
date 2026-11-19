@@ -371,6 +371,44 @@ export function summarizeT3ToolCalls(
     case "anima-list":
       label = phrase("Listed", "list", `animas ${times}`);
       break;
+    case "bot-board":
+      label = phrase("Read", "read", "the board");
+      break;
+    case "bot-item-save":
+      label = phrase(
+        "Saved",
+        "save",
+        quantity(
+          countEntities(
+            selected.map(
+              (call) => id(call.output?.id) ?? id(call.input?.id) ?? id(call.input?.title),
+            ),
+          ),
+          "work item",
+        ),
+      );
+      break;
+    case "bot-charter-set":
+      label = phrase("Changed", "change", "its charter");
+      break;
+    case "bot-recall":
+      label = phrase("Looked", "look", "back through its memory");
+      break;
+    case "bot-note-retire":
+      label = phrase("Retired", "retire", quantity(countEntities(entityIds("id")), "note"));
+      break;
+    case "bot-tell": {
+      const bots = [...new Set(entityIds("bot").filter((bot) => bot !== undefined))];
+      label = phrase(
+        "Asked",
+        "ask",
+        bots.length === 1 ? bots[0]! : quantity(Math.max(bots.length, 1), "other bot"),
+      );
+      break;
+    }
+    case "bot-file-give":
+      label = phrase("Handed over", "hand over", quantity(selected.length, "file"));
+      break;
     case "anima-read":
       label = phrase("Read", "read", `${quantity(countEntities(entityIds("name")), "anima")}`);
       break;

@@ -23,6 +23,7 @@ import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../times
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
+import { BotReplyInThreadButton, BotThreadMarker } from "../bots/BotChatThreads";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -67,6 +68,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             />
           </AssistantCitationSource>
         </div>
+        <BotThreadMarker messageId={row.message.id} align="start" />
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection
             turnSummary={row.assistantTurnDiffSummary}
@@ -187,6 +189,7 @@ function AssistantMessageMeta({
           {projectedItem.item.status}
         </span>
       ) : null}
+      {message.streaming ? null : <BotReplyInThreadButton messageId={message.id} />}
       <AssistantCopyButton
         message={message}
         showCopyButton={showCopyButton}

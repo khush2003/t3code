@@ -22,7 +22,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadAnimaRows } from "./ThreadAnimaRows";
-import { ThreadBotBoardPanel } from "./ThreadBotBoardPanel";
+import { BotPanel } from "../bots/BotPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
@@ -152,6 +152,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       }}
     >
       {(density) => {
+        // A bot has no checkout, and its card is the bot itself: what waits, what runs, its files.
+        if (props.bot === true && !props.draftId)
+          return <BotPanel environmentId={props.environmentId} threadId={props.threadId} />;
         // Section flags follow the rows that will render, so no empty section steals the divider rule.
         const works = props.bot !== true;
         const show = {
@@ -252,13 +255,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     ) : null}
                   </div>
                 </ThreadDetailsSection>
-              ) : null}
-
-              {props.bot === true && !props.draftId ? (
-                <ThreadBotBoardPanel
-                  environmentId={props.environmentId}
-                  threadId={props.threadId}
-                />
               ) : null}
 
               {works && density === "full" && !props.draftId && visible.servers ? (
