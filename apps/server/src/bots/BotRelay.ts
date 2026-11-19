@@ -62,13 +62,15 @@ const make = Effect.gen(function* () {
         )
         ?.text.trim();
       for (const message of told) {
-        const sender = yield* store.getBot(message.from);
-        if (sender !== null && sender.threadId !== null)
+        // Back to the conversation that asked, so a thread's question is answered in that thread.
+        const askedFrom =
+          message.fromThreadId ?? (yield* store.getBot(message.from))?.threadId ?? null;
+        if (askedFrom !== null)
           yield* engine.dispatch({
             type: "message.dispatch",
             // One answer per message, however often the run's end is seen.
             commandId: CommandId.make(`server:bot-answer:${message.id}`),
-            threadId: sender.threadId,
+            threadId: askedFrom,
             messageId: MessageId.make(`message:bot-answer:${message.id}`),
             senderThreadId: botThreadId,
             text: renderAnswer(bot.name, said, status),

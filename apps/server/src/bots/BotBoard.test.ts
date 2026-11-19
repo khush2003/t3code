@@ -92,6 +92,7 @@ describe("bot board", () => {
             environmentId: laptop,
             threadId: ThreadId.make("gone"),
             bot: BotName.make("atlas"),
+            fromThreadId: null,
             runKey: "k",
             title: "gone",
             where: "laptop",

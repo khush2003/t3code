@@ -156,6 +156,8 @@ import {
   BotRejectedError,
   BotStartInput,
   BotStartResult,
+  BotThreadStartInput,
+  BotThreadStartResult,
 } from "./bots.ts";
 import {
   AssetAccessError,
@@ -494,6 +496,7 @@ export const WS_METHODS = {
   animaWakePreview: "anima.wakePreview",
   animaOnboardingPrompt: "anima.onboardingPrompt",
   botsStart: "bots.start",
+  botsThreadStart: "bots.threadStart",
   botsList: "bots.list",
   botsBoard: "bots.board",
   botsMemory: "bots.memory",
@@ -1597,6 +1600,12 @@ const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
   error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
 });
 
+const WsBotsThreadStartRpc = Rpc.make(WS_METHODS.botsThreadStart, {
+  payload: BotThreadStartInput,
+  success: BotThreadStartResult,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
 const WsBotsListRpc = Rpc.make(WS_METHODS.botsList, {
   payload: Schema.Struct({}),
   success: BotListResult,
@@ -2544,6 +2553,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaWakePreviewRpc,
   WsAnimaOnboardingPromptRpc,
   WsBotsStartRpc,
+  WsBotsThreadStartRpc,
   WsBotsListRpc,
   WsBotsBoardRpc,
   WsBotsMemoryRpc,

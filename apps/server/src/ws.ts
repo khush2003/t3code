@@ -3022,6 +3022,7 @@ export const layerWsRpc = (
         [WS_METHODS.animaPolicy]: (input) => anima.policy(input),
         [WS_METHODS.animaBreathe]: (input) => animaThreads.breathe(input),
         [WS_METHODS.botsStart]: (input) => bots.start(input),
+        [WS_METHODS.botsThreadStart]: (input) => bots.startThread(input),
         [WS_METHODS.botsList]: () => bots.list,
         [WS_METHODS.botsBoard]: (input) => bots.board(input),
         [WS_METHODS.botsMemory]: (input) => bots.memory(input),

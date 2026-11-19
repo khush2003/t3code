@@ -1,6 +1,6 @@
 import type { BotBoardItem, BotBoardThread, BotSummary } from "@t3tools/contracts";
 
-import type { BotNote, BotRecord } from "./BotStore.ts";
+import type { BotConversation, BotNote, BotRecord } from "./BotStore.ts";
 
 const ITEMS_SHOWN = 30;
 const THREADS_PER_ITEM = 8;
@@ -84,15 +84,55 @@ const describeNotes = (notes: ReadonlyArray<BotNote>) => {
   ];
 };
 
+const ANCHOR_CHARS = 2_000;
+
+const conversationName = (bot: BotRecord, conversation: BotConversation) =>
+  conversation.threadId === bot.threadId ? "your main chat" : `the thread "${conversation.title}"`;
+
+/** Where this conversation sits among the ones a bot has with its person. */
+const describeConversations = (
+  bot: BotRecord,
+  here: BotConversation,
+  others: ReadonlyArray<BotConversation>,
+) => [
+  ...(here.threadId === bot.threadId
+    ? []
+    : [
+        `<this-thread title="${here.title}">`,
+        "Your person opened this thread beside your main chat to keep one piece of work apart. Stay on that work here.",
+        ...(here.anchor === null || here.anchor.text.trim() === ""
+          ? []
+          : [
+              "It started from this message of theirs in your main chat:",
+              here.anchor.text.trim().slice(0, ANCHOR_CHARS),
+            ]),
+        "</this-thread>",
+      ]),
+  ...(others.length === 0
+    ? []
+    : [
+        "<your-conversations>",
+        `Your person also talks with you in ${others.map((other) => conversationName(bot, other)).join(", ")}. Each is its own conversation. Your board, charter and notes are the same in all of them, and t3_bot_recall finds what was said in another.`,
+        "</your-conversations>",
+      ]),
+];
+
 export const renderBotStanding = (
   bot: BotRecord,
   others: ReadonlyArray<BotSummary>,
   notes: ReadonlyArray<BotNote>,
+  conversations?: {
+    readonly here: BotConversation;
+    readonly others: ReadonlyArray<BotConversation>;
+  },
 ) =>
   [
     `<charter bot="${bot.name}">`,
     bot.charter,
     "</charter>",
+    ...(conversations === undefined
+      ? []
+      : describeConversations(bot, conversations.here, conversations.others)),
     ...(bot.oversees
       ? [
           "<role>You oversee the other bots and are your person's one point of contact for all of them. Every turn shows what each is doing; read one's whole board with t3_bot_board and its name. Give work to the bot whose purpose fits with t3_bot_tell, and start tasks yourself only when none fits.</role>",

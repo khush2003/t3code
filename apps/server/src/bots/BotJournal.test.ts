@@ -34,6 +34,7 @@ describe("BotJournal.copyFinished", () => {
             environmentId,
             threadId: ThreadId.make(threadId),
             bot: atlas,
+            fromThreadId: botThread,
             runKey,
             title: threadId,
             where: "app",

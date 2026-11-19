@@ -27,11 +27,15 @@ export class BotBoards extends Context.Service<
       bot: BotName,
       options?: {
         readonly includeClosed?: boolean | undefined;
-        /** Already read by the caller, saving a second read of the bot's thread. */
+        /** Every conversation's tasks, when the caller has them already. */
         readonly tasks?: ReadonlyArray<OrchestrationV2Subagent> | undefined;
       },
     ) => Effect.Effect<BoardSources, BotError>;
     readonly summaries: Effect.Effect<ReadonlyArray<BotSummary>, BotError>;
+    /** A bot's conversations that are neither settled nor deleted, its main chat first. */
+    readonly conversations: (
+      bot: BotName,
+    ) => Effect.Effect<ReadonlyArray<BotStore.BotConversation>, BotError>;
     /**
      * The context a bot's turn starts with, or "" when its store cannot be read. The charter
      * and full board go only to a session that does not hold them: `startedRunIds` shows
@@ -59,17 +63,38 @@ const make = Effect.gen(function* () {
     ? yield* environment.value.getEnvironmentId
     : EnvironmentId.make("here");
 
-  const readTasks = (bot: BotName) =>
-    store.getBot(bot).pipe(
-      Effect.flatMap((record) =>
-        record?.threadId == null
-          ? Effect.succeed([])
-          : projections.getThreadRecords(record.threadId, ["subagents"]).pipe(
+  // Every conversation's tasks are on the one board, settled conversations included.
+  const readTasks = (bot: BotName, except?: ThreadId) =>
+    store.conversations(bot).pipe(
+      Effect.flatMap((all) =>
+        Effect.forEach(
+          all.filter((conversation) => conversation.threadId !== except),
+          (conversation) =>
+            projections.getThreadRecords(conversation.threadId, ["subagents"]).pipe(
               Effect.map(({ subagents }) => subagents),
               Effect.orElseSucceed((): ReadonlyArray<OrchestrationV2Subagent> => []),
             ),
+        ),
       ),
+      Effect.map((tasks) => tasks.flat()),
     );
+
+  const conversations: BotBoards["Service"]["conversations"] = Effect.fn("BotBoards.conversations")(
+    function* (bot) {
+      const live: Array<BotStore.BotConversation> = [];
+      for (const conversation of yield* store.conversations(bot)) {
+        const shell = yield* projections
+          .getThreadShell(conversation.threadId)
+          .pipe(Effect.orElseSucceed(() => null));
+        // A thread renamed in T3 goes by its new name.
+        if (shell !== null && shell.deletedAt === null && shell.archivedAt === null)
+          live.push(
+            conversation.title === "" ? conversation : { ...conversation, title: shell.title },
+          );
+      }
+      return live;
+    },
+  );
 
   const sources: BotBoards["Service"]["sources"] = Effect.fn("BotBoards.sources")(
     function* (bot, options) {
@@ -105,6 +130,7 @@ const make = Effect.gen(function* () {
             threadId: bot.threadId,
             openItems: items.length,
             oversees: bot.oversees,
+            threads: [],
           })),
         ),
       ),
@@ -113,14 +139,21 @@ const make = Effect.gen(function* () {
 
   const context: BotBoards["Service"]["context"] = Effect.fn("BotBoards.context")(
     function* (botThreadId, tasks, turn) {
-      const bot = yield* store.botForThread(botThreadId);
-      if (bot === null) return "";
+      const here = yield* store.conversation(botThreadId);
+      const bot = here === null ? null : yield* store.getBot(here.bot);
+      if (here === null || bot === null) return "";
       const standing = renderBotStanding(
         bot,
         (yield* summaries).filter((other) => other.name !== bot.name),
         yield* store.activeNotes(bot.name),
+        {
+          here,
+          others: (yield* conversations(bot.name)).filter(
+            (other) => other.threadId !== botThreadId,
+          ),
+        },
       );
-      const { sent, runId, due } = bot.context;
+      const { sent, runId, due } = here.context;
       // A run retried is sent it again: nothing shows its first try reached the model.
       const held =
         turn.fresh !== true &&
@@ -129,8 +162,10 @@ const make = Effect.gen(function* () {
         runId !== null &&
         runId !== turn.runId &&
         turn.startedRunIds.has(runId);
-      if (!held) yield* store.setContextSent(bot.name, standing, turn.runId);
-      const board = yield* sources(bot.name, { tasks });
+      if (!held) yield* store.setContextSent(botThreadId, standing, turn.runId);
+      const board = yield* sources(bot.name, {
+        tasks: [...tasks, ...(yield* readTasks(bot.name, botThreadId))],
+      });
       const others = bot.oversees
         ? yield* Effect.forEach(
             (yield* store.listBots).filter((other) => other.name !== bot.name),
@@ -157,7 +192,7 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return BotBoards.of({ sources, summaries, context });
+  return BotBoards.of({ sources, summaries, conversations, context });
 });
 
 export const layer = Layer.effect(BotBoards, make);

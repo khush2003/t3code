@@ -40,7 +40,7 @@ const callerBot = Effect.gen(function* () {
       message: "Only a bot's own thread can do this.",
     });
   const bot = yield* requireBot(scope.thread.threadId).pipe(Effect.mapError(failure));
-  return { bot, hereId: scope.environmentId };
+  return { bot, hereId: scope.environmentId, threadId: scope.thread.threadId };
 });
 
 export const layer = McpToolAccess.toLayer(BotToolkit, {
@@ -68,7 +68,7 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
   ),
   t3_bot_tell: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      const { bot } = yield* callerBot;
+      const { bot, threadId } = yield* callerBot;
       const store = yield* BotStore.BotStore;
       const other = input.bot === bot.name ? null : yield* store.getBot(input.bot);
       if (other === null || other.threadId === null)
@@ -93,7 +93,12 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         message: renderBotMessage(bot.name, input.message),
         mode: "queue",
       });
-      yield* store.addBotMessage({ from: bot.name, to: other.name, messageId: sent.messageId });
+      yield* store.addBotMessage({
+        from: bot.name,
+        fromThreadId: threadId,
+        to: other.name,
+        messageId: sent.messageId,
+      });
       return { delivery: sent.delivery };
     }).pipe(Effect.mapError(failure)),
   ),
@@ -136,8 +141,19 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
   ),
   t3_bot_recall: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
-      const { bot, hereId } = yield* callerBot;
+      const { bot, hereId, threadId: callerThreadId } = yield* callerBot;
       const store = yield* BotStore.BotStore;
+      // Its own conversations have no task title: its main chat, and threads beside it.
+      const own = new Map(
+        (yield* store.conversations(bot.name)).map((conversation) => [
+          conversation.threadId,
+          conversation.threadId === callerThreadId
+            ? "this conversation"
+            : conversation.threadId === bot.threadId
+              ? "your main chat"
+              : `your thread "${conversation.title}"`,
+        ]),
+      );
       if (input.threadId === undefined && (input.query ?? "").trim() === "")
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
@@ -171,8 +187,7 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
           })),
           ...hits.map((hit) => ({
             when: hit.createdAt,
-            source:
-              hit.threadId === bot.threadId ? "this conversation" : (hit.title ?? hit.threadId),
+            source: own.get(hit.threadId) ?? hit.title ?? hit.threadId,
             where: hit.where,
             role: hit.role,
             text:

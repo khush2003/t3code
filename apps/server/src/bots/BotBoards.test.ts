@@ -14,6 +14,8 @@ const layer = BotBoards.layer.pipe(
   Layer.provide(
     Layer.mock(ProjectionStore.ProjectionStoreV2)({
       getThreadRecords: () => Effect.succeed({ subagents: [] } as never),
+      getThreadShell: () =>
+        Effect.succeed({ deletedAt: null, archivedAt: null, title: "Powerups plan" } as never),
     }),
   ),
   Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
@@ -44,9 +46,11 @@ describe("BotBoards.context", () => {
 
       // The twelfth message in an hour is the last one a bot may send another.
       const since = "1960-01-01T00:00:00.000Z";
-      yield* store.addBotMessage({ from: chief, to: atlas, messageId: "m1" });
-      yield* store.addBotMessage({ from: atlas, to: chief, messageId: "m2" });
-      yield* store.addBotMessage({ from: chief, to: atlas, messageId: "m3" });
+      const told = (from: BotName, to: BotName, messageId: string) =>
+        store.addBotMessage({ from, fromThreadId: ThreadId.make(`bot:${from}`), to, messageId });
+      yield* told(chief, atlas, "m1");
+      yield* told(atlas, chief, "m2");
+      yield* told(chief, atlas, "m3");
       expect(yield* store.countBotMessages(chief, atlas, since)).toBe(2);
       expect(yield* store.countBotMessages(atlas, chief, since)).toBe(1);
       expect(yield* store.countBotMessages(chief, atlas, "2999-01-01T00:00:00.000Z")).toBe(0);
@@ -88,6 +92,43 @@ describe("BotBoards.context", () => {
       expect((yield* store.charterHistory(atlas)).map((past) => past.charter)).toEqual([
         "Prefers small PRs.",
       ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("keeps a session per conversation and one charter for all of them", () =>
+    Effect.gen(function* () {
+      const store = yield* BotStore.BotStore;
+      const boards = yield* BotBoards.BotBoards;
+      const beside = ThreadId.make("bot:atlas:t:1");
+      yield* store.ensureBot({ name: atlas, purpose: "Ship it", charter: "Prefers small PRs." });
+      yield* store.setThread(atlas, threadId);
+      yield* store.addConversation({
+        threadId: beside,
+        bot: atlas,
+        title: "Powerups plan",
+        anchor: { messageId: "m1", text: "where are we on powerups?" },
+      });
+      expect((yield* store.botForThread(beside))?.name).toBe(atlas);
+      const context = (thread: ThreadId, runId: string, started: ReadonlyArray<string>) =>
+        boards.context(thread, [], { runId, startedRunIds: new Set(started) });
+
+      const main = yield* context(threadId, "main-1", []);
+      expect(main).toContain("Prefers small PRs.");
+      expect(main).toContain('the thread "Powerups plan"');
+      expect(main).not.toContain("<this-thread");
+      // The main chat holding the charter says nothing about the thread's session.
+      const thread = yield* context(beside, "beside-1", ["main-1"]);
+      expect(thread).toContain("Prefers small PRs.");
+      expect(thread).toContain('<this-thread title="Powerups plan">');
+      expect(thread).toContain("where are we on powerups?");
+      expect(thread).toContain("your main chat");
+      expect(yield* context(threadId, "main-2", ["main-1"])).not.toContain("Prefers");
+      expect(yield* context(beside, "beside-2", ["beside-1"])).not.toContain("Prefers");
+
+      // A charter changed in one conversation reaches the other on its next turn.
+      yield* store.setCharter(atlas, "Ships daily.");
+      expect(yield* context(beside, "beside-3", ["beside-1", "beside-2"])).toContain("Ships daily");
+      expect(yield* context(threadId, "main-3", ["main-1", "main-2"])).toContain("Ships daily");
     }).pipe(Effect.provide(layer)),
   );
 });

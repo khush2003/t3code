@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -40,14 +41,36 @@ export type BotStartInput = typeof BotStartInput.Type;
 export const BotStartResult = Schema.Struct({ threadId: ThreadId, created: Schema.Boolean });
 export type BotStartResult = typeof BotStartResult.Type;
 
+/** A thread opened beside a bot's main chat to keep one piece of work apart. */
+export const BotThread = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.String,
+  /** The message of the bot's main chat it was opened from. */
+  anchorMessageId: Schema.NullOr(Schema.String),
+});
+export type BotThread = typeof BotThread.Type;
+
 export const BotSummary = Schema.Struct({
   name: BotName,
   purpose: Schema.String,
+  /** The bot's main chat. */
   threadId: Schema.NullOr(ThreadId),
   openItems: Schema.Number,
   oversees: Schema.Boolean,
+  /** Its threads that are neither settled nor deleted, oldest first. */
+  threads: Schema.Array(BotThread).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type BotSummary = typeof BotSummary.Type;
+
+export const BotThreadStartInput = Schema.Struct({
+  /** Any conversation of the bot. */
+  threadId: ThreadId,
+  title: Schema.optional(Schema.String.check(Schema.isMaxLength(120))),
+  anchorMessageId: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+});
+export type BotThreadStartInput = typeof BotThreadStartInput.Type;
+export const BotThreadStartResult = Schema.Struct({ threadId: ThreadId });
+export type BotThreadStartResult = typeof BotThreadStartResult.Type;
 
 export const BotListResult = Schema.Struct({ bots: Schema.Array(BotSummary) });
 export type BotListResult = typeof BotListResult.Type;

@@ -11,8 +11,11 @@ import {
   BotRejectedError,
   type BotStartInput,
   type BotStartResult,
+  type BotThreadStartInput,
+  type BotThreadStartResult,
   type BotWorkItemId,
   CommandId,
+  MessageId,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -36,6 +39,7 @@ import * as BotStore from "./BotStore.ts";
 
 const DEFAULT_BOT_PURPOSE = "Help with work across my projects.";
 const PASSES_SHOWN = 10;
+const THREAD_TITLE_CHARS = 60;
 
 const initialCharter = (purpose: string) =>
   [`What I am for: ${purpose}`, "", "How my person wants work done: nothing recorded yet."].join(
@@ -48,6 +52,10 @@ export class BotService extends Context.Service<
     readonly start: (
       input: BotStartInput,
     ) => Effect.Effect<BotStartResult, BotRejectedError | BotError>;
+    /** Opens a thread beside a bot's main chat, with its own session and the bot's memory. */
+    readonly startThread: (
+      input: BotThreadStartInput,
+    ) => Effect.Effect<BotThreadStartResult, BotRejectedError | BotError>;
     readonly list: Effect.Effect<BotListResult, BotError>;
     readonly board: (input: BotBoardInput) => Effect.Effect<BotBoard, BotRejectedError | BotError>;
     /** What a bot keeps, for the person it works for to read and correct. */
@@ -186,7 +194,82 @@ const make = Effect.gen(function* () {
     return { threadId, created: true };
   });
 
+  const startThread: BotService["Service"]["startThread"] = Effect.fn("BotService.startThread")(
+    function* (input) {
+      const failed = (cause: unknown) => new BotError({ operation: "start a thread", cause });
+      const bot = yield* store.botForThread(input.threadId);
+      const main =
+        bot === null || bot.threadId === null
+          ? null
+          : yield* threads.getThreadShell(bot.threadId).pipe(Effect.mapError(failed));
+      if (bot === null || bot.threadId === null || main === null || main.deletedAt !== null)
+        return yield* new BotRejectedError({ reason: "This is not a bot with a main chat." });
+      const anchorText =
+        input.anchorMessageId === undefined
+          ? null
+          : yield* threads
+              .getThreadRecords(bot.threadId, ["messages"], {
+                messageIds: [MessageId.make(input.anchorMessageId)],
+              })
+              .pipe(
+                Effect.map(({ messages }) => messages[0]?.text ?? null),
+                Effect.mapError(failed),
+              );
+      if (input.anchorMessageId !== undefined && anchorText === null)
+        return yield* new BotRejectedError({
+          reason: "A thread starts from a message in the bot's main chat.",
+        });
+      const title =
+        input.title?.trim() ||
+        anchorText?.trim().split("\n")[0]?.slice(0, THREAD_TITLE_CHARS).trim() ||
+        "New thread";
+      const threadId = ThreadId.make(`bot:${bot.name}:t:${(yield* random.uuidV4()).slice(0, 8)}`);
+      yield* store.addConversation({
+        threadId,
+        bot: bot.name,
+        title,
+        anchor:
+          input.anchorMessageId === undefined || anchorText === null
+            ? null
+            : { messageId: input.anchorMessageId, text: anchorText },
+      });
+      // The model and mode its person chose for the bot, not the ones it was created with.
+      yield* launches
+        .launch({
+          commandId: CommandId.make(`bot-thread-start:${threadId}`),
+          threadId,
+          projectId: main.projectId,
+          title,
+          modelSelection: main.modelSelection,
+          runtimeMode: main.runtimeMode,
+          interactionMode: "default",
+          bot: true,
+          workspaceStrategy: { type: "root" },
+          createdBy: "user",
+          creationSource: "web",
+        })
+        .pipe(Effect.mapError(failed));
+      return { threadId };
+    },
+  );
+
   const list: BotService["Service"]["list"] = boards.summaries.pipe(
+    Effect.flatMap((bots) =>
+      Effect.forEach(bots, (bot) =>
+        boards.conversations(bot.name).pipe(
+          Effect.map((all) => ({
+            ...bot,
+            threads: all
+              .filter((conversation) => conversation.threadId !== bot.threadId)
+              .map((conversation) => ({
+                threadId: conversation.threadId,
+                title: conversation.title,
+                anchorMessageId: conversation.anchor?.messageId ?? null,
+              })),
+          })),
+        ),
+      ),
+    ),
     Effect.map((bots) => ({ bots })),
   );
 
@@ -237,7 +320,7 @@ const make = Effect.gen(function* () {
     Effect.provideService(BotStore.BotStore, store),
   );
 
-  return BotService.of({ start, list, board, memory, retireNote, setCharter });
+  return BotService.of({ start, startThread, list, board, memory, retireNote, setCharter });
 });
 
 export const layer = Layer.effect(BotService, make);

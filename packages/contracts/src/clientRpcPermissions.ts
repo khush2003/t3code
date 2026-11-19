@@ -70,6 +70,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.animaBreathe]: AuthOrchestrationOperateScope,
   [WS_METHODS.animaOnboardingPrompt]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsStart]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsThreadStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsNoteRetire]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsCharterSet]: AuthOrchestrationOperateScope,
   [WS_METHODS.animaImport]: AuthOrchestrationOperateScope,

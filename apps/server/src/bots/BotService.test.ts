@@ -1,6 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { BotName, ProjectId } from "@t3tools/contracts";
+import { BotName, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -32,15 +32,26 @@ describe("BotService.start", () => {
   const store = BotStore.layerMemory.pipe(
     Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
   );
-  const start = (options: {
-    readonly shells?: Readonly<Record<string, Record<string, unknown>>>;
-    readonly providers?: ReadonlyArray<unknown>;
-    readonly launched: Array<Record<string, unknown>>;
-    readonly dispatched: Array<Record<string, unknown>>;
-  }) =>
+  const start = <A = { readonly threadId: string; readonly created: boolean }, E = never>(
+    options: {
+      readonly shells?: Readonly<Record<string, Record<string, unknown>>>;
+      readonly providers?: ReadonlyArray<unknown>;
+      readonly messages?: ReadonlyArray<{ readonly id: string; readonly text: string }>;
+      readonly launched: Array<Record<string, unknown>>;
+      readonly dispatched: Array<Record<string, unknown>>;
+    },
+    after?: (
+      service: BotService.BotService["Service"],
+      store: BotStore.BotStore["Service"],
+    ) => Effect.Effect<A, E>,
+  ) =>
     Effect.gen(function* () {
       const service = yield* BotService.BotService;
-      return yield* service.start({ name: BotName.make("atlas"), purpose: "Ship the app" });
+      const started = yield* service.start({
+        name: BotName.make("atlas"),
+        purpose: "Ship the app",
+      });
+      return after === undefined ? (started as A) : yield* after(service, yield* BotStore.BotStore);
     }).pipe(
       Effect.provide(
         BotService.layer.pipe(
@@ -50,6 +61,12 @@ describe("BotService.start", () => {
               Layer.mock(ThreadManagementService.ThreadManagementService)({
                 getThreadShell: (threadId: string) =>
                   Effect.succeed((options.shells?.[threadId] ?? null) as never),
+                getThreadRecords: (_threadId, _fields, filter) =>
+                  Effect.succeed({
+                    messages: (options.messages ?? []).filter((message) =>
+                      filter?.messageIds?.includes(message.id as never),
+                    ),
+                  } as never),
                 dispatch: (command) => {
                   options.dispatched.push(command);
                   return Effect.succeed({} as never);
@@ -97,6 +114,54 @@ describe("BotService.start", () => {
       expect(again).toEqual({ threadId: "bot:atlas", created: false });
       expect(launched).toHaveLength(1);
       expect(dispatched).toHaveLength(0);
+    }),
+  );
+
+  it.effect("opens a thread from a message of the main chat, on the bot's current model", () =>
+    Effect.gen(function* () {
+      const launched: Array<Record<string, unknown>> = [];
+      const opus = { instanceId: "claude", model: "claude-opus-5-5" };
+      const options = {
+        launched,
+        dispatched: [],
+        // The bot exists already, and its person moved it to another model since.
+        shells: { "bot:atlas": shellOf({ projectId: "scratch", modelSelection: opus }) },
+        messages: [{ id: "m1", text: "where are we on powerups?\nteam needs the plan today" }],
+      };
+      const main = ThreadId.make("bot:atlas");
+      const opened = yield* start(options, (service, store) =>
+        Effect.gen(function* () {
+          const { threadId } = yield* service.startThread({
+            threadId: main,
+            anchorMessageId: "m1",
+          });
+          return {
+            threadId,
+            bot: (yield* store.botForThread(threadId))?.name,
+            conversation: yield* store.conversation(threadId),
+          };
+        }),
+      );
+      expect(opened.threadId).toMatch(/^bot:atlas:t:/);
+      expect(opened.bot).toBe("atlas");
+      expect(opened.conversation).toMatchObject({
+        title: "where are we on powerups?",
+        anchor: { messageId: "m1", text: "where are we on powerups?\nteam needs the plan today" },
+      });
+      expect(launched).toEqual([
+        expect.objectContaining({
+          threadId: opened.threadId,
+          title: "where are we on powerups?",
+          bot: true,
+          modelSelection: opus,
+        }),
+      ]);
+
+      const missing = yield* start(options, (service) =>
+        service.startThread({ threadId: main, anchorMessageId: "nope" }).pipe(Effect.flip),
+      );
+      expect(missing._tag).toBe("BotRejectedError");
+      expect(launched).toHaveLength(1);
     }),
   );
 

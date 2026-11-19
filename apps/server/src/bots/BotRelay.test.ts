@@ -42,7 +42,12 @@ describe("BotRelay.answer", () => {
         yield* relay.answer(managerThread, run, "completed");
         expect(yield* Ref.get(sent)).toEqual([]);
 
-        yield* store.addBotMessage({ from: rover, to: manager, messageId: "tell-1" });
+        yield* store.addBotMessage({
+          from: rover,
+          fromThreadId: roverThread,
+          to: manager,
+          messageId: "tell-1",
+        });
         yield* Ref.set(messages, [
           message("tell-1", "user", 'From the bot "rover": where does the website stand?'),
           message("a2", "assistant", "I'll read the thread."),
@@ -57,11 +62,20 @@ describe("BotRelay.answer", () => {
         expect(answer?.text).toContain("Only the sound picks are left.");
         expect(answer?.text).not.toContain("I'll read the thread.");
 
-        // A turn that ended with nothing said still tells the bot that is waiting.
-        yield* store.addBotMessage({ from: rover, to: manager, messageId: "tell-2" });
+        // Asked from a thread beside the main chat, and ended with nothing said: the thread
+        // that asked is still told.
+        const beside = ThreadId.make("bot:rover:t:1");
+        yield* store.addBotMessage({
+          from: rover,
+          fromThreadId: beside,
+          to: manager,
+          messageId: "tell-2",
+        });
         yield* Ref.set(messages, [message("tell-2", "user", 'From the bot "rover": and now?')]);
         yield* relay.answer(managerThread, run, "interrupted");
-        expect((yield* Ref.get(sent))[1]?.text).toContain("without an answer (interrupted)");
+        const later = (yield* Ref.get(sent))[1];
+        expect(later?.threadId).toBe(beside);
+        expect(later?.text).toContain("without an answer (interrupted)");
       }).pipe(
         Effect.provide(
           BotRelay.layer.pipe(

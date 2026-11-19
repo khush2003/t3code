@@ -77,12 +77,17 @@ const make = Effect.gen(function* () {
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
 
-  const record = (bot: BotStore.BotRecord, task: OrchestrationV2Subagent) => {
+  const record = (
+    bot: BotStore.BotRecord,
+    fromThreadId: ThreadId,
+    task: OrchestrationV2Subagent,
+  ) => {
     const thread = taskThread(task, hereId);
     if (thread === null || task.result === null) return Effect.succeed(false);
     return store.recordEpisode({
       ...thread,
       bot: bot.name,
+      fromThreadId,
       runKey: task.id,
       title: task.title ?? task.prompt.slice(0, 60).trim(),
       outcome: task.status,
@@ -100,7 +105,7 @@ const make = Effect.gen(function* () {
       if (bot === null) return 0;
       const { subagents } = yield* projections.getThreadRecords(botThreadId, ["subagents"]);
       let recorded = 0;
-      for (const task of subagents) if (yield* record(bot, task)) recorded++;
+      for (const task of subagents) if (yield* record(bot, botThreadId, task)) recorded++;
       if (recorded > 0) yield* copyFinished(bot);
       return recorded;
     },
@@ -128,7 +133,7 @@ const make = Effect.gen(function* () {
                 Effect.mapError(unread),
               )
             : remote
-                .readTranscript(bot.threadId, thread.runKey as NodeId)
+                .readTranscript(thread.fromThreadId ?? bot.threadId, thread.runKey as NodeId)
                 .pipe(Effect.mapError(unread));
         yield* messages.pipe(
           Effect.flatMap((found) => store.saveMessages(bot.name, thread, found)),
@@ -181,9 +186,11 @@ const make = Effect.gen(function* () {
     // Results that ended while this server was down.
     const bots = yield* store.listBots.pipe(Effect.orElseSucceed(() => []));
     for (const bot of bots)
-      if (bot.threadId !== null) {
-        yield* recordFinished(bot.threadId);
-        yield* copyConversation(bot.threadId);
+      for (const { threadId } of yield* store
+        .conversations(bot.name)
+        .pipe(Effect.orElseSucceed(() => []))) {
+        yield* recordFinished(threadId);
+        yield* copyConversation(threadId);
       }
     yield* forkParked(
       store.listBots.pipe(

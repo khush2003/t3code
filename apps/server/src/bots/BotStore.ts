@@ -20,12 +20,27 @@ import * as ServerConfig from "../config.ts";
 
 export interface BotRecord {
   readonly name: BotName;
-  /** The bot's conversation; replaced when that thread is deleted and the bot started again. */
+  /** The bot's main chat; replaced when that thread is deleted and the bot started again. */
   readonly threadId: ThreadId | null;
   readonly purpose: string;
   readonly charter: string;
   /** It reads every other bot's board and is the person's one point of contact. */
   readonly oversees: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * One conversation a bot has with its person: its main chat, or a thread opened beside it to
+ * keep one piece of work apart. Each has its own model session; all share the bot's memory.
+ */
+export interface BotConversation {
+  readonly threadId: ThreadId;
+  readonly bot: BotName;
+  /** Empty for the main chat. */
+  readonly title: string;
+  /** The message a thread was opened from, with what it said then. */
+  readonly anchor: { readonly messageId: string; readonly text: string } | null;
   /** What its model session was last sent in full, and the run that carried it. */
   readonly context: {
     readonly sent: string | null;
@@ -34,7 +49,6 @@ export interface BotRecord {
     readonly due: boolean;
   };
   readonly createdAt: string;
-  readonly updatedAt: string;
 }
 
 export interface BotItemRecord {
@@ -82,15 +96,17 @@ export interface BotNote extends BotThreadRef {
   readonly replacedBy: string | null;
 }
 
-/** Something a task handed to its bot: a file, kept as a copy when it fits, or a link. */
 /** Something one bot told another, as the message it became in the other's thread. */
 export interface BotToldMessage {
   readonly id: number;
   readonly from: BotName;
+  /** The conversation it was told from, where the answer goes; null for the main chat. */
+  readonly fromThreadId: ThreadId | null;
   readonly to: BotName;
   readonly messageId: string;
 }
 
+/** Something a task handed to its bot: a file, kept as a copy when it fits, or a link. */
 export interface BotFile extends BotThreadRef {
   readonly id: string;
   readonly bot: BotName;
@@ -146,6 +162,8 @@ export interface BotItemThreadRecord extends BotThreadRef {
 /** What a finished run of a bot's thread did, kept here so it outlives the machine it ran on. */
 export interface BotEpisodeRecord extends BotThreadRef {
   readonly bot: BotName;
+  /** The bot's conversation that started the task; null when recorded before a bot had several. */
+  readonly fromThreadId: ThreadId | null;
   readonly runKey: string;
   readonly title: string;
   readonly where: string;
@@ -184,6 +202,7 @@ export class BotStore extends Context.Service<
     /** Records what one bot told another: the message it became in the other's thread. */
     readonly addBotMessage: (input: {
       readonly from: BotName;
+      readonly fromThreadId: ThreadId;
       readonly to: BotName;
       readonly messageId: string;
     }) => Effect.Effect<void, BotError>;
@@ -196,8 +215,18 @@ export class BotStore extends Context.Service<
       since: string,
     ) => Effect.Effect<ReadonlyArray<BotToldMessage>, BotError>;
     readonly markBotMessageAnswered: (id: number) => Effect.Effect<void, BotError>;
+    /** Names a bot's main chat. */
     readonly setThread: (name: BotName, threadId: ThreadId) => Effect.Effect<void, BotError>;
+    /** The bot a conversation belongs to: its main chat or any thread opened beside it. */
     readonly botForThread: (threadId: ThreadId) => Effect.Effect<BotRecord | null, BotError>;
+    readonly conversation: (threadId: ThreadId) => Effect.Effect<BotConversation | null, BotError>;
+    /** A bot's conversations, its main chat first. */
+    readonly conversations: (
+      bot: BotName,
+    ) => Effect.Effect<ReadonlyArray<BotConversation>, BotError>;
+    readonly addConversation: (
+      conversation: Pick<BotConversation, "threadId" | "bot" | "title" | "anchor">,
+    ) => Effect.Effect<void, BotError>;
     /** The charter it replaces is kept. */
     readonly setCharter: (name: BotName, charter: string) => Effect.Effect<void, BotError>;
     /** Charters a bot had before, newest first. */
@@ -208,7 +237,7 @@ export class BotStore extends Context.Service<
       BotError
     >;
     readonly setContextSent: (
-      name: BotName,
+      threadId: ThreadId,
       sent: string,
       runId: string,
     ) => Effect.Effect<void, BotError>;
@@ -242,7 +271,13 @@ export class BotStore extends Context.Service<
       bot: BotName,
       since: string,
     ) => Effect.Effect<
-      ReadonlyArray<BotThreadRef & { readonly runKey: string; readonly endedAt: string }>,
+      ReadonlyArray<
+        BotThreadRef & {
+          readonly runKey: string;
+          readonly endedAt: string;
+          readonly fromThreadId: ThreadId | null;
+        }
+      >,
       BotError
     >;
     readonly markCopied: (thread: BotThreadRef, endedAt: string) => Effect.Effect<void, BotError>;
@@ -330,7 +365,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -443,6 +478,31 @@ const BOT_MESSAGE_ANSWER_COLUMNS = [
   "ALTER TABLE bot_messages ADD COLUMN answered_at TEXT",
 ];
 
+const CONVERSATIONS = [
+  `CREATE TABLE IF NOT EXISTS conversations (
+    thread_id TEXT PRIMARY KEY,
+    bot TEXT NOT NULL,
+    title TEXT NOT NULL,
+    anchor_message_id TEXT,
+    anchor_text TEXT,
+    created_at TEXT NOT NULL,
+    context_sent TEXT,
+    context_run TEXT,
+    context_due INTEGER NOT NULL DEFAULT 1
+  )`,
+  "CREATE INDEX IF NOT EXISTS conversations_bot ON conversations (bot, created_at)",
+];
+// A bot's session state lived on its row while it had one conversation; those columns stay unread.
+const CONVERSATIONS_FROM_BOTS = `
+  INSERT OR IGNORE INTO conversations (
+    thread_id, bot, title, created_at, context_sent, context_run, context_due
+  )
+  SELECT thread_id, name, '', created_at, context_sent, context_run, context_due
+  FROM bots WHERE thread_id IS NOT NULL
+`;
+const BOT_MESSAGE_FROM_THREAD_COLUMN = "ALTER TABLE bot_messages ADD COLUMN from_thread_id TEXT";
+const EPISODE_FROM_THREAD_COLUMN = "ALTER TABLE episodes ADD COLUMN from_thread_id TEXT";
+
 const CONTEXT_COLUMNS = [
   "ALTER TABLE bots ADD COLUMN context_sent TEXT",
   "ALTER TABLE bots ADD COLUMN context_run TEXT",
@@ -459,12 +519,21 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
   yield* sql.withTransaction(
     Effect.gen(function* () {
       if (version < 2) yield* sql.unsafe(CHARTER_HISTORY);
-      for (const statement of [...MESSAGE_COPIES, ...NOTES, ...FILES, ...BOT_MESSAGES])
+      for (const statement of [
+        ...MESSAGE_COPIES,
+        ...NOTES,
+        ...FILES,
+        ...BOT_MESSAGES,
+        ...CONVERSATIONS,
+      ])
         yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1 && version < 6) yield* sql.unsafe(OVERSEES_COLUMN);
-      for (const column of BOT_MESSAGE_ANSWER_COLUMNS) yield* sql.unsafe(column);
+      if (version < 7) for (const column of BOT_MESSAGE_ANSWER_COLUMNS) yield* sql.unsafe(column);
+      yield* sql.unsafe(BOT_MESSAGE_FROM_THREAD_COLUMN);
       if (version >= 1) {
+        yield* sql.unsafe(EPISODE_FROM_THREAD_COLUMN);
+        yield* sql.unsafe(CONVERSATIONS_FROM_BOTS);
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         return;
       }
@@ -519,6 +588,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
           started_at TEXT,
           ended_at TEXT NOT NULL,
           result TEXT NOT NULL,
+          from_thread_id TEXT,
           PRIMARY KEY (environment_id, thread_id, run_key)
         )
       `;
@@ -567,9 +637,6 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     charter: string;
     created_at: string;
     updated_at: string;
-    context_sent: string | null;
-    context_run: string | null;
-    context_due: number;
     oversees: number;
   };
   const toBot = (row: BotRow | undefined): BotRecord | null =>
@@ -580,7 +647,6 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           threadId: row.thread_id as ThreadId | null,
           purpose: row.purpose,
           charter: row.charter,
-          context: { sent: row.context_sent, runId: row.context_run, due: row.context_due !== 0 },
           oversees: row.oversees !== 0,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -591,15 +657,72 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a bot")),
     );
   const botForThread: BotStore["Service"]["botForThread"] = (threadId) =>
-    sql<BotRow>`SELECT * FROM bots WHERE thread_id = ${threadId}`.pipe(
+    sql<BotRow>`
+      SELECT b.* FROM bots b JOIN conversations c ON c.bot = b.name WHERE c.thread_id = ${threadId}
+    `.pipe(
       Effect.map(([row]) => toBot(row)),
       Effect.mapError(fail("read a bot")),
     );
-  const setThread: BotStore["Service"]["setThread"] = (name, threadId) =>
-    sql`UPDATE bots SET thread_id = ${threadId} WHERE name = ${name}`.pipe(
-      Effect.asVoid,
-      Effect.mapError(fail("update a bot")),
+
+  type ConversationRow = {
+    thread_id: string;
+    bot: string;
+    title: string;
+    anchor_message_id: string | null;
+    anchor_text: string | null;
+    created_at: string;
+    context_sent: string | null;
+    context_run: string | null;
+    context_due: number;
+  };
+  const toConversation = (row: ConversationRow): BotConversation => ({
+    threadId: row.thread_id as ThreadId,
+    bot: row.bot as BotName,
+    title: row.title,
+    anchor:
+      row.anchor_message_id === null
+        ? null
+        : { messageId: row.anchor_message_id, text: row.anchor_text ?? "" },
+    context: { sent: row.context_sent, runId: row.context_run, due: row.context_due !== 0 },
+    createdAt: row.created_at,
+  });
+  const conversation: BotStore["Service"]["conversation"] = (threadId) =>
+    sql<ConversationRow>`SELECT * FROM conversations WHERE thread_id = ${threadId}`.pipe(
+      Effect.map(([row]) => (row === undefined ? null : toConversation(row))),
+      Effect.mapError(fail("read a bot's conversation")),
     );
+  const conversations: BotStore["Service"]["conversations"] = (bot) =>
+    sql<ConversationRow>`
+      SELECT c.* FROM conversations c JOIN bots b ON b.name = c.bot
+      WHERE c.bot = ${bot}
+      ORDER BY c.thread_id = b.thread_id DESC, c.created_at
+    `.pipe(
+      Effect.map((rows) => rows.map(toConversation)),
+      Effect.mapError(fail("list a bot's conversations")),
+    );
+  const addConversation: BotStore["Service"]["addConversation"] = Effect.fn(
+    "BotStore.addConversation",
+  )(
+    function* (input) {
+      yield* sql`
+        INSERT INTO conversations (
+          thread_id, bot, title, anchor_message_id, anchor_text, created_at
+        ) VALUES (
+          ${input.threadId}, ${input.bot}, ${input.title}, ${input.anchor?.messageId ?? null},
+          ${input.anchor?.text ?? null}, ${yield* now}
+        )
+        ON CONFLICT (thread_id) DO NOTHING
+      `;
+    },
+    Effect.mapError(fail("open a bot's conversation")),
+  );
+  const setThread: BotStore["Service"]["setThread"] = Effect.fn("BotStore.setThread")(
+    function* (name, threadId) {
+      yield* sql`UPDATE bots SET thread_id = ${threadId} WHERE name = ${name}`;
+      yield* addConversation({ threadId, bot: name, title: "", anchor: null });
+    },
+    Effect.mapError(fail("update a bot")),
+  );
 
   const listBots: BotStore["Service"]["listBots"] = sql<BotRow>`
     SELECT * FROM bots ORDER BY name
@@ -649,14 +772,14 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       Effect.mapError(fail("read a charter's history")),
     );
 
-  const setContextSent: BotStore["Service"]["setContextSent"] = (name, sent, runId) =>
+  const setContextSent: BotStore["Service"]["setContextSent"] = (threadId, sent, runId) =>
     sql`
-      UPDATE bots SET context_sent = ${sent}, context_run = ${runId}, context_due = 0
-      WHERE name = ${name}
+      UPDATE conversations SET context_sent = ${sent}, context_run = ${runId}, context_due = 0
+      WHERE thread_id = ${threadId}
     `.pipe(Effect.asVoid, Effect.mapError(fail("record a bot's context")));
 
   const markContextLost: BotStore["Service"]["markContextLost"] = (threadId) =>
-    sql`UPDATE bots SET context_due = 1 WHERE thread_id = ${threadId}`.pipe(
+    sql`UPDATE conversations SET context_due = 1 WHERE thread_id = ${threadId}`.pipe(
       Effect.asVoid,
       Effect.mapError(fail("record a bot's context")),
     );
@@ -776,11 +899,11 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     sql<{ thread_id: string }>`
       INSERT INTO episodes (
         environment_id, thread_id, run_key, bot, title, location, outcome, started_at, ended_at,
-        result
+        result, from_thread_id
       ) VALUES (
         ${episode.environmentId}, ${episode.threadId}, ${episode.runKey}, ${episode.bot},
         ${episode.title}, ${episode.where}, ${episode.outcome}, ${episode.startedAt},
-        ${episode.endedAt}, ${episode.result}
+        ${episode.endedAt}, ${episode.result}, ${episode.fromThreadId}
       )
       ON CONFLICT (environment_id, thread_id, run_key) DO NOTHING
       RETURNING thread_id
@@ -804,6 +927,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           started_at: string | null;
           ended_at: string;
           result: string;
+          from_thread_id: string | null;
         }>`
         SELECT * FROM episodes
         WHERE environment_id = ${thread.environmentId} AND thread_id = ${thread.threadId}
@@ -822,6 +946,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           startedAt: row.started_at,
           endedAt: row.ended_at,
           result: row.result,
+          fromThreadId: row.from_thread_id as ThreadId | null,
         })),
       ),
       Effect.mapError(fail("read results")),
@@ -847,8 +972,15 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       .pipe(Effect.mapError(fail("copy a thread's messages")));
 
   const threadsToCopy: BotStore["Service"]["threadsToCopy"] = (bot, since) =>
-    sql<{ environment_id: string; thread_id: string; run_key: string; ended_at: string }>`
-      SELECT e.environment_id, e.thread_id, e.run_key, MAX(e.ended_at) AS ended_at
+    sql<{
+      environment_id: string;
+      thread_id: string;
+      run_key: string;
+      ended_at: string;
+      from_thread_id: string | null;
+    }>`
+      SELECT e.environment_id, e.thread_id, e.run_key, e.from_thread_id,
+        MAX(e.ended_at) AS ended_at
       FROM episodes e
       LEFT JOIN copied c ON c.environment_id = e.environment_id AND c.thread_id = e.thread_id
       WHERE e.bot = ${bot} AND e.ended_at >= ${since}
@@ -861,6 +993,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           threadId: row.thread_id as ThreadId,
           runKey: row.run_key,
           endedAt: row.ended_at,
+          fromThreadId: row.from_thread_id as ThreadId | null,
         })),
       ),
       Effect.mapError(fail("list threads to copy")),
@@ -948,18 +1081,27 @@ const makeWith = Effect.fn("BotStore.make")(function* (
   const addBotMessage: BotStore["Service"]["addBotMessage"] = Effect.fn("BotStore.addBotMessage")(
     function* (input) {
       yield* sql`
-        INSERT INTO bot_messages (from_bot, to_bot, at, message_id)
-        VALUES (${input.from}, ${input.to}, ${yield* now}, ${input.messageId})
+        INSERT INTO bot_messages (from_bot, to_bot, at, message_id, from_thread_id)
+        VALUES (
+          ${input.from}, ${input.to}, ${yield* now}, ${input.messageId}, ${input.fromThreadId}
+        )
       `;
     },
     Effect.mapError(fail("record a message between bots")),
   );
 
-  type BotToldRow = { id: number; from_bot: string; to_bot: string; message_id: string };
+  type BotToldRow = {
+    id: number;
+    from_bot: string;
+    to_bot: string;
+    message_id: string;
+    from_thread_id: string | null;
+  };
   const toTold = (rows: ReadonlyArray<BotToldRow>): ReadonlyArray<BotToldMessage> =>
     rows.map((row) => ({
       id: row.id,
       from: row.from_bot as BotName,
+      fromThreadId: row.from_thread_id as ThreadId | null,
       to: row.to_bot as BotName,
       messageId: row.message_id,
     }));
@@ -968,13 +1110,13 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     messageIds.length === 0
       ? Effect.succeed([])
       : sql<BotToldRow>`
-          SELECT id, from_bot, to_bot, message_id FROM bot_messages
+          SELECT id, from_bot, to_bot, message_id, from_thread_id FROM bot_messages
           WHERE answered_at IS NULL AND message_id IN ${sql.in(messageIds)}
         `.pipe(Effect.map(toTold), Effect.mapError(fail("read messages between bots")));
 
   const unansweredBotMessagesSince: BotStore["Service"]["unansweredBotMessagesSince"] = (since) =>
     sql<BotToldRow>`
-      SELECT id, from_bot, to_bot, message_id FROM bot_messages
+      SELECT id, from_bot, to_bot, message_id, from_thread_id FROM bot_messages
       WHERE answered_at IS NULL AND message_id IS NOT NULL AND at >= ${since}
     `.pipe(Effect.map(toTold), Effect.mapError(fail("read messages between bots")));
 
@@ -1259,6 +1401,9 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     ensureBot,
     setThread,
     botForThread,
+    conversation,
+    conversations,
+    addConversation,
     setCharter,
     charterHistory,
     setContextSent,

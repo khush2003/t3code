@@ -177,6 +177,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.animaBreathe]: "workspace",
   [WS_METHODS.animaOnboardingPrompt]: "workspace",
   [WS_METHODS.botsStart]: "workspace",
+  [WS_METHODS.botsThreadStart]: "workspace",
   [WS_METHODS.botsList]: "workspace",
   [WS_METHODS.botsBoard]: "workspace",
   [WS_METHODS.botsMemory]: "workspace",

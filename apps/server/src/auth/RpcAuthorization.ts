@@ -171,6 +171,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.animaBreathe]: AuthOrchestrationOperateScope,
   [WS_METHODS.animaOnboardingPrompt]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsStart]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsThreadStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsList]: AuthOrchestrationReadScope,
   [WS_METHODS.botsBoard]: AuthOrchestrationReadScope,
   [WS_METHODS.botsMemory]: AuthOrchestrationReadScope,

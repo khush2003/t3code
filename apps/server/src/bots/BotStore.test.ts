@@ -122,6 +122,7 @@ describe("BotStore", () => {
       const episode = {
         ...thread,
         bot: atlas,
+        fromThreadId: null,
         runKey: "task-1",
         outcome: "completed",
         startedAt: null,

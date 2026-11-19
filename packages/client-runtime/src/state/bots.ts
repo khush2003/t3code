@@ -62,5 +62,14 @@ export function createBotEnvironmentAtoms<R, E>(
         key: ({ environmentId }: { environmentId: string }) => environmentId,
       },
     }),
+    startThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:thread-start",
+      tag: WS_METHODS.botsThreadStart,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
   };
 }
