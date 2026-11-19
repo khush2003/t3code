@@ -153,6 +153,9 @@ import {
   BotCharterSetInput,
   BotMemory,
   BotMemoryInput,
+  BotNoteAddInput,
+  BotNoteEditInput,
+  BotNoteRestoreInput,
   BotNoteRetireInput,
   BotError,
   BotListResult,
@@ -537,6 +540,9 @@ export const WS_METHODS = {
   botsBoard: "bots.board",
   botsMemory: "bots.memory",
   botsNoteRetire: "bots.noteRetire",
+  botsNoteAdd: "bots.noteAdd",
+  botsNoteEdit: "bots.noteEdit",
+  botsNoteRestore: "bots.noteRestore",
   botsCharterSet: "bots.charterSet",
   botsLookSet: "bots.lookSet",
   animaExport: "anima.export",
@@ -1852,6 +1858,24 @@ const WsBotsNoteRetireRpc = Rpc.make(WS_METHODS.botsNoteRetire, {
   error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
 });
 
+const WsBotsNoteAddRpc = Rpc.make(WS_METHODS.botsNoteAdd, {
+  payload: BotNoteAddInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsNoteEditRpc = Rpc.make(WS_METHODS.botsNoteEdit, {
+  payload: BotNoteEditInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsNoteRestoreRpc = Rpc.make(WS_METHODS.botsNoteRestore, {
+  payload: BotNoteRestoreInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
 const WsBotsLookSetRpc = Rpc.make(WS_METHODS.botsLookSet, {
   payload: BotLookSetInput,
   success: Schema.Struct({}),
@@ -2847,6 +2871,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsBotsBoardRpc,
   WsBotsMemoryRpc,
   WsBotsNoteRetireRpc,
+  WsBotsNoteAddRpc,
+  WsBotsNoteEditRpc,
+  WsBotsNoteRestoreRpc,
   WsBotsCharterSetRpc,
   WsBotsLookSetRpc,
   WsAnimaExportRpc,

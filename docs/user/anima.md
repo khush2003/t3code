@@ -71,11 +71,13 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   answered, or asleep when nothing has happened for hours. Click it at the top of the card beside
   the bot's chat to choose another character, a plain icon, a colour, or a picture of your own. The sidebar shows it next to the bot's name, with how many of its work items
   wait on you.
-- **Memory**, at the top of the bot's page, shows what the bot carries into every session. Its
-  notes are listed by day and can be searched; open one for the passage it rests on and a way to
-  the conversation it came from, and mark it no longer true when it is wrong. Its charter is beside
-  them, to edit or to restore from an earlier version. To have it remember something new, tell it
-  in the chat.
+- **Memory**, at the top of the bot's page, shows what the bot keeps between sessions, grouped by
+  topic. Open a note for the passage it rests on and a way to the conversation it came from. You
+  can reword a note, forget it, and bring a forgotten one back. A note you add yourself is sent to
+  the bot at the start of every session, and only you can remove it; of its own notes it is sent
+  the newest and searches for the rest. Notes get their title and topic from the **Text
+  generation** model a little after they are written. **How you want work done** holds the bot's
+  purpose and your standing rules, which you can edit or restore from an earlier version.
 - A bot's model session is replaced when it grows large or has been idle for six hours. The new
   session gets the charter, the notes, the board and the last few turns; everything earlier is in
   the bot's memory, which it searches. Nothing is summarized, so replacing a session costs no extra

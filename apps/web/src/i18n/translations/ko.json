@@ -3247,54 +3247,55 @@
     }
   ],
   "8cf2339513f6ca29": "View thread",
-  "eeee33ef5dd3cea9": "A newer note replaced it.",
-  "78104efe8c2455b3": "Why this note no longer holds",
-  "2e3f208b95f0bdfe": "Why it no longer holds, so the bot knows",
-  "9bd7300ea4eeba97": "The charter was not saved.",
-  "e20d475f6f65585c": "Charter",
+  "a33359a8aac5fb08": "What it remembers, by subject",
+  "a861d4fce8503533": "That was not saved.",
+  "a1889dee0cd71137": "How you want work done",
   "79cd046b15c4213b": "{count, plural, one {{count} earlier version} other {{count} earlier versions}}",
+  "77cecee4d0113e35": "Purpose",
+  "88429bc9732d7025": "Rules",
+  "58d49e9b9e748fe5": "What it is for",
+  "8e755231b5901b90": "Rule {number}",
+  "d89559f9ea4f4470": "One thing it should always do, or never do",
+  "3752120a6fbaca21": "Remove rule {number}",
   "a92705f243a4acea": "How it remembers",
   "36028d960e92597a": "It has not read back yet.",
-  "5e233a66c883ff25": "Nothing new is waiting.",
   "cf79d54937daf345": "{count, plural, one {{count} new message is waiting for the next read.} other {{count} new messages are waiting for the next read.}}",
   "dcbb6ee7c9d57e45": "Read {messages} messages, added {added}, retired {retired}.",
   "33894df19b04f066": "Read {messages} messages, added {added}, retired {retired}, threw out {rejected} without a source.",
-  "dbe74059772c0f8d": "This chat",
-  "e547f7204a7d3c10": "A thread in this chat",
-  "224d22d25c3f8ce6": "A task it started",
-  "4363e6c6db0513fb": "The note was not changed.",
+  "895328b7e0ac9042": "Something it should always know, in a sentence or two",
+  "ff5ad44ac530fa41": "It files a reworded note under a topic again within a minute.",
+  "59482661ee640193": "Save note",
+  "92d067967c28252c": "Edit this note",
+  "904cf5ca82fa9129": "Forget this note",
+  "760c81e2ba2fced8": "You removed it.",
+  "eeee33ef5dd3cea9": "A newer note replaced it.",
+  "4634112f903eefe6": "The note was not brought back.",
+  "2bb5bec27981e11a": "The note was not forgotten.",
+  "b10b0b9ba4d171e3": "Forgot “{title}”",
+  "58172547eee680e1": "this chat",
+  "f83d474e7d5acb19": "a thread in this chat",
+  "e00bc3c8c78958ae": "a task it started",
+  "3bf40445a706e4c9": "모두",
+  "d0415b15bd36a733": "Forgotten",
+  "6fa798ec4ba7cbcd": "What {name} remembers",
+  "5eff155ea982bc41": "{count, plural, =0 {Nothing written down yet.} one {{count} note.} other {{count} notes.}}",
+  "4e69ea54562e8a95": "Search what it remembers",
   "aec2b493d2b01445": "Notes",
   "56c71a9d8697235a": "{found} of {total}",
-  "e32208a394b5ce4f": "Hide what is no longer true",
-  "d212e9f36dcab086": "Show {count} no longer true",
-  "d0a76aa4c42ce65f": "Search notes",
+  "8584870e8888031b": "Written by you. It reads this at the start of every session.",
+  "6f6fd48709f91d56": "The note was not saved.",
+  "4363e6c6db0513fb": "The note was not changed.",
   "78b0857ec20b0d8a": "읽는 중…",
   "72c45bed6d995164": "The bot's memory could not be read.",
-  "665b0dfab6ef1746": [
-    "Marked no longer true ",
-    {
-      "i": 1,
-      "k": "_gt_time_1",
-      "v": "rt"
-    },
-    ":"
-  ],
-  "b8a7abb3ae2b4540": [
-    "Written down ",
-    {
-      "i": 1,
-      "k": "_gt_time_1",
-      "v": "rt"
-    },
-    ", from this passage:"
-  ],
-  "69eda053087bbcc4": "Open where it was said",
-  "45963b0b722c113a": "No longer true",
-  "449120a766229ca0": "Mark it",
-  "ca7d259d4a46492a": "Charter",
+  "2e1712512d05accb": "Topics",
+  "58b0a80e5c5c6e34": "How you want work done",
   "f5b66c481aa3e4df": "편집",
-  "f21bc89e1677aafc": "What it is for and how you want work done. It reads this at the start of every session, and may rewrite it when you tell it how you like things.",
-  "587a4c8593f2031e": "Save charter",
+  "020ab4d3b0beda71": "It reads this at the start of every session, and may rewrite it itself when you tell it how you like things.",
+  "34e1aee41fe6b05b": "None yet. Add one here, or tell it in the chat how you like things done.",
+  "5933d3199794d67b": "Purpose",
+  "3c6650b92e967005": "Add a rule",
+  "2e1341a55e73d9e8": "Edit as plain text",
+  "2e3f5cc2664cb4e4": "What it said before",
   "1bac698675b45a65": [
     "Replaced ",
     {
@@ -3303,11 +3304,11 @@
       "v": "rt"
     }
   ],
-  "4fc630d6b2bf647f": "Restore",
+  "9bd31b8911a11607": "다시 가져오기",
   "15209a3988aac3d1": "How it remembers",
   "7ee0d822eabd0ac9": "It reads back through your conversations on its own and writes down what should last. It also keeps every message, and searches them when you ask about something older.",
-  "ef0f0f03d47cdad1": [
-    "Last read back ",
+  "0dd79e9dd31d7f74": [
+    "It last read back ",
     {
       "i": 1,
       "k": "_gt_time_1",
@@ -3324,9 +3325,46 @@
       "v": "v"
     }
   ],
-  "2f4ef70d15027bb0": "Notes",
-  "6b16d5eac77a0536": "No notes yet. It writes them itself after reading back through your conversations. To have it remember something, tell it in the chat.",
+  "9c53ce96f283d197": "Yours",
+  "33c727653646a499": [
+    "Forgotten ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    },
+    "."
+  ],
+  "08bc12b132693c43": [
+    "You wrote this ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    },
+    ". It reads it at the start of every session."
+  ],
+  "174663821cb49e6d": [
+    "Said in ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ", written down",
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_time_2",
+      "v": "rt"
+    }
+  ],
+  "0f9981a5183daf1c": "Open the conversation",
+  "813b80a5f5f5b855": "Forget",
+  "bffbc96bd86eaf0e": "Add a note",
+  "118cd457678c526e": "Notes that stopped being true, or that you removed. It no longer reads them, and still finds them when it searches its past.",
   "431cd9aeebb9be59": "No note says that.",
+  "9d61ceab99697807": "It writes notes itself after reading back through your conversations. You can also add one, or tell it in the chat what to remember.",
   "ae4ee49c01c45edf": "Bot",
   "5ce148a0d16a42d5": "Bot menu",
   "97884c869683f97f": "{count, plural, one {{count} needs you} other {{count} need you}}",
@@ -4111,7 +4149,6 @@
   "c1844a6d9443df20": "이 사이드 채팅을 기본 스레드의 다음 메시지에 추가합니다.",
   "e42d6bd2de470521": "사이드 채팅 삭제",
   "6a116665c8d9ad75": "사이드 채팅 닫기",
-  "9bd31b8911a11607": "다시 가져오기",
   "492a438bf9dbd45d": "이 사이드 채팅은 삭제되었습니다.",
   "7350aa3df15b9802": "스킬 {label}",
   "9ff9f24d1568fbaf": "이 스킬에 대한 설명이 없습니다.",
@@ -9873,7 +9910,6 @@
   "c80e4bb3201efd71": "Zen",
   "0cb9ffcd1fb46b0c": "상태만",
   "cf0f7fc3df26fa75": "상태 및 메시지",
-  "3bf40445a706e4c9": "모두",
   "840497a2b41e60a3": "안 함",
   "91f76d566351a1ed": "업데이트를 확인할 수 없습니다",
   "51afa46ca07c002e": "업데이트 확인에 실패했습니다.",

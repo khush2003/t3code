@@ -4046,8 +4046,9 @@ export default function ChatView(props: ChatViewProps) {
             )}
           </ThreadFindCanvas>
           {botView === undefined ? null : (
-            // Over the chat, not in its place: the chat keeps its scroll position and draft.
-            <div className="absolute inset-0 z-20 bg-background">
+            // Over the chat, not in its place: the chat keeps its scroll position and draft. As high
+            // as the chat's minimap, which would otherwise show through.
+            <div className="absolute inset-0 z-40 bg-background">
               {botView === "board" ? (
                 <BotBoardView
                   environmentId={activeThread.environmentId}

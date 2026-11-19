@@ -68,13 +68,20 @@ const describeItem = (item: BotBoardItem, now: string, full: boolean) =>
 /** What a bot keeps for good; resent only when it changed or the session lost it. */
 const NOTES_CHARS = 2_500;
 
-const describeNotes = (notes: ReadonlyArray<BotNote>) => {
+const describeNotes = (all: ReadonlyArray<BotNote>) => {
+  // What the person wrote themselves is always sent; the rest fill what room is left, newest first.
+  const notes = [
+    ...all.filter((note) => note.author === "user"),
+    ...all.filter((note) => note.author !== "user"),
+  ];
   const lines: Array<string> = [];
   let chars = 0;
   for (const note of notes) {
     chars += note.text.length;
-    if (lines.length > 0 && chars > NOTES_CHARS) break;
-    lines.push(`- [${note.id}] ${note.text}`);
+    if (note.author !== "user" && lines.length > 0 && chars > NOTES_CHARS) break;
+    lines.push(
+      `- [${note.id}] ${note.author === "user" ? "(written by your person) " : ""}${note.text}`,
+    );
   }
   return [
     ...lines,

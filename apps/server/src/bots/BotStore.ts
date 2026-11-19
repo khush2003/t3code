@@ -94,6 +94,11 @@ export interface BotNote extends BotThreadRef {
   readonly quote: string;
   /** The title of the thread it comes from; null for the bot's own conversation. */
   readonly source: string | null;
+  /** A few words for what it says and the subject it is filed under; null until labelled. */
+  readonly title: string | null;
+  readonly topic: string | null;
+  /** `user` when the person wrote it: it rests on no message and no pass may retire it. */
+  readonly author: "bot" | "user";
   readonly outdatedAt: string | null;
   readonly outdatedReason: string | null;
   readonly replacedBy: string | null;
@@ -329,6 +334,27 @@ export class BotStore extends Context.Service<
       id: string,
       reason: string,
     ) => Effect.Effect<boolean, BotError>;
+    /** Makes an outdated note current again; false when it is not an outdated note of this bot. */
+    readonly restoreNote: (bot: BotName, id: string) => Effect.Effect<boolean, BotError>;
+    /** A note the person wrote themselves, filed against the bot's own chat. */
+    readonly addUserNote: (
+      bot: BotName,
+      thread: BotThreadRef,
+      text: string,
+    ) => Effect.Effect<void, BotError>;
+    /** New wording for a current note, which then needs labelling again; false when not found. */
+    readonly editNote: (bot: BotName, id: string, text: string) => Effect.Effect<boolean, BotError>;
+    /** Sets the title and topic of the bot's notes named here. */
+    readonly labelNotes: (
+      bot: BotName,
+      labels: ReadonlyArray<{
+        readonly id: string;
+        /** The wording the label was written for; a note edited since keeps waiting for its own. */
+        readonly text: string;
+        readonly title: string;
+        readonly topic: string | null;
+      }>,
+    ) => Effect.Effect<void, BotError>;
     /** The oldest unread copied messages, up to `maxChars` of text. */
     readonly unreadMessages: (
       bot: BotName,
@@ -372,7 +398,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -516,6 +542,11 @@ const CONVERSATIONS_FROM_BOTS = `
   FROM bots WHERE thread_id IS NOT NULL
 `;
 const ITEM_WAITING_COLUMN = "ALTER TABLE items ADD COLUMN waiting INTEGER NOT NULL DEFAULT 0";
+const NOTE_LABEL_COLUMNS = [
+  "ALTER TABLE notes ADD COLUMN title TEXT",
+  "ALTER TABLE notes ADD COLUMN topic TEXT",
+  "ALTER TABLE notes ADD COLUMN author TEXT NOT NULL DEFAULT 'bot'",
+];
 const BOT_MESSAGE_FROM_THREAD_COLUMN = "ALTER TABLE bot_messages ADD COLUMN from_thread_id TEXT";
 const EPISODE_FROM_THREAD_COLUMN = "ALTER TABLE episodes ADD COLUMN from_thread_id TEXT";
 
@@ -544,6 +575,8 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
         ...LOOKS,
       ])
         yield* sql.unsafe(statement);
+      // The notes table is created above in its first shape, so every database gains these once.
+      if (version < 11) for (const column of NOTE_LABEL_COLUMNS) yield* sql.unsafe(column);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1 && version < 6) yield* sql.unsafe(OVERSEES_COLUMN);
       if (version < 7) for (const column of BOT_MESSAGE_ANSWER_COLUMNS) yield* sql.unsafe(column);
@@ -1271,6 +1304,9 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     outdated_reason: string | null;
     replaced_by: string | null;
     source: string | null;
+    title: string | null;
+    topic: string | null;
+    author: string;
   };
   const toNote = (row: NoteRow): BotNote => ({
     id: row.id,
@@ -1281,6 +1317,9 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     messageId: row.message_id,
     quote: row.quote,
     source: row.source,
+    title: row.title,
+    topic: row.topic,
+    author: row.author === "user" ? "user" : "bot",
     outdatedAt: row.outdated_at,
     outdatedReason: row.outdated_reason,
     replacedBy: row.replaced_by,
@@ -1340,6 +1379,61 @@ const makeWith = Effect.fn("BotStore.make")(function* (
       return rows.length > 0;
     },
     Effect.mapError(fail("retire a note")),
+  );
+
+  const restoreNote: BotStore["Service"]["restoreNote"] = Effect.fn("BotStore.restoreNote")(
+    function* (bot, id) {
+      const rows = yield* sql<{ id: string }>`
+        UPDATE notes SET outdated_at = NULL, outdated_reason = NULL, replaced_by = NULL
+        WHERE id = ${id} AND bot = ${bot} AND outdated_at IS NOT NULL
+        RETURNING id
+      `;
+      return rows.length > 0;
+    },
+    Effect.mapError(fail("bring a note back")),
+  );
+
+  const addUserNote: BotStore["Service"]["addUserNote"] = Effect.fn("BotStore.addUserNote")(
+    function* (bot, thread, text) {
+      const id = (yield* random.uuidV4()).slice(0, 8);
+      yield* sql`
+        INSERT INTO notes (
+          id, bot, text, created_at, environment_id, thread_id, message_id, quote, author
+        ) VALUES (
+          ${`note:${id}`}, ${bot}, ${text}, ${yield* now}, ${thread.environmentId},
+          ${thread.threadId}, ${`user:${id}`}, '', 'user'
+        )
+      `;
+    },
+    Effect.mapError(fail("write a note")),
+  );
+
+  const editNote: BotStore["Service"]["editNote"] = Effect.fn("BotStore.editNote")(
+    function* (bot, id, text) {
+      const rows = yield* sql<{ id: string }>`
+        UPDATE notes SET text = ${text}, title = NULL, topic = NULL
+        WHERE id = ${id} AND bot = ${bot} AND outdated_at IS NULL
+        RETURNING id
+      `;
+      return rows.length > 0;
+    },
+    Effect.mapError(fail("change a note")),
+  );
+
+  const labelNotes: BotStore["Service"]["labelNotes"] = Effect.fn("BotStore.labelNotes")(
+    function* (bot, labels) {
+      yield* sql.withTransaction(
+        Effect.forEach(
+          labels,
+          (label) => sql`
+            UPDATE notes SET title = ${label.title}, topic = ${label.topic}
+            WHERE id = ${label.id} AND bot = ${bot} AND text = ${label.text}
+          `,
+          { discard: true },
+        ),
+      );
+    },
+    Effect.mapError(fail("label notes")),
   );
 
   const reflectedRow = (bot: BotName) =>
@@ -1487,6 +1581,10 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     reflectionPasses,
     searchNotes,
     retireNote,
+    restoreNote,
+    addUserNote,
+    editNote,
+    labelNotes,
     unreadMessages,
     reflectionState,
     recordReflection,

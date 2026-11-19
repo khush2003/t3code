@@ -193,6 +193,13 @@ export const BotNote = Schema.Struct({
   quote: Schema.String,
   /** The title of the thread it comes from; absent for the bot's own conversation. */
   source: Schema.NullOr(Schema.String),
+  /** A few words for what it says, and the subject it is filed under. Absent until labelled. */
+  title: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  topic: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** `user` when the person wrote it themselves: it rests on no message and no pass retires it. */
+  author: Schema.Literals(["bot", "user"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("bot" as const)),
+  ),
   outdatedAt: Schema.NullOr(Schema.String),
   outdatedReason: Schema.NullOr(Schema.String),
   replacedBy: Schema.NullOr(Schema.String),
@@ -235,6 +242,21 @@ export const BotNoteRetireInput = Schema.Struct({
   reason: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(500)),
 });
 export type BotNoteRetireInput = typeof BotNoteRetireInput.Type;
+
+const BotNoteText = Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(600));
+
+export const BotNoteAddInput = Schema.Struct({ threadId: ThreadId, text: BotNoteText });
+export type BotNoteAddInput = typeof BotNoteAddInput.Type;
+
+export const BotNoteEditInput = Schema.Struct({
+  threadId: ThreadId,
+  id: Schema.String,
+  text: BotNoteText,
+});
+export type BotNoteEditInput = typeof BotNoteEditInput.Type;
+
+export const BotNoteRestoreInput = Schema.Struct({ threadId: ThreadId, id: Schema.String });
+export type BotNoteRestoreInput = typeof BotNoteRestoreInput.Type;
 
 export const BotCharterSetInput = Schema.Struct({ threadId: ThreadId, charter: BotCharter });
 export type BotCharterSetInput = typeof BotCharterSetInput.Type;

@@ -11,6 +11,7 @@ import {
 /** Thread status on the board comes from the threads, so it is read again while shown. */
 const BOT_BOARD_REFRESH_MS = 10_000;
 const BOT_BOARD_ALL_REFRESH_MS = 60_000;
+const BOT_MEMORY_REFRESH_MS = 30_000;
 
 export function createBotEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -43,7 +44,9 @@ export function createBotEnvironmentAtoms<R, E>(
     memory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:bots:memory",
       tag: WS_METHODS.botsMemory,
-      staleTimeMs: 30_000,
+      // Notes are titled and filed a little after they are written, with nothing to announce it.
+      staleTimeMs: BOT_MEMORY_REFRESH_MS,
+      refreshIntervalMs: BOT_MEMORY_REFRESH_MS,
       idleTtlMs: 30_000,
     }),
     retireNote: createEnvironmentRpcCommand(runtime, {
@@ -58,6 +61,33 @@ export function createBotEnvironmentAtoms<R, E>(
     setCharter: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:charter-set",
       tag: WS_METHODS.botsCharterSet,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
+    addNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:note-add",
+      tag: WS_METHODS.botsNoteAdd,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
+    editNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:note-edit",
+      tag: WS_METHODS.botsNoteEdit,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
+    restoreNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:note-restore",
+      tag: WS_METHODS.botsNoteRestore,
       scheduler,
       concurrency: {
         mode: "serial" as const,

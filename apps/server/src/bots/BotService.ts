@@ -1,10 +1,14 @@
 import {
+  EnvironmentId,
   type BotBoard,
   type BotBoardInput,
   type BotCharterSetInput,
   BotError,
   type BotMemory,
   type BotMemoryInput,
+  type BotNoteAddInput,
+  type BotNoteEditInput,
+  type BotNoteRestoreInput,
   type BotNoteRetireInput,
   type BotListResult,
   type BotName,
@@ -32,6 +36,7 @@ import * as Option from "effect/Option";
 import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
 import { createAttachmentId, parseAttachmentFileExtension } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -78,6 +83,15 @@ export class BotService extends Context.Service<
     ) => Effect.Effect<BotMemory, BotRejectedError | BotError>;
     readonly retireNote: (
       input: BotNoteRetireInput,
+    ) => Effect.Effect<void, BotRejectedError | BotError>;
+    /** A note the person writes themselves. The bot is always sent these. */
+    readonly addNote: (input: BotNoteAddInput) => Effect.Effect<void, BotRejectedError | BotError>;
+    readonly editNote: (
+      input: BotNoteEditInput,
+    ) => Effect.Effect<void, BotRejectedError | BotError>;
+    /** Brings back a note that was marked outdated. */
+    readonly restoreNote: (
+      input: BotNoteRestoreInput,
     ) => Effect.Effect<void, BotRejectedError | BotError>;
     readonly setCharter: (
       input: BotCharterSetInput,
@@ -138,6 +152,11 @@ const make = Effect.gen(function* () {
   const settings = yield* ServerSettings.ServerSettingsService;
   const random = yield* SecureRandom.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
+  // Orchestration test harnesses run without an environment.
+  const environment = yield* Effect.serviceOption(ServerEnvironment.ServerEnvironment);
+  const hereId = Option.isSome(environment)
+    ? yield* environment.value.getEnvironmentId
+    : EnvironmentId.make("here");
   const fs = yield* FileSystem.FileSystem;
 
   const start: BotService["Service"]["start"] = Effect.fn("BotService.start")(function* (input) {
@@ -351,6 +370,37 @@ const make = Effect.gen(function* () {
     Effect.provideService(BotStore.BotStore, store),
   );
 
+  const addNote: BotService["Service"]["addNote"] = Effect.fn("BotService.addNote")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      // Filed against the bot's own chat, which is where "open the conversation" then leads.
+      yield* store.addUserNote(
+        bot.name,
+        { environmentId: hereId, threadId: bot.threadId ?? input.threadId },
+        input.text.trim(),
+      );
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
+  const editNote: BotService["Service"]["editNote"] = Effect.fn("BotService.editNote")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      if (!(yield* store.editNote(bot.name, input.id, input.text.trim())))
+        return yield* new BotRejectedError({ reason: "That note is not a current note." });
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
+  const restoreNote: BotService["Service"]["restoreNote"] = Effect.fn("BotService.restoreNote")(
+    function* (input) {
+      const bot = yield* requireBot(input.threadId);
+      if (!(yield* store.restoreNote(bot.name, input.id)))
+        return yield* new BotRejectedError({ reason: "That note was not removed." });
+    },
+    Effect.provideService(BotStore.BotStore, store),
+  );
+
   const setCharter: BotService["Service"]["setCharter"] = Effect.fn("BotService.setCharter")(
     function* (input) {
       const bot = yield* requireBot(input.threadId);
@@ -418,6 +468,9 @@ const make = Effect.gen(function* () {
     board,
     memory,
     retireNote,
+    addNote,
+    editNote,
+    restoreNote,
     setCharter,
     setLook,
   });

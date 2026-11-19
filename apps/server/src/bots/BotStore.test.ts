@@ -19,6 +19,7 @@ const layer = BotStore.layerMemory.pipe(
 );
 const atlas = BotName.make("atlas");
 const here = EnvironmentId.make("here");
+const thread = { environmentId: here, threadId: ThreadId.make("bot:atlas") };
 
 describe("BotStore", () => {
   it.effect("searches a bot's copied messages and reads a copied thread", () =>
@@ -113,9 +114,17 @@ describe("BotStore", () => {
         Effect.gen(function* () {
           yield* store.ensureBot({ name: atlas, purpose: "Ship it", charter: "c" });
           yield* store.saveItem(atlas, { title: "Launch", waitingOnPerson: true });
+          yield* store.recordReflection(atlas, {
+            throughRow: 0,
+            messages: 1,
+            rejected: 0,
+            error: null,
+            add: [{ ...thread, text: "Posters ship as PDF.", messageId: "u1", quote: "as PDF" }],
+            retire: [],
+          });
         }),
       );
-      // As version 9 left it: items already say what waits, and no bot has a look yet.
+      // As version 9 left it: no bot has a look yet, and a note is only its text.
       yield* Effect.scoped(
         Effect.gen(function* () {
           const raw = yield* Layer.build(
@@ -123,19 +132,43 @@ describe("BotStore", () => {
           );
           const sql = Context.get(raw, SqlClient.SqlClient);
           yield* sql.unsafe("DROP TABLE bot_looks");
+          for (const column of ["title", "topic", "author"])
+            yield* sql.unsafe(`ALTER TABLE notes DROP COLUMN ${column}`);
           yield* sql.unsafe("PRAGMA user_version = 9");
         }),
       );
       const reopened = yield* open((store) =>
         Effect.gen(function* () {
           yield* store.setLook(atlas, { icon: "rocket", color: "teal", avatarAttachmentId: null });
+          const [kept] = yield* store.allNotes(atlas);
+          expect(kept).toMatchObject({ text: "Posters ship as PDF.", title: null, author: "bot" });
+
+          // The person writes one, rewords the bot's, and takes a forgotten one back.
+          yield* store.addUserNote(atlas, thread, "Never post on Sundays.");
+          yield* store.labelNotes(atlas, [
+            { id: kept!.id, text: kept!.text, title: "Posters are PDF", topic: "Posters" },
+          ]);
+          expect(yield* store.editNote(atlas, kept!.id, "Posters ship as PNG.")).toBe(true);
+          // A label written for the old wording does not land on the new one.
+          yield* store.labelNotes(atlas, [
+            { id: kept!.id, text: kept!.text, title: "Posters are PDF", topic: "Posters" },
+          ]);
+          expect(yield* store.restoreNote(atlas, kept!.id)).toBe(false);
+          yield* store.retireNote(atlas, kept!.id, "Not needed");
+          expect(yield* store.editNote(atlas, kept!.id, "Changed while forgotten")).toBe(false);
+          expect(yield* store.restoreNote(atlas, kept!.id)).toBe(true);
           return {
             items: yield* store.listItems(atlas),
             look: (yield* store.looks).get(atlas),
+            notes: yield* store.activeNotes(atlas),
           };
         }),
       );
       expect(reopened.items).toMatchObject([{ title: "Launch", waitingOnPerson: true }]);
+      expect(reopened.notes.toSorted((a, b) => a.author.localeCompare(b.author))).toMatchObject([
+        { text: "Posters ship as PNG.", title: null, topic: null, author: "bot" },
+        { text: "Never post on Sundays.", author: "user", quote: "", threadId: thread.threadId },
+      ]);
       expect(reopened.look).toEqual({ icon: "rocket", color: "teal", avatarAttachmentId: null });
     }).pipe(Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer))),
   );
