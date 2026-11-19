@@ -34,7 +34,7 @@ import {
   splitBotFiles,
 } from "./botBoard.logic";
 import { useBotSearch, useOpenBotView } from "./botView";
-import { useBotBoard } from "./useBot";
+import { useBotBoard, useBotBoardAll } from "./useBot";
 
 const QUIET_BUTTON =
   "cursor-pointer rounded-md outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
@@ -306,10 +306,15 @@ export function BotBoardView(props: {
 }) {
   const [showDone, setShowDone] = useState(true);
   const board = useBotBoard(props.environmentId, props.threadId);
+  const all = useBotBoardAll(props.environmentId, props.threadId);
   const search = useBotSearch();
   const openView = useOpenBotView();
   const target = { environmentId: props.environmentId, threadId: props.threadId };
-  const items = board.data?.items ?? [];
+  // Open work from the board that is read often, finished work from the one that is not.
+  const items = [
+    ...(board.data?.items ?? []),
+    ...(all.data?.items ?? []).filter((item) => item.state !== "open"),
+  ];
   const groups = groupBotItems(items);
   const open = items.filter((item) => item.state === "open").length;
   const selected = items.find((item) => item.id === search.item) ?? null;
@@ -419,7 +424,7 @@ export function BotFilesView(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }) {
-  const board = useBotBoard(props.environmentId, props.threadId);
+  const board = useBotBoardAll(props.environmentId, props.threadId);
   const items = (board.data?.items ?? [])
     .filter((item) => item.files.length > 0)
     .map((item) => ({ item, files: splitBotFiles(item.files) }))

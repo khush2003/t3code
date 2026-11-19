@@ -593,7 +593,7 @@ function surfaceTitle(
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
-      return "Side chat";
+      return surface.threadId.startsWith("bot:") ? "Thread" : "Side chat";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";

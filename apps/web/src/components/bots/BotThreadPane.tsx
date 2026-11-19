@@ -1,19 +1,27 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, XIcon } from "lucide-react";
 import { useEffect } from "react";
 
 import { ComposerHandleContext } from "~/composerHandleContext";
-import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
+import { useThreadActions } from "~/hooks/useThreadActions";
 import type { SideChatParentPanel } from "~/lib/sideChatPane";
 import { hostRightPanel } from "~/rightPanelStore";
 import { useQuietThreadShell } from "~/state/entities";
+import { useEnvironmentScope } from "~/state/session";
 import { useEnvironmentShellHasSnapshot } from "~/state/shell";
+import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { BackgroundThreadContext } from "../chat/backgroundThread";
 import ChatView from "../ChatView";
 import { Button } from "../ui/button";
-import { useBotSummary } from "./useBot";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { useBotSummary, useRefreshBots } from "./useBot";
 
 /** The message a thread started from, as a quote: its markdown marks would only be noise there. */
 const plainAnchor = (text: string) =>
@@ -40,12 +48,20 @@ export default function BotThreadPane(props: {
   const snapshotLoaded = useEnvironmentShellHasSnapshot(parentRef.environmentId);
   const bot = useBotSummary(parentRef.environmentId, threadId);
   const thread = bot?.threads.find((candidate) => candidate.threadId === threadId) ?? null;
-  const { openMenu } = useThreadActionMenu({
-    threadRef: shell === null ? null : threadRef,
-    projectCwd: null,
-    onStartRename: () => {},
-    canShareWithGuest: false,
-  });
+  const actions = useThreadActions();
+  const navigate = useNavigate();
+  const refreshBots = useRefreshBots(parentRef.environmentId);
+  const canOperate = useEnvironmentScope(parentRef.environmentId, AuthOrchestrationOperateScope);
+  const openPage = () =>
+    navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(threadRef) });
+  // Settled or deleted, the thread leaves the bot's threads, so its tab goes with it.
+  const putAway = async (act: (ref: ScopedThreadRef) => Promise<{ readonly _tag: string }>) => {
+    const result = await act(threadRef);
+    if (result._tag !== "Success") return;
+    refreshBots();
+    props.onClose();
+  };
+  const settled = shell?.settledOverride === "settled";
   const replies = thread?.replies ?? 0;
 
   return (
@@ -56,18 +72,35 @@ export default function BotThreadPane(props: {
         <span className="min-w-0 flex-1 truncate ps-1.5 text-xs text-muted-foreground">
           {bot?.name}
         </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Thread actions"
-          disabled={shell === null}
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            openMenu({ x: rect.left, y: rect.bottom + 4 });
-          }}
-        >
-          <EllipsisIcon />
-        </Button>
+        <Menu>
+          <MenuTrigger
+            render={<Button variant="ghost" size="icon-xs" aria-label="Thread actions" />}
+            disabled={shell === null}
+          >
+            <EllipsisIcon />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={() => void openPage()}>Open as a page</MenuItem>
+            {settled ? (
+              <MenuItem
+                disabled={!canOperate}
+                onClick={() => void actions.unsettleThread(threadRef).then(refreshBots)}
+              >
+                Bring thread back
+              </MenuItem>
+            ) : (
+              <MenuItem disabled={!canOperate} onClick={() => void putAway(actions.settleThread)}>
+                Settle thread
+              </MenuItem>
+            )}
+            <MenuItem
+              disabled={!canOperate}
+              onClick={() => void putAway(actions.confirmAndDeleteThread)}
+            >
+              Delete thread
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
         <Button variant="ghost" size="icon-xs" aria-label="Close thread" onClick={props.onClose}>
           <XIcon />
         </Button>

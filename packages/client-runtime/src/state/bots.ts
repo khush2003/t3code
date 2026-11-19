@@ -10,6 +10,7 @@ import {
 
 /** Thread status on the board comes from the threads, so it is read again while shown. */
 const BOT_BOARD_REFRESH_MS = 10_000;
+const BOT_BOARD_ALL_REFRESH_MS = 60_000;
 
 export function createBotEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -29,6 +30,14 @@ export function createBotEnvironmentAtoms<R, E>(
       tag: WS_METHODS.botsBoard,
       staleTimeMs: BOT_BOARD_REFRESH_MS,
       refreshIntervalMs: BOT_BOARD_REFRESH_MS,
+      idleTtlMs: 30_000,
+    }),
+    /** With finished work too. That only grows, so it is read less often than the open board. */
+    boardAll: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:bots:board-all",
+      tag: WS_METHODS.botsBoard,
+      staleTimeMs: BOT_BOARD_ALL_REFRESH_MS,
+      refreshIntervalMs: BOT_BOARD_ALL_REFRESH_MS,
       idleTtlMs: 30_000,
     }),
     memory: createEnvironmentRpcQueryAtomFamily(runtime, {

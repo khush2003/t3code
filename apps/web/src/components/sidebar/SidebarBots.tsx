@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { MessagesSquareIcon, PlusIcon } from "lucide-react";
 import { useId, useState } from "react";
 
+import { cn } from "~/lib/utils";
 import { botsEnvironment } from "../../state/bots";
 import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
 import { botMainThreadId, isBotThreadId } from "../bots/botView";
@@ -218,14 +219,18 @@ export function SidebarBots(props: {
     (thread) => thread.bot === true && thread.archivedAt === null,
   );
   const bots = conversations.filter((thread) => !isBotThreadId(thread.id));
-  // A thread opened and left without a message is not listed, and a settled one is put away.
+  // A thread opened and left without a message is not listed. Settled ones go last, so a thread
+  // put away can still be found and brought back.
+  const isSettled = (thread: EnvironmentThreadShell) => thread.settledOverride === "settled";
   const botThreads = conversations
-    .filter(
-      (thread) =>
-        isBotThreadId(thread.id) && thread.itemCount > 0 && thread.settledOverride !== "settled",
-    )
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const unseenThreads = botThreads.filter(hasUnseenCompletion).length;
+    .filter((thread) => isBotThreadId(thread.id) && thread.itemCount > 0)
+    .toSorted(
+      (a, b) =>
+        Number(isSettled(a)) - Number(isSettled(b)) || b.updatedAt.localeCompare(a.updatedAt),
+    );
+  const unseenThreads = botThreads.filter(
+    (thread) => !isSettled(thread) && hasUnseenCompletion(thread),
+  ).length;
   const machines = environments
     .filter((environment) => connected.includes(environment.environmentId))
     .map(({ environmentId, label }) => ({ environmentId, label }));
@@ -292,11 +297,18 @@ export function SidebarBots(props: {
                     size="sm"
                     onClick={() => openThread(thread.environmentId, thread.id)}
                   >
-                    <span className="min-w-0 flex-1 truncate ps-5.5">{thread.title}</span>
-                    <span className="shrink-0 text-muted-foreground text-xs">
-                      {botNameOfThread(thread.id)}
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate ps-5.5",
+                        isSettled(thread) && "text-muted-foreground",
+                      )}
+                    >
+                      {thread.title}
                     </span>
-                    {hasUnseenCompletion(thread) ? (
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {isSettled(thread) ? "Settled" : botNameOfThread(thread.id)}
+                    </span>
+                    {!isSettled(thread) && hasUnseenCompletion(thread) ? (
                       <span
                         aria-label="New replies"
                         className="size-1.5 shrink-0 rounded-full bg-primary"

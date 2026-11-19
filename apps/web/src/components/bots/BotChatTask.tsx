@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { BotFileRow, BotImageStrip, BotTaskBlock } from "./BotBlocks";
 import { splitBotFiles } from "./botBoard.logic";
-import { useBotBoard } from "./useBot";
+import { useBotBoard, useBotBoardAll } from "./useBot";
 
 /**
  * A task the bot started, in its chat: what it is, how it stands, and what it handed over.
@@ -18,7 +18,12 @@ export function BotChatTask(props: {
   readonly fallback: ReactNode;
 }) {
   const board = useBotBoard(props.environmentId, props.botThreadId).data;
-  const items = board?.items ?? [];
+  const finished = useBotBoardAll(props.environmentId, props.botThreadId).data;
+  // A task of open work moves, so it is read from the board that is read often.
+  const items = [
+    ...(board?.items ?? []),
+    ...(finished?.items ?? []).filter((item) => item.state !== "open"),
+  ];
   const thread = [...items.flatMap((item) => item.threads), ...(board?.unfiled ?? [])].find(
     (candidate) => candidate.threadId === props.taskThreadId,
   );

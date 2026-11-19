@@ -9,14 +9,26 @@ import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { botMainThreadId } from "./botView";
 
-/** A bot's whole board, done work too. Every screen of the bot reads this one query. */
+/** A bot's open work, read again every few seconds. Every screen of the bot shares this query. */
 export function useBotBoard(environmentId: EnvironmentId, threadId: ThreadId) {
   return useEnvironmentQuery(
-    botsEnvironment.board({
+    botsEnvironment.board({ environmentId, input: { threadId: botMainThreadId(threadId) } }),
+  );
+}
+
+/** A bot's board with finished work too, read less often: finished work does not move. */
+export function useBotBoardAll(environmentId: EnvironmentId, threadId: ThreadId) {
+  return useEnvironmentQuery(
+    botsEnvironment.boardAll({
       environmentId,
       input: { threadId: botMainThreadId(threadId), includeClosed: true },
     }),
   );
+}
+
+/** Reads the bots and their threads again now, after one was started or put away. */
+export function useRefreshBots(environmentId: EnvironmentId) {
+  return useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} })).refresh;
 }
 
 /** The bot a conversation belongs to, with its threads. */

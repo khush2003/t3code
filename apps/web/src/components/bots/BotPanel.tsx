@@ -113,6 +113,8 @@ function ThreadRow(props: { readonly environmentId: EnvironmentId; readonly thre
   const shell = useQuietThreadShell(scopeThreadRef(props.environmentId, thread.threadId));
   const last = useRelativeTimeState(thread.lastReplyAt);
   const unseen = shell !== null && hasUnseenCompletion(shell);
+  // Put away: it is still under Threads in the sidebar.
+  if (shell === null || shell.settledOverride === "settled") return null;
   return (
     <button
       type="button"

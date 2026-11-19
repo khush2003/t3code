@@ -1,12 +1,18 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import type { BotThread, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type BotThread,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { MessagesSquareIcon } from "lucide-react";
 import { createContext, type ReactNode, use, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { botsEnvironment } from "~/state/bots";
-import { waitForThreadShell } from "~/state/entities";
+import { readThreadShell, waitForThreadShell } from "~/state/entities";
+import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { RelativeTime } from "../RelativeTime";
@@ -14,11 +20,13 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { isBotThreadId } from "./botView";
-import { useBotSummary, useOpenBotThread } from "./useBot";
+import { useBotSummary, useOpenBotThread, useRefreshBots } from "./useBot";
 
 interface BotChatThreads {
   /** The thread each message of the main chat has, by message id. */
   readonly byAnchor: ReadonlyMap<string, BotThread>;
+  /** Whether this connection may start a thread; one that exists opens either way. */
+  readonly canStart: boolean;
   /** Opens a message's thread, starting it when it has none. */
   readonly reply: (messageId: string) => void;
 }
@@ -53,6 +61,8 @@ function Provider(props: {
   const bot = useBotSummary(environmentId, threadId);
   const startThread = useAtomCommand(botsEnvironment.startThread, { reportFailure: false });
   const openThread = useOpenBotThread();
+  const refreshBots = useRefreshBots(environmentId);
+  const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const startingRef = useRef(false);
   const byAnchor = new Map(
     (bot?.threads ?? []).flatMap((thread) =>
@@ -61,7 +71,12 @@ function Provider(props: {
   );
   const reply = async (messageId: string) => {
     const existing = byAnchor.get(messageId);
-    if (existing !== undefined) return openThread(environmentId, existing.threadId);
+    // The list trails by a few seconds, so a thread closed while empty may still be on it.
+    if (
+      existing !== undefined &&
+      readThreadShell(scopeThreadRef(environmentId, existing.threadId)) !== null
+    )
+      return openThread(environmentId, existing.threadId);
     if (startingRef.current) return;
     startingRef.current = true;
     const result = await startThread({
@@ -72,13 +87,16 @@ function Provider(props: {
     if (result._tag === "Success") {
       // The pane reads the thread from the shell, which trails the command by a moment.
       await waitForThreadShell(scopeThreadRef(environmentId, result.value.threadId));
+      refreshBots();
       openThread(environmentId, result.value.threadId);
     } else if (!isAtomCommandInterrupted(result)) {
       toastManager.add({ type: "error", title: "Could not start the thread" });
     }
   };
   return (
-    <BotChatThreadsContext value={{ byAnchor, reply: (messageId) => void reply(messageId) }}>
+    <BotChatThreadsContext
+      value={{ byAnchor, canStart: canOperate, reply: (messageId) => void reply(messageId) }}
+    >
       {props.children}
     </BotChatThreadsContext>
   );
@@ -87,7 +105,8 @@ function Provider(props: {
 /** "Reply in thread" among a message's actions. Renders nothing outside a bot's main chat. */
 export function BotReplyInThreadButton(props: { readonly messageId: string }) {
   const threads = use(BotChatThreadsContext);
-  if (threads === null) return null;
+  if (threads === null || (!threads.canStart && !threads.byAnchor.has(props.messageId)))
+    return null;
   return (
     <Tooltip>
       <TooltipTrigger
