@@ -144,18 +144,31 @@ describe("BotStore", () => {
           expect(kept).toMatchObject({ text: "Posters ship as PDF.", title: null, author: "bot" });
 
           // The person writes one, rewords the bot's, and takes a forgotten one back.
-          yield* store.addUserNote(atlas, thread, "Never post on Sundays.");
+          yield* store.addUserNote(atlas, thread, "Never post on Sundays.", "Posting");
+          const mine = (yield* store.allNotes(atlas)).find((note) => note.author === "user")!;
+          // Its topic is the person's choice, which labelling leaves alone; so is removing it.
+          yield* store.labelNotes(atlas, [
+            { id: mine.id, text: mine.text, title: "No Sunday posts", topic: "Schedule" },
+          ]);
+          expect(yield* store.retireNote(atlas, mine.id, "Stale", "bot")).toBe(false);
           yield* store.labelNotes(atlas, [
             { id: kept!.id, text: kept!.text, title: "Posters are PDF", topic: "Posters" },
           ]);
-          expect(yield* store.editNote(atlas, kept!.id, "Posters ship as PNG.")).toBe(true);
+          // Moved to another topic it keeps its title; reworded it keeps its topic and is titled again.
+          expect(yield* store.editNote(atlas, kept!.id, kept!.text, "Print")).toBe(true);
+          expect(
+            (yield* store.activeNotes(atlas)).find((note) => note.id === kept!.id),
+          ).toMatchObject({ title: "Posters are PDF", topic: "Print" });
+          expect(yield* store.editNote(atlas, kept!.id, "Posters ship as PNG.", null)).toBe(true);
           // A label written for the old wording does not land on the new one.
           yield* store.labelNotes(atlas, [
             { id: kept!.id, text: kept!.text, title: "Posters are PDF", topic: "Posters" },
           ]);
           expect(yield* store.restoreNote(atlas, kept!.id)).toBe(false);
-          yield* store.retireNote(atlas, kept!.id, "Not needed");
-          expect(yield* store.editNote(atlas, kept!.id, "Changed while forgotten")).toBe(false);
+          yield* store.retireNote(atlas, kept!.id, "Not needed", "user");
+          expect(yield* store.editNote(atlas, kept!.id, "Changed while forgotten", null)).toBe(
+            false,
+          );
           expect(yield* store.restoreNote(atlas, kept!.id)).toBe(true);
           return {
             items: yield* store.listItems(atlas),
@@ -166,8 +179,15 @@ describe("BotStore", () => {
       );
       expect(reopened.items).toMatchObject([{ title: "Launch", waitingOnPerson: true }]);
       expect(reopened.notes.toSorted((a, b) => a.author.localeCompare(b.author))).toMatchObject([
-        { text: "Posters ship as PNG.", title: null, topic: null, author: "bot" },
-        { text: "Never post on Sundays.", author: "user", quote: "", threadId: thread.threadId },
+        { text: "Posters ship as PNG.", title: null, topic: "Print", author: "bot" },
+        {
+          text: "Never post on Sundays.",
+          title: "No Sunday posts",
+          topic: "Posting",
+          author: "user",
+          quote: "",
+          threadId: thread.threadId,
+        },
       ]);
       expect(reopened.look).toEqual({ icon: "rocket", color: "teal", avatarAttachmentId: null });
     }).pipe(Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer))),

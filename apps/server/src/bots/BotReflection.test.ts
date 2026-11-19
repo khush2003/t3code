@@ -116,7 +116,7 @@ describe("BotReflection", () => {
         ]);
 
         // What the person wrote themselves is not a pass's to retire.
-        yield* store.addUserNote(atlas, thread, "Posters are always A3.");
+        yield* store.addUserNote(atlas, thread, "Posters are always A3.", null);
         const mine = (yield* store.activeNotes(atlas)).find((note) => note.author === "user")!;
         yield* say("u4", "Posters are A2 from now on.");
         yield* Ref.set(replies, [

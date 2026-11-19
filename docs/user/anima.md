@@ -73,7 +73,7 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   wait on you.
 - **Memory**, at the top of the bot's page, shows what the bot keeps between sessions, grouped by
   topic. Open a note for the passage it rests on and a way to the conversation it came from. You
-  can reword a note, forget it, and bring a forgotten one back. A note you add yourself is sent to
+  can reword a note, move it to another topic, forget it, and bring a forgotten one back. A note you add yourself is sent to
   the bot at the start of every session, and only you can remove it; of its own notes it is sent
   the newest and searches for the rest. Notes get their title and topic from the **Text
   generation** model a little after they are written. **How you want work done** holds the bot's

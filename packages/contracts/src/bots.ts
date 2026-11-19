@@ -245,13 +245,21 @@ export type BotNoteRetireInput = typeof BotNoteRetireInput.Type;
 
 const BotNoteText = Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(600));
 
-export const BotNoteAddInput = Schema.Struct({ threadId: ThreadId, text: BotNoteText });
+/** The topic a note is filed under. Absent or empty leaves the choice to the bot's labelling. */
+const BotNoteTopic = Schema.optional(Schema.String.check(Schema.isMaxLength(32)));
+
+export const BotNoteAddInput = Schema.Struct({
+  threadId: ThreadId,
+  text: BotNoteText,
+  topic: BotNoteTopic,
+});
 export type BotNoteAddInput = typeof BotNoteAddInput.Type;
 
 export const BotNoteEditInput = Schema.Struct({
   threadId: ThreadId,
   id: Schema.String,
   text: BotNoteText,
+  topic: BotNoteTopic,
 });
 export type BotNoteEditInput = typeof BotNoteEditInput.Type;
 

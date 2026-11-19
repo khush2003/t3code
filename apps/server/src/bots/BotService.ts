@@ -364,11 +364,25 @@ const make = Effect.gen(function* () {
   const retireNote: BotService["Service"]["retireNote"] = Effect.fn("BotService.retireNote")(
     function* (input) {
       const bot = yield* requireBot(input.threadId);
-      if (!(yield* store.retireNote(bot.name, input.id, input.reason.trim())))
+      if (!(yield* store.retireNote(bot.name, input.id, input.reason.trim(), "user")))
         return yield* new BotRejectedError({ reason: "That note is not a current note." });
     },
     Effect.provideService(BotStore.BotStore, store),
   );
+
+  /** The topic a person named, spelled the way the bot's notes already spell it. */
+  const topicFor = (bot: BotName, named: string | undefined) => {
+    const topic = (named ?? "").replaceAll(/\s+/g, " ").trim();
+    if (topic === "") return Effect.succeed(null);
+    return store
+      .allNotes(bot)
+      .pipe(
+        Effect.map(
+          (notes) =>
+            notes.find((note) => note.topic?.toLowerCase() === topic.toLowerCase())?.topic ?? topic,
+        ),
+      );
+  };
 
   const addNote: BotService["Service"]["addNote"] = Effect.fn("BotService.addNote")(
     function* (input) {
@@ -378,6 +392,7 @@ const make = Effect.gen(function* () {
         bot.name,
         { environmentId: hereId, threadId: bot.threadId ?? input.threadId },
         input.text.trim(),
+        yield* topicFor(bot.name, input.topic),
       );
     },
     Effect.provideService(BotStore.BotStore, store),
@@ -386,7 +401,8 @@ const make = Effect.gen(function* () {
   const editNote: BotService["Service"]["editNote"] = Effect.fn("BotService.editNote")(
     function* (input) {
       const bot = yield* requireBot(input.threadId);
-      if (!(yield* store.editNote(bot.name, input.id, input.text.trim())))
+      const topic = yield* topicFor(bot.name, input.topic);
+      if (!(yield* store.editNote(bot.name, input.id, input.text.trim(), topic)))
         return yield* new BotRejectedError({ reason: "That note is not a current note." });
     },
     Effect.provideService(BotStore.BotStore, store),

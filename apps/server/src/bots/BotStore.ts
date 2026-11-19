@@ -328,11 +328,15 @@ export class BotStore extends Context.Service<
       query: string,
       limit: number,
     ) => Effect.Effect<ReadonlyArray<BotNote>, BotError>;
-    /** Marks a note outdated; false when it is not an active note of this bot. */
+    /**
+     * Marks a note outdated; false when it is not an active note of this bot, or is one its person
+     * wrote and `by` is the bot.
+     */
     readonly retireNote: (
       bot: BotName,
       id: string,
       reason: string,
+      by: "bot" | "user",
     ) => Effect.Effect<boolean, BotError>;
     /** Makes an outdated note current again; false when it is not an outdated note of this bot. */
     readonly restoreNote: (bot: BotName, id: string) => Effect.Effect<boolean, BotError>;
@@ -341,10 +345,19 @@ export class BotStore extends Context.Service<
       bot: BotName,
       thread: BotThreadRef,
       text: string,
+      topic: string | null,
     ) => Effect.Effect<void, BotError>;
-    /** New wording for a current note, which then needs labelling again; false when not found. */
-    readonly editNote: (bot: BotName, id: string, text: string) => Effect.Effect<boolean, BotError>;
-    /** Sets the title and topic of the bot's notes named here. */
+    /**
+     * New wording or a new topic for a current note; false when not found. Reworded, it is titled
+     * again and keeps its topic unless another is given.
+     */
+    readonly editNote: (
+      bot: BotName,
+      id: string,
+      text: string,
+      topic: string | null,
+    ) => Effect.Effect<boolean, BotError>;
+    /** Titles the bot's notes named here, and files those that have no topic yet. */
     readonly labelNotes: (
       bot: BotName,
       labels: ReadonlyArray<{
@@ -1369,11 +1382,12 @@ const makeWith = Effect.fn("BotStore.make")(function* (
   };
 
   const retireNote: BotStore["Service"]["retireNote"] = Effect.fn("BotStore.retireNote")(
-    function* (bot, id, reason) {
+    function* (bot, id, reason, by) {
       const at = yield* now;
       const rows = yield* sql<{ id: string }>`
         UPDATE notes SET outdated_at = ${at}, outdated_reason = ${reason}
         WHERE id = ${id} AND bot = ${bot} AND outdated_at IS NULL
+          AND (author = 'bot' OR ${by} = 'user')
         RETURNING id
       `;
       return rows.length > 0;
@@ -1394,14 +1408,14 @@ const makeWith = Effect.fn("BotStore.make")(function* (
   );
 
   const addUserNote: BotStore["Service"]["addUserNote"] = Effect.fn("BotStore.addUserNote")(
-    function* (bot, thread, text) {
+    function* (bot, thread, text, topic) {
       const id = (yield* random.uuidV4()).slice(0, 8);
       yield* sql`
         INSERT INTO notes (
-          id, bot, text, created_at, environment_id, thread_id, message_id, quote, author
+          id, bot, text, created_at, environment_id, thread_id, message_id, quote, author, topic
         ) VALUES (
           ${`note:${id}`}, ${bot}, ${text}, ${yield* now}, ${thread.environmentId},
-          ${thread.threadId}, ${`user:${id}`}, '', 'user'
+          ${thread.threadId}, ${`user:${id}`}, '', 'user', ${topic}
         )
       `;
     },
@@ -1409,9 +1423,14 @@ const makeWith = Effect.fn("BotStore.make")(function* (
   );
 
   const editNote: BotStore["Service"]["editNote"] = Effect.fn("BotStore.editNote")(
-    function* (bot, id, text) {
+    function* (bot, id, text, topic) {
+      // Every expression reads the row as it was, so the comparison sees the old wording. A
+      // reworded note stays under its topic: it is rarely about something else now.
       const rows = yield* sql<{ id: string }>`
-        UPDATE notes SET text = ${text}, title = NULL, topic = NULL
+        UPDATE notes SET
+          text = ${text},
+          title = CASE WHEN text = ${text} THEN title ELSE NULL END,
+          topic = COALESCE(${topic}, topic)
         WHERE id = ${id} AND bot = ${bot} AND outdated_at IS NULL
         RETURNING id
       `;
@@ -1426,7 +1445,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
         Effect.forEach(
           labels,
           (label) => sql`
-            UPDATE notes SET title = ${label.title}, topic = ${label.topic}
+            UPDATE notes SET title = ${label.title}, topic = COALESCE(topic, ${label.topic})
             WHERE id = ${label.id} AND bot = ${bot} AND text = ${label.text}
           `,
           { discard: true },

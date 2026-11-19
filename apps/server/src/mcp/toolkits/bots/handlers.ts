@@ -221,12 +221,19 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
     Effect.gen(function* () {
       const { bot } = yield* callerBot;
       const store = yield* BotStore.BotStore;
-      const retired = yield* store.retireNote(bot.name, input.id.trim(), input.reason.trim());
-      if (!retired)
+      const id = input.id.trim();
+      const retired = yield* store.retireNote(bot.name, id, input.reason.trim(), "bot");
+      if (!retired) {
+        const theirs = (yield* store.activeNotes(bot.name)).some(
+          (note) => note.id === id && note.author === "user",
+        );
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
-          message: `${input.id} is not one of your current notes.`,
+          message: theirs
+            ? `Your person wrote ${id} themselves, so it is theirs to remove. Tell them why it no longer holds.`
+            : `${id} is not one of your current notes.`,
         });
+      }
       return { retired };
     }).pipe(Effect.catchTags({ BotError: (error) => Effect.fail(failure(error)) })),
   ),

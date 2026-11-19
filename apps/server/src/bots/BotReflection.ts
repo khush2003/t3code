@@ -182,6 +182,13 @@ function buildLabelPrompt(input: {
   ].join("\n");
 }
 
+/** `n3`, however the model wrote it back. */
+const labelledNote = (raw: string) =>
+  raw
+    .trim()
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+
 /** A title from the note itself, for one the model skipped: its first sentence, cut to fit. */
 const titleFromText = (text: string) => {
   const first = text
@@ -203,15 +210,7 @@ export function checkLabels(
   },
 ) {
   const known = new Map(input.topics.map((topic) => [topic.toLowerCase(), topic]));
-  const given = new Map(
-    output.labels.map((label) => [
-      label.note
-        .trim()
-        .replace(/^\[|\]$/g, "")
-        .toLowerCase(),
-      label,
-    ]),
-  );
+  const given = new Map(output.labels.map((label) => [labelledNote(label.note), label]));
   return input.notes.map((note, index) => {
     const label = given.get(`n${index + 1}`);
     const title = (label?.title ?? "").replaceAll(/\s+/g, " ").trim().replace(/\.$/, "");
@@ -335,14 +334,14 @@ const make = Effect.gen(function* () {
             }),
           )
       );
-      const labels = checkLabels(generated, { notes, topics });
       // An answer about none of them is a failed call, not a reason to file them all untitled.
-      if (labels.every((label) => label.topic === null))
+      const asked = new Set(notes.map((_, index) => `n${index + 1}`));
+      if (!generated.labels.some((label) => asked.has(labelledNote(label.note))))
         return yield* new TextGenerationError({
           operation: "generateStructured",
           detail: "The model labelled none of the notes.",
         });
-      yield* store.labelNotes(bot, labels);
+      yield* store.labelNotes(bot, checkLabels(generated, { notes, topics }));
       return notes.length;
     },
     (effect, bot) =>

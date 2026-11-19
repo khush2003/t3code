@@ -24,7 +24,7 @@ import {
   UserIcon,
   XIcon,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { botsEnvironment } from "~/state/bots";
@@ -58,6 +58,7 @@ const QUIET_BUTTON =
 /** What a note removed from this page is marked with; the bot reads it when it recalls the note. */
 const REMOVED_BY_PERSON = "Removed by the person.";
 const NOTE_CHARS = 600;
+const TOPIC_CHARS = 32;
 
 /** What the page lists: everything, the charter, one topic's notes, or what was forgotten. */
 type Group = "everything" | "rules" | "forgotten" | `topic:${string}`;
@@ -499,20 +500,26 @@ function Reading(props: { readonly memory: BotMemory }) {
 /** Where a note is written or reworded. */
 function NoteEditor(props: {
   readonly initial: string;
+  readonly topic: string;
+  /** The topics already in use, offered as the field is typed in. */
+  readonly topics: ReadonlyArray<string>;
   readonly hint: string;
   readonly save: string;
-  readonly onSave: (text: string) => Promise<string | null>;
+  readonly onSave: (text: string, topic: string) => Promise<string | null>;
   readonly onCancel: () => void;
 }) {
   const gt = useGT();
+  const topicsId = useId();
   const [text, setText] = useState(props.initial);
+  const [topic, setTopic] = useState(props.topic);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ready = text.trim().length >= 3 && text.trim() !== props.initial.trim() && !busy;
+  const changed = text.trim() !== props.initial.trim() || topic.trim() !== props.topic;
+  const ready = text.trim().length >= 3 && changed && !busy;
   const submit = () => {
     if (!ready) return;
     setBusy(true);
-    void props.onSave(text.trim()).then((failure) => {
+    void props.onSave(text.trim(), topic.trim()).then((failure) => {
       setBusy(false);
       setError(failure);
     });
@@ -538,6 +545,23 @@ function NoteEditor(props: {
         }}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="w-44">
+          <Input
+            nativeInput
+            size="sm"
+            list={topicsId}
+            maxLength={TOPIC_CHARS}
+            aria-label={gt("Topic")}
+            placeholder={gt("Topic, or leave it to choose")}
+            value={topic}
+            onChange={(event) => setTopic(event.target.value)}
+          />
+          <datalist id={topicsId}>
+            {props.topics.map((known) => (
+              <option key={known} value={known} />
+            ))}
+          </datalist>
+        </div>
         <p className="min-w-0 flex-1 text-xs leading-normal text-muted-foreground">
           {error === null ? props.hint : <span className="text-destructive">{error}</span>}
         </p>
@@ -563,7 +587,8 @@ function NoteRow(props: {
   readonly showTopic: boolean;
   readonly onToggle: () => void;
   readonly onEdit: (editing: boolean) => void;
-  readonly onSaveEdit: (text: string) => Promise<string | null>;
+  readonly topics: ReadonlyArray<string>;
+  readonly onSaveEdit: (text: string, topic: string) => Promise<string | null>;
   readonly onForget: () => void;
   readonly onRestore: () => void;
   readonly onOpenSource: () => void;
@@ -579,7 +604,9 @@ function NoteRow(props: {
       <li className="border-t border-border/70 px-4 py-3 first:border-t-0">
         <NoteEditor
           initial={note.text}
-          hint={gt("It files a reworded note under a topic again within a minute.")}
+          topic={note.topic ?? ""}
+          topics={props.topics}
+          hint={gt("A reworded note gets a new title within a minute.")}
           save={gt("Save note")}
           onSave={props.onSaveEdit}
           onCancel={() => props.onEdit(false)}
@@ -759,6 +786,7 @@ function Memory(props: {
   const forgotten = memory.notes.filter((note) => note.outdatedAt !== null);
   const found = current.filter((note) => botNoteMatches(note, search));
   const topics = botNoteTopics(found);
+  const allTopics = botNoteTopics(current).map((item) => item.topic);
   const rules = readBotCharter(memory.charter)?.rules.length ?? null;
   // A topic goes when its last note does, and the page falls back to everything.
   const group: Group =
@@ -989,20 +1017,22 @@ function Memory(props: {
                 <div className="mt-1.5 mb-3">
                   <NoteEditor
                     initial=""
+                    topic={topic ?? ""}
+                    topics={allTopics}
                     hint={gt("Written by you. It reads this at the start of every session.")}
                     save={gt("Save note")}
                     onCancel={() => setAdding(false)}
-                    onSave={async (text) => {
+                    onSave={async (text, filed) => {
                       const result = await addNote({
                         environmentId: props.environmentId,
-                        input: { ...input, text },
+                        input: { ...input, text, topic: filed },
                       });
                       if (result._tag === "Failure")
                         return failed(result, gt("The note was not saved."));
                       props.refresh();
                       setAdding(false);
-                      // It has no topic until it is filed, so it shows under everything.
-                      setGroup("everything");
+                      // Left to be filed, it has no topic yet and shows under everything.
+                      if (filed !== topic) setGroup("everything");
                       return null;
                     }}
                   />
@@ -1039,10 +1069,11 @@ function Memory(props: {
                       showTopic={topic === null}
                       onToggle={() => setOpen(open === shown.note.id ? null : shown.note.id)}
                       onEdit={(on) => setEditing(on ? shown.note.id : null)}
-                      onSaveEdit={async (text) => {
+                      topics={allTopics}
+                      onSaveEdit={async (text, filed) => {
                         const result = await editNote({
                           environmentId: props.environmentId,
-                          input: { ...input, id: shown.note.id, text },
+                          input: { ...input, id: shown.note.id, text, topic: filed },
                         });
                         if (result._tag === "Failure")
                           return failed(result, gt("The note was not changed."));
