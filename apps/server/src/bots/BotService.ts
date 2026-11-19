@@ -53,6 +53,8 @@ const AVATAR_EXTENSIONS = {
 } as const;
 /** A bot's picture is shown small, so the client sends it small. */
 const AVATAR_BYTES = 256 * 1024;
+const ANCHOR_TEXT_CHARS = 600;
+
 const initialCharter = (purpose: string) =>
   [`What I am for: ${purpose}`, "", "How my person wants work done: nothing recorded yet."].join(
     "\n",
@@ -294,7 +296,8 @@ const make = Effect.gen(function* () {
                     threadId: conversation.threadId,
                     title: conversation.title,
                     anchorMessageId: conversation.anchor?.messageId ?? null,
-                    anchorText: conversation.anchor?.text ?? null,
+                    // Shown as a few lines above the thread; the list is read every few seconds.
+                    anchorText: conversation.anchor?.text.slice(0, ANCHOR_TEXT_CHARS) ?? null,
                     replies,
                     lastReplyAt:
                       replies === 0 || shell === null ? null : DateTime.formatIso(shell.updatedAt),

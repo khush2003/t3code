@@ -6,7 +6,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { ImageIcon, Trash2Icon } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { useAssetUrls } from "~/assets/assetUrls";
 import { cn } from "~/lib/utils";
@@ -43,6 +43,8 @@ export function BotAvatar(props: {
       : [{ _tag: "attachment" as const, attachmentId: look.avatarAttachmentId }],
   );
   const Icon = look?.icon == null ? undefined : BOT_ICONS[look.icon];
+  // A picture that no longer loads gives way to the icon, never to an empty tile.
+  const [failed, setFailed] = useState<string | null>(null);
   return (
     <span
       aria-hidden
@@ -53,8 +55,13 @@ export function BotAvatar(props: {
         props.className,
       )}
     >
-      {picture != null ? (
-        <img src={picture} alt="" className="absolute inset-0 size-full object-cover" />
+      {picture != null && failed !== picture ? (
+        <img
+          src={picture}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+          onError={() => setFailed(picture)}
+        />
       ) : Icon !== undefined ? (
         <Icon className={size.icon} />
       ) : (
