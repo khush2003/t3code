@@ -76,7 +76,7 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
-  SparklesIcon,
+  FlameIcon,
   MonitorIcon,
   PinIcon,
   PinOffIcon,
@@ -280,7 +280,10 @@ import { suggestAppAccessForRemote } from "./sourceControlAppAccessToast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
-import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  isPickableProjectMember,
+  pickableProjectGroups,
+} from "@t3tools/client-runtime/state/project-grouping";
 import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
@@ -907,15 +910,16 @@ function OpenCommandPaletteDialog(props: {
         pin: projectPin,
         runProject: async (project) => {
           const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
-          const contextualRefBelongsToGroup =
+          const contextualProjectIsEligible =
             contextualProjectRef !== null &&
-            group?.memberProjectRefs.some(
-              (projectRef) =>
-                projectRef.environmentId === contextualProjectRef.environmentId &&
-                projectRef.projectId === contextualProjectRef.projectId,
+            group?.memberProjects.some(
+              (member) =>
+                member.environmentId === contextualProjectRef.environmentId &&
+                member.id === contextualProjectRef.projectId &&
+                isPickableProjectMember(member),
             );
           await handleNewThread(
-            contextualRefBelongsToGroup
+            contextualProjectIsEligible
               ? contextualProjectRef
               : scopeProjectRef(project.environmentId, project.id),
           );
@@ -1554,10 +1558,10 @@ function OpenCommandPaletteDialog(props: {
       kind: "action",
       value: "action:anima-breathe",
       searchTerms: ["anima", "breathe", "breath", "identity", name],
-      title: "Breathe now",
+      title: gt("Breathe now"),
       description: activeAnimaBreath.isPending
-        ? `${name} is already breathing`
-        : `Ask ${name} to record a breath`,
+        ? gt("{name} is already breathing", { name })
+        : gt("Ask {name} to record a breath", { name }),
       disabled: !activeAnimaBreath.canBreathe || activeAnimaBreath.isPending,
       icon: <WindIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
@@ -1569,9 +1573,9 @@ function OpenCommandPaletteDialog(props: {
       kind: "action",
       value: "action:anima-open",
       searchTerms: ["anima", "open", "identity", name],
-      title: "Open anima",
+      title: gt("Open anima"),
       description: name,
-      icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+      icon: <FlameIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/anima", search: { environmentId, anima: name } });
       },
@@ -1795,8 +1799,8 @@ function OpenCommandPaletteDialog(props: {
     kind: "action",
     value: "action:animas",
     searchTerms: ["anima", "animas", "identity", "world", "yard", "roster", "breath", "agents"],
-    title: "Open animas",
-    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    title: gt("Open animas"),
+    icon: <FlameIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/anima" });
     },
