@@ -17,7 +17,7 @@ import {
   MessagesSquareIcon,
   MonitorIcon,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 
 import { useRelativeTimeState } from "~/hooks/useRelativeTimeState";
 import { cn } from "~/lib/utils";
@@ -27,7 +27,6 @@ import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "~/state/server";
 
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
-import { ThreadBotMemoryDialog } from "../chat/ThreadBotMemoryDialog";
 import { hasUnseenCompletion } from "../Sidebar.logic";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -227,7 +226,6 @@ export function BotPanel(props: {
   const gt = useGT();
   const { environmentId } = props;
   const main = botMainThreadId(props.threadId);
-  const [memoryOpen, setMemoryOpen] = useState(false);
   const board = useBotBoard(environmentId, props.threadId);
   const bot = useBotSummary(environmentId, props.threadId);
   const machine = useEnvironment(environmentId);
@@ -279,8 +277,8 @@ export function BotPanel(props: {
             <MenuItem onClick={() => void openView(target, { bot: "files" })}>
               <T>Open files</T>
             </MenuItem>
-            <MenuItem onClick={() => setMemoryOpen(true)}>
-              <T>Memory and charter</T>
+            <MenuItem onClick={() => void openView(target, { bot: "memory" })}>
+              <T>Open memory</T>
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -424,18 +422,12 @@ export function BotPanel(props: {
             ROW,
             "-me-1.5 ms-auto flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 font-medium text-foreground/85",
           )}
-          onClick={() => setMemoryOpen(true)}
+          onClick={() => void openView(target, { bot: "memory" })}
         >
           <BrainIcon aria-hidden className="size-3.5" />
           <T>Memory</T>
         </button>
       </div>
-      <ThreadBotMemoryDialog
-        environmentId={environmentId}
-        threadId={props.threadId}
-        open={memoryOpen}
-        onOpenChange={setMemoryOpen}
-      />
     </section>
   );
 }

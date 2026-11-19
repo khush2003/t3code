@@ -5,7 +5,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 /** What a bot's page shows in place of its chat. Absent means the chat. */
-export type BotView = "board" | "files";
+export type BotView = "board" | "files" | "memory";
 
 export interface BotSearch {
   readonly bot?: BotView;
@@ -14,7 +14,8 @@ export interface BotSearch {
 }
 
 export function parseBotSearch(raw: Record<string, unknown>): BotSearch {
-  const bot = raw.bot === "board" || raw.bot === "files" ? raw.bot : undefined;
+  const bot =
+    raw.bot === "board" || raw.bot === "files" || raw.bot === "memory" ? raw.bot : undefined;
   return {
     ...(bot === undefined ? {} : { bot }),
     ...(bot === "board" && typeof raw.item === "string" && raw.item !== ""
@@ -34,7 +35,7 @@ export function useBotSearch(): BotSearch {
   return parseBotSearch(useSearch({ strict: false }) as Record<string, unknown>);
 }
 
-/** Moves between a bot's chat, board and files; they are one page, so the address says which. */
+/** Moves between a bot's chat, board, files and memory; they are one page, so the address says which. */
 export function useOpenBotView() {
   const navigate = useNavigate();
   return (

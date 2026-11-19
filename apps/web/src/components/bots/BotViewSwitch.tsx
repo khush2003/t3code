@@ -13,9 +13,10 @@ const VIEWS: ReadonlyArray<{
   { id: "chat", label: msg("Chat", { $context: "tab showing the bot's conversation" }) },
   { id: "board", label: msg("Board", { $context: "tab showing a bot's work items" }) },
   { id: "files", label: msg("Files", { $context: "tab listing a bot's files" }) },
+  { id: "memory", label: msg("Memory", { $context: "tab showing what a bot remembers" }) },
 ];
 
-/** Chat, Board, Files: the three faces of one bot, switched in its header. */
+/** Chat, Board, Files, Memory: the faces of one bot, switched in its header. */
 export function BotViewSwitch(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;

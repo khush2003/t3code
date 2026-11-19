@@ -305,6 +305,7 @@ import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { BotBoardView, BotFilesView } from "./bots/BotBoardView";
+import { BotMemoryView } from "./bots/BotMemoryView";
 import { useBotSearch } from "./bots/botView";
 import { BotChatThreadsProvider } from "./bots/BotChatThreads";
 import { useSideChat } from "./chat/useSideChat";
@@ -4052,8 +4053,13 @@ export default function ChatView(props: ChatViewProps) {
                   environmentId={activeThread.environmentId}
                   threadId={activeThread.id}
                 />
-              ) : (
+              ) : botView === "files" ? (
                 <BotFilesView
+                  environmentId={activeThread.environmentId}
+                  threadId={activeThread.id}
+                />
+              ) : (
+                <BotMemoryView
                   environmentId={activeThread.environmentId}
                   threadId={activeThread.id}
                 />

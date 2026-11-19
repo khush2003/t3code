@@ -3248,6 +3248,86 @@
     }
   ],
   "8cf2339513f6ca29": "View thread",
+  "eeee33ef5dd3cea9": "A newer note replaced it.",
+  "78104efe8c2455b3": "Why this note no longer holds",
+  "2e3f208b95f0bdfe": "Why it no longer holds, so the bot knows",
+  "9bd7300ea4eeba97": "The charter was not saved.",
+  "e20d475f6f65585c": "Charter",
+  "79cd046b15c4213b": "{count, plural, one {{count} earlier version} other {{count} earlier versions}}",
+  "a92705f243a4acea": "How it remembers",
+  "36028d960e92597a": "It has not read back yet.",
+  "5e233a66c883ff25": "Nothing new is waiting.",
+  "cf79d54937daf345": "{count, plural, one {{count} new message is waiting for the next read.} other {{count} new messages are waiting for the next read.}}",
+  "dcbb6ee7c9d57e45": "Read {messages} messages, added {added}, retired {retired}.",
+  "33894df19b04f066": "Read {messages} messages, added {added}, retired {retired}, threw out {rejected} without a source.",
+  "dbe74059772c0f8d": "This chat",
+  "e547f7204a7d3c10": "A thread in this chat",
+  "224d22d25c3f8ce6": "A task it started",
+  "4363e6c6db0513fb": "The note was not changed.",
+  "aec2b493d2b01445": "Notes",
+  "56c71a9d8697235a": "{found} of {total}",
+  "e32208a394b5ce4f": "Hide what is no longer true",
+  "d212e9f36dcab086": "Show {count} no longer true",
+  "d0a76aa4c42ce65f": "Search notes",
+  "78b0857ec20b0d8a": "Lecture…",
+  "72c45bed6d995164": "The bot's memory could not be read.",
+  "665b0dfab6ef1746": [
+    "Marked no longer true ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    },
+    ":"
+  ],
+  "b8a7abb3ae2b4540": [
+    "Written down ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    },
+    ", from this passage:"
+  ],
+  "69eda053087bbcc4": "Open where it was said",
+  "45963b0b722c113a": "No longer true",
+  "449120a766229ca0": "Mark it",
+  "ca7d259d4a46492a": "Charter",
+  "f5b66c481aa3e4df": "Modifier",
+  "f21bc89e1677aafc": "What it is for and how you want work done. It reads this at the start of every session, and may rewrite it when you tell it how you like things.",
+  "587a4c8593f2031e": "Save charter",
+  "1bac698675b45a65": [
+    "Replaced ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    }
+  ],
+  "4fc630d6b2bf647f": "Restore",
+  "15209a3988aac3d1": "How it remembers",
+  "7ee0d822eabd0ac9": "It reads back through your conversations on its own and writes down what should last. It also keeps every message, and searches them when you ask about something older.",
+  "ef0f0f03d47cdad1": [
+    "Last read back ",
+    {
+      "i": 1,
+      "k": "_gt_time_1",
+      "v": "rt"
+    },
+    "."
+  ],
+  "bdd2648f1f37bed1": "Recent reads",
+  "4615f00f62634e42": [
+    "Failed: ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "2f4ef70d15027bb0": "Notes",
+  "6b16d5eac77a0536": "No notes yet. It writes them itself after reading back through your conversations. To have it remember something, tell it in the chat.",
+  "431cd9aeebb9be59": "No note says that.",
   "ae4ee49c01c45edf": "Bot",
   "5ce148a0d16a42d5": "Bot menu",
   "97884c869683f97f": "{count, plural, one {{count} needs you} other {{count} need you}}",
@@ -3258,7 +3338,7 @@
   "2769ade1e5eccf30": "New",
   "78d83393d689e746": "Open board",
   "c2062c8620f1d055": "Open files",
-  "4307997ebb128605": "Memory and charter",
+  "75c40f89292c9365": "Open memory",
   "9726a5da1ca49e47": "The board could not be read.",
   "81b3156e3bc1bdc7": "No open work. Ask for something and it shows up here.",
   "09cc0b4b5cb9b64b": "Mémoire",
@@ -3274,6 +3354,7 @@
   "6a0f98b0b3d65204": "Chat",
   "b649f1a1a0106fb8": "Board",
   "47e57f3f34b13a83": "Files",
+  "13aec6668881d160": "Memory",
   "0fd78de8a8c13125": "Bot views",
   "3fc6dbb4e9cb3520": "Nothing running",
   "e176b5f17630f05b": "Link",
@@ -4160,71 +4241,6 @@
       "v": "v"
     }
   ],
-  "0b154f60f9a6b408": "Show less of the passage",
-  "a402c159061276b8": "Show the whole passage",
-  "1e382df814e27c70": "This conversation",
-  "eeee33ef5dd3cea9": "A newer note replaced it.",
-  "78104efe8c2455b3": "Why this note no longer holds",
-  "d71beb98c778f288": "Why it no longer holds",
-  "9bd7300ea4eeba97": "The charter was not saved.",
-  "e20d475f6f65585c": "Charter",
-  "a83ad230445b8eb8": "Hide retired",
-  "b1767fe079298c9a": "Show {count} retired",
-  "e2458f2591120c47": "The note was not retired.",
-  "33019d26cd84a701": "No pass has run yet.",
-  "bb5b337c8303bfdc": "Everything copied has been read.",
-  "aaf5acb34d9416ba": "{count} copied messages are waiting for the next pass.",
-  "dcbb6ee7c9d57e45": "Read {messages} messages, added {added}, retired {retired}.",
-  "33894df19b04f066": "Read {messages} messages, added {added}, retired {retired}, threw out {rejected} without a source.",
-  "2f890e1e55af5ae5": "Mémoire",
-  "78ba80d2e0b935ea": "{name}''s memory",
-  "78b0857ec20b0d8a": "Lecture…",
-  "72c45bed6d995164": "The bot's memory could not be read.",
-  "eadd6ea202faf39f": "Retire",
-  "4baf550333b60fe2": [
-    "Retired ",
-    {
-      "i": 1,
-      "k": "_gt_time_1",
-      "v": "rt"
-    },
-    ":"
-  ],
-  "ca7d259d4a46492a": "Charter",
-  "e6a441bd183f3f8c": "What the bot is for and what you told it should hold. It reads this at the start of every session and may rewrite it; every earlier version is kept below.",
-  "587a4c8593f2031e": "Save charter",
-  "97585565390197f6": "Abandonner",
-  "1bac698675b45a65": [
-    "Replaced ",
-    {
-      "i": 1,
-      "k": "_gt_time_1",
-      "v": "rt"
-    }
-  ],
-  "4fc630d6b2bf647f": "Restore",
-  "2f4ef70d15027bb0": "Notes",
-  "ac2d2e51678a45d4": "Kept by a background pass. Each rests on the passage shown under it; open its thread to read the rest.",
-  "0fe5811407f794ec": "No notes yet.",
-  "b0b8106edbc61c8f": "Reflection",
-  "d38e32c4d627c30d": [
-    "Last pass ",
-    {
-      "i": 1,
-      "k": "_gt_time_1",
-      "v": "rt"
-    },
-    "."
-  ],
-  "4615f00f62634e42": [
-    "Failed: ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    }
-  ],
-  "bd3e19d50cd517c5": "A bot also keeps its whole conversation and every message of its finished threads, and searches them when asked. This is what it carries into every session.",
   "e58a1d884fa1d8f2": "Détails du fil",
   "02d9667ff2c8e0b8": "Ticket {key} : {title}",
   "4276743ee60a3c62": "{count, plural, one {{count} commentaire} other {{count} commentaires}}",
@@ -8359,7 +8375,6 @@
   "0c99fa183ed512e8": "{platform} disponible sur certains",
   "e6886a7f77b73a8e": "{platform} non disponible",
   "b0b7610d9860d18d": "Non configuré sur cette machine.",
-  "f5b66c481aa3e4df": "Modifier",
   "b35256ca61016104": "Ajouter une source",
   "3b20ef0670ae4b0b": "Machine via SSH",
   "121ccffacb6b8c6d": "Expo Simulators",
@@ -8394,6 +8409,7 @@
   "9459726f99d0d8b2": "Processus enfants",
   "65964946aced5181": "CPU",
   "faced12be6d1df3c": "CPU total des processus enfants actifs du processus serveur actuel. Le shell de bureau et les autres processus parents ne sont pas inclus.",
+  "2f890e1e55af5ae5": "Mémoire",
   "b2109a1810b48460": "Mémoire résidente totale des processus enfants actifs du processus serveur actuel. Le shell de bureau et les autres processus parents ne sont pas inclus.",
   "53da9cef488e1c03": "PID du serveur",
   "0543ac8dca9dd4ba": "Chargement des processus actifs...",
@@ -11019,6 +11035,7 @@
       }
     }
   ],
+  "97585565390197f6": "Abandonner",
   "c0fce4a3555c5c17": "Connexion",
   "0d1eba54ff075d77": "L’utiliser",
   "035dc7d3b0f3e526": "Titres des fils et autres textes générés",
