@@ -3,7 +3,7 @@ import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../../i18n/messages";
 
-/** Where a work item sits on the board. Read from its state and its tasks, never dragged. */
+/** Which group a work item is listed under. Read from its state and its tasks, never dragged. */
 export type BotItemColumn = "needs-you" | "running" | "quiet" | "done";
 
 export const BOT_ITEM_COLUMNS: ReadonlyArray<{
@@ -12,7 +12,7 @@ export const BOT_ITEM_COLUMNS: ReadonlyArray<{
 }> = [
   { id: "needs-you", label: msg("Needs you") },
   { id: "running", label: msg("Running") },
-  { id: "quiet", label: msg("Quiet") },
+  { id: "quiet", label: msg("Nothing running") },
   { id: "done", label: msg("Done") },
 ];
 
@@ -23,7 +23,7 @@ export function botItemColumn(item: BotBoardItem): BotItemColumn {
   return item.threads.some((thread) => thread.status === "working") ? "running" : "quiet";
 }
 
-/** Each column's items, the most recently changed first. */
+/** Each group's items, the most recently changed first. */
 export function groupBotItems(
   items: ReadonlyArray<BotBoardItem>,
 ): Record<BotItemColumn, ReadonlyArray<BotBoardItem>> {
@@ -36,6 +36,20 @@ export function groupBotItems(
   for (const item of items.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
     groups[botItemColumn(item)].push(item);
   return groups;
+}
+
+/**
+ * A bot's note names other work by id ("handled under item:04357fc7"). The person reading it
+ * knows that work by its title, so a known id reads as the title and an unknown one is left alone.
+ */
+export function nameBotItemRefs(
+  text: string,
+  items: ReadonlyArray<{ readonly id: string; readonly title: string }>,
+): string {
+  return text.replace(/\[?\bitem:([0-9a-f]{6,})\]?/g, (whole, id: string) => {
+    const item = items.find((candidate) => candidate.id === `item:${id}`);
+    return item === undefined ? whole : `\u201c${item.title}\u201d`;
+  });
 }
 
 const TASK_ORDER: Record<BotBoardThread["status"], number> = {

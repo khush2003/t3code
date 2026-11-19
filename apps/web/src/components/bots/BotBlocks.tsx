@@ -273,6 +273,8 @@ export function BotImageStrip(props: {
 export function BotFileRow(props: {
   readonly environmentId: EnvironmentId;
   readonly file: BotBoardFile;
+  /** Where the row is narrow: the kind alone, so the name keeps the room. */
+  readonly compact?: boolean;
   readonly className?: string;
 }) {
   const gt = useGT();
@@ -306,7 +308,9 @@ export function BotFileRow(props: {
         <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-foreground/85">{file.title}</span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {file.url !== null ? kind : `${kind}, ${formatBytes(file.sizeBytes)}`}
+          {file.url !== null || props.compact === true
+            ? kind
+            : `${kind}, ${formatBytes(file.sizeBytes)}`}
         </span>
       </button>
     </BotHint>

@@ -11,6 +11,7 @@ import { T, useGT } from "gt-react";
 import {
   BrainIcon,
   CircleAlertIcon,
+  CircleIcon,
   EllipsisIcon,
   LoaderCircleIcon,
   MessagesSquareIcon,
@@ -31,7 +32,7 @@ import { hasUnseenCompletion } from "../Sidebar.logic";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { BotLookPicker } from "./BotAvatar";
-import { BotHint, BotImageStrip, useOpenBotTask } from "./BotBlocks";
+import { BotFileRow, BotHint, BotImageStrip, useOpenBotTask } from "./BotBlocks";
 import { botItemColumn, splitBotFiles } from "./botBoard.logic";
 import { botMainThreadId, useOpenBotView } from "./botView";
 import { startedBotThreads, useBotBoard, useBotSummary, useOpenBotThread } from "./useBot";
@@ -39,6 +40,10 @@ import { startedBotThreads, useBotBoard, useBotSummary, useOpenBotThread } from 
 const ROW =
   "cursor-pointer outline-none hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
 const CARD = "rounded-xl border border-border/70";
+/** Rows of quiet open work on the card; the board has the rest. */
+const OPEN_WORK_SHOWN = 4;
+/** Documents listed under the pictures. */
+const DOCS_SHOWN = 3;
 
 function Section(props: {
   readonly title: string;
@@ -73,6 +78,28 @@ function NeedsYouCard(props: { readonly item: BotBoardItem; readonly onOpen: () 
           </span>
         )}
       </span>
+    </button>
+  );
+}
+
+/** Open work with nothing running on it: still the bot's, and one click from its tasks. */
+function OpenWorkRow(props: { readonly item: BotBoardItem; readonly onOpen: () => void }) {
+  const { item } = props;
+  const changed = useRelativeTimeState(item.updatedAt);
+  return (
+    <button
+      type="button"
+      className={cn(
+        ROW,
+        "-mx-1.5 flex h-7.5 w-[calc(100%+0.75rem)] items-center gap-2.5 rounded-lg px-1.5 text-left",
+      )}
+      onClick={props.onOpen}
+    >
+      <CircleIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-sm text-foreground/85">{item.title}</span>
+      {changed.status === "relative" && changed.suffix !== null ? (
+        <span className="shrink-0 text-xs text-muted-foreground">{changed.value}</span>
+      ) : null}
     </button>
   );
 }
@@ -210,6 +237,9 @@ export function BotPanel(props: {
   const items = board.data?.items ?? [];
   const open = items.filter((item) => item.state === "open");
   const needsYou = open.filter((item) => botItemColumn(item) === "needs-you");
+  const idle = open
+    .filter((item) => botItemColumn(item) === "quiet")
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const running = [...open.flatMap((item) => item.threads), ...(board.data?.unfiled ?? [])].filter(
     (thread) => thread.status === "working",
   );
@@ -308,6 +338,31 @@ export function BotPanel(props: {
           </Section>
         )}
 
+        {idle.length === 0 ? null : (
+          <Section
+            title={gt("Open work")}
+            action={
+              <button
+                type="button"
+                className={cn(ROW, "-me-1 rounded-md px-1 text-xs text-muted-foreground")}
+                onClick={() => void openView(target, { bot: "board" })}
+              >
+                {gt("All {count}", { count: open.length })}
+              </button>
+            }
+          >
+            <div className="flex flex-col">
+              {idle.slice(0, OPEN_WORK_SHOWN).map((item) => (
+                <OpenWorkRow
+                  key={item.id}
+                  item={item}
+                  onOpen={() => void openView(target, { bot: "board", item: item.id })}
+                />
+              ))}
+            </div>
+          </Section>
+        )}
+
         {threads.length === 0 ? null : (
           <Section title={gt("Threads")}>
             <div className="flex flex-col">
@@ -338,20 +393,24 @@ export function BotPanel(props: {
               className="grid grid-cols-3 gap-1.5"
               cellClassName="aspect-[16/10]"
             />
-            {files.images.length > 0 ? null : (
-              <button
-                type="button"
-                className={cn(ROW, "-mx-1.5 rounded-lg px-1.5 py-1 text-sm text-foreground/85")}
-                onClick={() => void openView(target, { bot: "files" })}
-              >
-                {files.others[0]?.title}
-              </button>
+            {files.others.length === 0 ? null : (
+              <div className={cn("flex flex-col", files.images.length > 0 && "mt-1.5")}>
+                {files.others.slice(0, DOCS_SHOWN).map((file) => (
+                  <BotFileRow
+                    key={file.id}
+                    compact
+                    environmentId={environmentId}
+                    file={file}
+                    className="-mx-1.5 h-7.5 w-[calc(100%+0.75rem)] rounded-lg px-1.5 hover:bg-foreground/[0.04]"
+                  />
+                ))}
+              </div>
             )}
           </Section>
         )}
       </div>
 
-      <div className="mt-4 flex h-7 items-center gap-3 text-xs text-muted-foreground">
+      <div className="mt-4 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         {machine === null ? null : (
           <span className="flex min-w-0 items-center gap-1.5">
             <MonitorIcon aria-hidden className="size-3.5 shrink-0" />

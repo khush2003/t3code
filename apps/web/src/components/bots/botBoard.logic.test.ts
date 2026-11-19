@@ -5,6 +5,7 @@ import {
   botFileKind,
   botTaskRunMs,
   groupBotItems,
+  nameBotItemRefs,
   sortBotTasks,
   splitBotFiles,
 } from "./botBoard.logic";
@@ -90,5 +91,22 @@ describe("bot board", () => {
       ["evicted", "PNG"],
       ["doc", "HTML"],
     ]);
+  });
+});
+
+describe("nameBotItemRefs", () => {
+  const items = [{ id: "item:04357fc7", title: "Merge and cut the beta" }];
+
+  it("reads a known id as the work's title, bare or bracketed", () => {
+    expect(nameBotItemRefs("Handled under item:04357fc7.", items)).toBe(
+      "Handled under \u201cMerge and cut the beta\u201d.",
+    );
+    expect(nameBotItemRefs("Posters [item:04357fc7]: open", items)).toBe(
+      "Posters \u201cMerge and cut the beta\u201d: open",
+    );
+  });
+
+  it("leaves an id it does not know as written", () => {
+    expect(nameBotItemRefs("See item:deadbeef.", items)).toBe("See item:deadbeef.");
   });
 });

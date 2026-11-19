@@ -29,9 +29,9 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
 - A bot keeps a board: each piece of work is a work item with its threads, and their status is read
   from the threads themselves, including threads on linked machines. The bot sees the board on
   every turn, so it keeps track even after its conversation is compacted. You see the same board
-  under **Board** at the top of the bot's page: work that waits on you, work that is running, quiet
-  work and finished work. Open a work item for its tasks and files. **Files** lists everything the
-  bot's tasks handed over.
+  under **Board** at the top of the bot's page, as one list: work that waits on you first, then work
+  that is running, then open work with nothing running. Finished work is behind **Show done**. Open
+  a work item for its tasks and files. **Files** lists everything the bot's tasks handed over.
 - To keep one piece of work apart from the rest of the chat, use **Reply in thread** on any message
   in the bot's chat. The thread opens beside the chat and has its own conversation with the same
   bot, which keeps its charter, notes and board there. A message has one thread; the message shows

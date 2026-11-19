@@ -31,6 +31,7 @@ import {
   botItemColumn,
   countBotTasks,
   groupBotItems,
+  nameBotItemRefs,
   sortBotTasks,
   splitBotFiles,
 } from "./botBoard.logic";
@@ -63,70 +64,90 @@ function taskLine(threads: ReadonlyArray<BotBoardThread>, gt: ReturnType<typeof 
     : gt("{running} of {total} tasks running", { running: count.running, total: count.total });
 }
 
-function BoardCard(props: {
+function ItemRow(props: {
   readonly environmentId: EnvironmentId;
   readonly item: BotBoardItem;
+  /** Every item on the board, to name the ones a note cites. */
+  readonly items: ReadonlyArray<BotBoardItem>;
   readonly column: BotItemColumn;
   readonly selected: boolean;
   readonly onOpen: () => void;
 }) {
   const gt = useGT();
   const { item } = props;
+  const { Icon, tone } = COLUMN_ICON[props.column];
   const files = splitBotFiles(item.files);
   const doc = files.others[0];
-  const running = item.threads.some((thread) => thread.status === "working");
+  const moreDocs = files.others.length - 1;
   return (
-    <article
+    <li
       className={cn(
-        "relative rounded-xl border bg-card/40 px-3.5 pt-3 pb-2.5",
-        props.selected ? "border-foreground/30" : "border-border/70",
-        props.column === "done" && "opacity-65",
+        "relative border-t border-border/70 first:border-t-0",
+        props.selected && "bg-foreground/[0.04]",
       )}
     >
       <button
         type="button"
         aria-label={gt("Open {title}", { title: item.title })}
         aria-pressed={props.selected}
-        className="absolute inset-0 cursor-pointer rounded-xl outline-none hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="absolute inset-0 cursor-pointer outline-none hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={props.onOpen}
       />
-      <div className="pointer-events-none relative">
-        <h3 className="line-clamp-2 text-sm font-medium text-foreground">{item.title}</h3>
-        {item.nextStep === "" ? null : (
-          <p className="mt-1 line-clamp-3 text-xs leading-normal text-muted-foreground">
-            {item.nextStep}
-          </p>
+      <div
+        className={cn(
+          "pointer-events-none relative flex gap-3 px-4 py-3",
+          props.column === "done" && "opacity-65",
         )}
+      >
+        <Icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", tone)} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-3">
+            <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              {item.title}
+            </h3>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              <BoardTime timestamp={item.updatedAt} />
+            </span>
+          </div>
+          {item.nextStep === "" ? null : (
+            <p className="mt-0.5 line-clamp-2 text-xs leading-normal text-muted-foreground">
+              {nameBotItemRefs(item.nextStep, props.items)}
+            </p>
+          )}
+          {item.threads.length === 0 && doc === undefined ? null : (
+            <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {item.threads.length === 0 ? null : (
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {props.column === "running" ? (
+                    <LoaderCircleIcon aria-hidden className="size-3.5 text-primary" />
+                  ) : (
+                    <ListTreeIcon aria-hidden className="size-3.5" />
+                  )}
+                  {taskLine(item.threads, gt)}
+                </span>
+              )}
+              {doc === undefined ? null : (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <FileTextIcon aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">{doc.title}</span>
+                  {moreDocs <= 0 ? null : (
+                    <span className="shrink-0">{gt("and {count} more", { count: moreDocs })}</span>
+                  )}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
         <BotImageStrip
           still
           environmentId={props.environmentId}
           images={files.images}
-          max={4}
-          more={Math.max(0, files.others.length - 1)}
-          className="mt-2.5 grid grid-cols-4 gap-1.5"
+          max={3}
+          className="grid w-36 shrink-0 grid-cols-3 gap-1 self-start max-sm:hidden"
           cellClassName="aspect-square"
         />
-        {doc === undefined ? null : (
-          <p className="mt-2.5 flex min-w-0 items-center gap-2 text-xs text-foreground/85">
-            <FileTextIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{doc.title}</span>
-          </p>
-        )}
-        <p className="mt-2.5 flex items-center gap-2 text-xs text-muted-foreground">
-          {item.threads.length === 0 ? null : running ? (
-            <LoaderCircleIcon aria-hidden className="size-3.5 shrink-0 text-primary" />
-          ) : (
-            <ListTreeIcon aria-hidden className="size-3.5 shrink-0" />
-          )}
-          <span className="min-w-0 flex-1 truncate">
-            {item.threads.length === 0 ? gt("No tasks yet") : taskLine(item.threads, gt)}
-          </span>
-          <span className="shrink-0">
-            <BoardTime timestamp={item.updatedAt} />
-          </span>
-        </p>
       </div>
-    </article>
+    </li>
   );
 }
 
@@ -179,6 +200,7 @@ function TaskRow(props: { readonly thread: BotBoardThread }) {
 function ItemPane(props: {
   readonly environmentId: EnvironmentId;
   readonly item: BotBoardItem;
+  readonly items: ReadonlyArray<BotBoardItem>;
   readonly onClose: () => void;
   readonly onOpenFiles: () => void;
 }) {
@@ -226,12 +248,12 @@ function ItemPane(props: {
         </p>
         {item.nextStep === "" ? null : (
           <p className="mt-3 rounded-2xl bg-message px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-message-foreground">
-            {item.nextStep}
+            {nameBotItemRefs(item.nextStep, props.items)}
           </p>
         )}
         {item.detail === "" ? null : (
           <p className="mt-3 text-xs leading-normal whitespace-pre-wrap text-muted-foreground">
-            {item.detail}
+            {nameBotItemRefs(item.detail, props.items)}
           </p>
         )}
 
@@ -318,14 +340,14 @@ function ItemPane(props: {
   );
 }
 
-/** A bot's work as columns: what waits on you, what runs, what is quiet, what is done. */
+/** A bot's work as one list: what waits on you first, then what runs, then the rest. */
 export function BotBoardView(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }) {
   const gt = useGT();
   const m = useMessages();
-  const [showDone, setShowDone] = useState(true);
+  const [doneToggled, setDoneToggled] = useState<boolean | null>(null);
   const board = useBotBoard(props.environmentId, props.threadId);
   const all = useBotBoardAll(props.environmentId, props.threadId);
   const search = useBotSearch();
@@ -340,94 +362,89 @@ export function BotBoardView(props: {
   const open = items.filter((item) => item.state === "open").length;
   const selected = items.find((item) => item.id === search.item) ?? null;
   const unfiled = board.data?.unfiled ?? [];
-  const columns = BOT_ITEM_COLUMNS.filter((column) => showDone || column.id !== "done");
+  // Finished work stays out of the way unless it is all there is, or it is what was opened.
+  const showDone =
+    doneToggled ?? (open === 0 || (selected !== null && botItemColumn(selected) === "done"));
+  const shown = BOT_ITEM_COLUMNS.filter(
+    (column) => groups[column.id].length > 0 && (showDone || column.id !== "done"),
+  );
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center justify-between px-6 text-xs text-muted-foreground">
-          <span>
-            {board.data === null
-              ? board.error === null
-                ? ""
-                : gt("The board could not be read.")
-              : gt(
-                  "{count, plural, one {{count} open work item} other {{count} open work items}}",
-                  { count: open },
-                )}
-          </span>
-          {groups.done.length === 0 ? null : (
-            <button
-              type="button"
-              aria-pressed={showDone}
-              className={cn(QUIET_BUTTON, "px-1")}
-              onClick={() => setShowDone(!showDone)}
-            >
-              {showDone
-                ? gt("Hide done")
-                : gt("Show done ({count})", { count: groups.done.length })}
-            </button>
-          )}
-        </div>
         {board.data !== null && items.length === 0 && unfiled.length === 0 ? (
-          <p className="px-6 pt-2 text-sm text-muted-foreground">
+          <p className="px-6 pt-4 text-sm text-muted-foreground">
             <T>Nothing here yet. Ask the bot for something and its work shows up on this board.</T>
           </p>
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 pb-8">
-            <div
-              className="grid gap-4"
-              style={{
-                gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
-                minWidth: `${columns.length * 15 + columns.length - 1}rem`,
-                maxWidth: `${columns.length * 24}rem`,
-              }}
-            >
-              {columns.map((column) => {
-                const { Icon, tone } = COLUMN_ICON[column.id];
-                const cards = groups[column.id];
-                const loose = column.id === "running" ? unfiled : [];
-                return (
-                  <section key={column.id} aria-label={m(column.label)} className="min-w-0">
-                    <h2 className="flex h-8 items-center gap-2 px-0.5 text-sm font-medium">
-                      <Icon aria-hidden className={cn("size-4", tone)} />
-                      <span className={column.id === "needs-you" ? tone : "text-foreground"}>
-                        {m(column.label)}
-                      </span>
-                      <span className="font-normal text-muted-foreground/70">
-                        {cards.length + (loose.length > 0 ? 1 : 0)}
-                      </span>
-                    </h2>
-                    <div className="mt-1.5 flex flex-col gap-2.5">
-                      {cards.map((item) => (
-                        <BoardCard
-                          key={item.id}
-                          environmentId={props.environmentId}
-                          item={item}
-                          column={column.id}
-                          selected={selected?.id === item.id}
-                          onOpen={() => void openView(target, { bot: "board", item: item.id })}
-                        />
-                      ))}
-                      {loose.length === 0 ? null : (
-                        <div className="rounded-xl border border-border/70 bg-card/40">
-                          <p className="px-3.5 pt-3 pb-1.5 text-sm font-medium text-foreground">
-                            <T>On no work item</T>
-                          </p>
-                          <ul className="m-0 list-none p-0">
-                            {loose.map((thread) => (
-                              <TaskRow
-                                key={`${thread.environmentId}:${thread.threadId}`}
-                                thread={thread}
-                              />
-                            ))}
-                          </ul>
-                        </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-10">
+            <div className="flex max-w-3xl flex-col">
+              <div className="flex h-11 items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {board.data === null
+                    ? board.error === null
+                      ? ""
+                      : gt("The board could not be read.")
+                    : gt(
+                        "{count, plural, one {{count} open work item} other {{count} open work items}}",
+                        { count: open },
                       )}
-                    </div>
-                  </section>
-                );
-              })}
+                </span>
+                {groups.done.length === 0 ? null : (
+                  <button
+                    type="button"
+                    aria-pressed={showDone}
+                    className={cn(QUIET_BUTTON, "px-1")}
+                    onClick={() => setDoneToggled(!showDone)}
+                  >
+                    {showDone
+                      ? gt("Hide done")
+                      : gt("Show done ({count})", { count: groups.done.length })}
+                  </button>
+                )}
+              </div>
+              {shown.map((column) => (
+                <section key={column.id} aria-label={m(column.label)} className="mb-5">
+                  <h2 className="mb-1.5 flex h-6 items-center gap-2 text-xs">
+                    <span
+                      className={
+                        column.id === "needs-you"
+                          ? "font-medium text-warning"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {m(column.label)}
+                    </span>
+                    <span className="text-muted-foreground/70">{groups[column.id].length}</span>
+                  </h2>
+                  <ul className="m-0 list-none overflow-hidden rounded-xl border border-border/70 bg-card/40 p-0">
+                    {groups[column.id].map((item) => (
+                      <ItemRow
+                        key={item.id}
+                        environmentId={props.environmentId}
+                        item={item}
+                        items={items}
+                        column={column.id}
+                        selected={selected?.id === item.id}
+                        onOpen={() => void openView(target, { bot: "board", item: item.id })}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              {unfiled.length === 0 ? null : (
+                <section aria-label={gt("Tasks on no work item")} className="mb-5">
+                  <h2 className="mb-1.5 flex h-6 items-center gap-2 text-xs text-muted-foreground">
+                    <T>Tasks on no work item</T>
+                    <span className="text-muted-foreground/70">{unfiled.length}</span>
+                  </h2>
+                  <ul className="m-0 list-none overflow-hidden rounded-xl border border-border/70 bg-card/40 p-0">
+                    {unfiled.map((thread) => (
+                      <TaskRow key={`${thread.environmentId}:${thread.threadId}`} thread={thread} />
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           </div>
         )}
@@ -437,6 +454,7 @@ export function BotBoardView(props: {
           key={selected.id}
           environmentId={props.environmentId}
           item={selected}
+          items={items}
           onClose={() => void openView(target, { bot: "board" })}
           onOpenFiles={() => void openView(target, { bot: "files" })}
         />

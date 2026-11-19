@@ -13,6 +13,8 @@ import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { cn } from "~/lib/utils";
+
 import { RelativeTime } from "../RelativeTime";
 import { Button } from "../ui/button";
 import {
@@ -42,14 +44,30 @@ function NoteRow(props: {
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wholeQuote, setWholeQuote] = useState(false);
   const retired = note.outdatedAt !== null;
   return (
-    <li className="border-border/65 border-t py-2.5 first:border-t-0">
-      <p className={retired ? "text-muted-foreground text-sm line-through" : "text-sm"}>
+    <li className="border-border/65 border-t py-3 first:border-t-0">
+      <p
+        className={
+          retired ? "text-muted-foreground text-sm line-through" : "text-sm leading-relaxed"
+        }
+      >
         {note.text}
       </p>
-      <blockquote className="mt-1 border-border border-s-2 ps-2 text-muted-foreground text-xs">
-        {note.quote}
+      <blockquote className="mt-1.5 border-border border-s-2 ps-2 text-muted-foreground text-xs">
+        <button
+          type="button"
+          aria-expanded={wholeQuote}
+          aria-label={wholeQuote ? gt("Show less of the passage") : gt("Show the whole passage")}
+          className={cn(
+            "block w-full cursor-pointer rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            wholeQuote ? "" : "line-clamp-2",
+          )}
+          onClick={() => setWholeQuote(!wholeQuote)}
+        >
+          {note.quote}
+        </button>
       </blockquote>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
         <span>
@@ -168,7 +186,7 @@ function MemoryBody(props: {
           </T>
         </p>
         <Textarea
-          rows={6}
+          rows={Math.min(12, Math.max(3, charter.split("\n").length + 1))}
           aria-label={gt("Charter")}
           readOnly={!canChange}
           value={charter}
@@ -219,6 +237,7 @@ function MemoryBody(props: {
         <div className="flex items-center justify-between gap-2">
           <h3 id={`${id}-notes`} className="font-medium text-sm">
             <T>Notes</T>
+            <span className="ms-1.5 font-normal text-muted-foreground">{current.length}</span>
           </h3>
           {retired.length === 0 ? null : (
             <Button
