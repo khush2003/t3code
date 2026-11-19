@@ -68,6 +68,8 @@ function taskStatus(task: OrchestrationV2Subagent): BotThreadStatus {
   }
 }
 
+const ENDED: ReadonlySet<BotThreadStatus> = new Set(["completed", "failed", "stopped"]);
+
 const OUTCOMES: Record<string, BotThreadStatus> = {
   completed: "completed",
   failed: "failed",
@@ -125,17 +127,27 @@ function boardThread(
     where: link.where,
     result: trimResult(episode?.result ?? task?.result),
   };
-  if (shell != null)
-    return { ...base, status: shellStatus(shell), asOf: DateTime.formatIso(sources.now) };
-  if (task !== undefined)
-    return { ...base, status: taskStatus(task), asOf: DateTime.formatIso(task.updatedAt) };
-  if (episode !== undefined)
-    return { ...base, status: OUTCOMES[episode.outcome] ?? "unknown", asOf: episode.endedAt };
-  return {
+  const linkedAt = "linkedAt" in link ? link.linkedAt : null;
+  const startedAt =
+    (task?.startedAt == null ? null : DateTime.formatIso(task.startedAt)) ??
+    episode?.startedAt ??
+    linkedAt;
+  const ended = (status: BotThreadStatus) => ({
     ...base,
-    status: "unknown",
-    asOf: "linkedAt" in link ? link.linkedAt : DateTime.formatIso(sources.now),
-  };
+    status,
+    startedAt,
+    endedAt: ENDED.has(status)
+      ? ((task?.completedAt == null ? null : DateTime.formatIso(task.completedAt)) ??
+        episode?.endedAt ??
+        null)
+      : null,
+  });
+  if (shell != null) return { ...ended(shellStatus(shell)), asOf: DateTime.formatIso(sources.now) };
+  if (task !== undefined)
+    return { ...ended(taskStatus(task)), asOf: DateTime.formatIso(task.updatedAt) };
+  if (episode !== undefined)
+    return { ...ended(OUTCOMES[episode.outcome] ?? "unknown"), asOf: episode.endedAt };
+  return { ...ended("unknown"), asOf: linkedAt ?? DateTime.formatIso(sources.now) };
 }
 
 export function deriveBoard(sources: BoardSources): ReadonlyArray<BotBoardItem> {
@@ -145,6 +157,7 @@ export function deriveBoard(sources: BoardSources): ReadonlyArray<BotBoardItem> 
     detail: item.detail,
     nextStep: item.nextStep,
     state: item.state,
+    waitingOnYou: item.waitingOnPerson,
     updatedAt: item.updatedAt,
     threads: sources.links
       .filter((link) => link.itemId === item.id)
@@ -161,6 +174,7 @@ export function deriveBoard(sources: BoardSources): ReadonlyArray<BotBoardItem> 
         url: file.url,
         sourcePath: file.sourcePath,
         createdAt: file.createdAt,
+        threadId: file.threadId,
       })),
   }));
 }

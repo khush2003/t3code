@@ -115,6 +115,15 @@ describe("BotStore", () => {
         second.id,
       ]);
 
+      // Waiting on the person holds through a change that does not mention it.
+      yield* store.saveItem(atlas, { id: second.id, waitingOnPerson: true });
+      expect((yield* store.saveItem(atlas, { id: second.id, nextStep: "x" })).waitingOnPerson).toBe(
+        true,
+      );
+      expect(
+        (yield* store.saveItem(atlas, { id: second.id, waitingOnPerson: false })).waitingOnPerson,
+      ).toBe(false);
+
       yield* store.saveItem(atlas, { id: first.id, state: "done", nextStep: "none" });
       expect((yield* store.listItems(atlas)).map((item) => item.title)).toEqual(["Release"]);
       expect(yield* store.listItems(atlas, { includeClosed: true })).toHaveLength(2);

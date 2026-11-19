@@ -22,6 +22,7 @@ const item = {
   detail: "",
   nextStep: "review",
   state: "open" as const,
+  waitingOnPerson: false,
   createdAt: "2026-11-09T09:00:00.000Z",
   updatedAt: "2026-11-09T09:00:00.000Z",
 };
@@ -111,6 +112,14 @@ describe("bot board", () => {
       ["unknown", "2026-11-09T09:00:00.000Z"],
     ]);
     expect(board[0]!.threads[2]!.result).toBe("Tests failed.");
+    // A task that has not ended has no end time; one known only by its result ends with it.
+    expect(board[0]!.threads.map((thread) => thread.endedAt)).toEqual([
+      null,
+      null,
+      "2026-11-08T10:00:00.000Z",
+      null,
+    ]);
+    expect(board[0]!.threads[3]!.startedAt).toBe("2026-11-09T09:00:00.000Z");
   });
 
   it("lists running tasks that sit on no item, so none drop out of sight", () => {

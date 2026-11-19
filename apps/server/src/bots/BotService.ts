@@ -257,16 +257,27 @@ const make = Effect.gen(function* () {
     Effect.flatMap((bots) =>
       Effect.forEach(bots, (bot) =>
         boards.conversations(bot.name).pipe(
-          Effect.map((all) => ({
-            ...bot,
-            threads: all
-              .filter((conversation) => conversation.threadId !== bot.threadId)
-              .map((conversation) => ({
-                threadId: conversation.threadId,
-                title: conversation.title,
-                anchorMessageId: conversation.anchor?.messageId ?? null,
-              })),
-          })),
+          Effect.flatMap((all) =>
+            Effect.forEach(
+              all.filter((conversation) => conversation.threadId !== bot.threadId),
+              (conversation) =>
+                Effect.all({
+                  replies: threads.getMessageCount(conversation.threadId),
+                  shell: threads.getThreadShell(conversation.threadId),
+                }).pipe(
+                  Effect.orElseSucceed(() => ({ replies: 0, shell: null })),
+                  Effect.map(({ replies, shell }) => ({
+                    threadId: conversation.threadId,
+                    title: conversation.title,
+                    anchorMessageId: conversation.anchor?.messageId ?? null,
+                    replies,
+                    lastReplyAt:
+                      replies === 0 || shell === null ? null : DateTime.formatIso(shell.updatedAt),
+                  })),
+                ),
+            ),
+          ),
+          Effect.map((found) => ({ ...bot, threads: found })),
         ),
       ),
     ),

@@ -17,7 +17,7 @@ export const BOT_RULES = [
   "- Start a task with delegate_task, target.projectId and workItemId; t3_project_list lists projects. Every task is for a work item: for new work, create the item with t3_bot_item_save first and pass its id. Say what done looks like in the task, since it starts with none of this conversation. Use isolation:'worktree' for anything that changes code.",
   "- Omit target.model and the task uses that project's default model, which is usually what you want.",
   "- Tasks run on their own and each one wakes you when it ends, so end your turn right after starting them. Never wait or poll.",
-  "- Keep each item's next step current with t3_bot_item_save, and mark it done or dropped when the user agrees it is. A thread finishing does not finish its item.",
+  "- Keep each item's next step current with t3_bot_item_save, and mark it done or dropped when the user agrees it is. A thread finishing does not finish its item. When an item cannot move until your person decides or does something, set waitingOnPerson on it and say what you need in its next step; clear it when they have.",
   "- When the user states something that should hold from now on (how they like work done, a priority, a standing decision), add it to your charter with t3_bot_charter_set.",
   "- You keep this whole conversation and every message of your finished tasks' threads, even after this conversation is compacted or a machine goes offline. Before answering about earlier work, a past decision or anything you do not see here, search with t3_bot_recall and say when and where it comes from. Never answer such a question from a guess.",
   "- You cannot open files, but your tasks can hand them to you: every task is told to hand over what it makes for a person to look at (a document, a screenshot, a recording, a preview link). It is filed under the work item, where your person opens it from the board. Ask for such a file in the task when you want one, and name it when you report.",
@@ -52,7 +52,7 @@ const describeThread = (thread: BotBoardThread, now: string, full: boolean) => {
 
 const describeItem = (item: BotBoardItem, now: string, full: boolean) =>
   [
-    `- ${item.title} [${item.id}]${item.nextStep === "" ? "" : ` next: ${item.nextStep}`}`,
+    `- ${item.title} [${item.id}]${item.waitingOnYou ? " (waiting on your person)" : ""}${item.nextStep === "" ? "" : ` next: ${item.nextStep}`}`,
     ...(full && item.detail !== "" ? [`  ${item.detail.replaceAll("\n", " ")}`] : []),
     ...item.threads.slice(-THREADS_PER_ITEM).map((thread) => describeThread(thread, now, full)),
     ...(item.files.length === 0

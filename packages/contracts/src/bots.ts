@@ -47,6 +47,9 @@ export const BotThread = Schema.Struct({
   title: Schema.String,
   /** The message of the bot's main chat it was opened from. */
   anchorMessageId: Schema.NullOr(Schema.String),
+  /** Messages in the thread, and when the last one came. */
+  replies: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  lastReplyAt: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type BotThread = typeof BotThread.Type;
 
@@ -86,6 +89,9 @@ export const BotBoardThread = Schema.Struct({
   asOf: Schema.String,
   /** The thread's last reply when it finished, trimmed. */
   result: Schema.NullOr(Schema.String),
+  /** When the task began, and when it ended if it has. */
+  startedAt: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  endedAt: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type BotBoardThread = typeof BotBoardThread.Type;
 
@@ -101,6 +107,8 @@ export const BotBoardFile = Schema.Struct({
   url: Schema.NullOr(Schema.String),
   sourcePath: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
+  /** The task that handed it over. */
+  threadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type BotBoardFile = typeof BotBoardFile.Type;
 
@@ -110,6 +118,8 @@ export const BotBoardItem = Schema.Struct({
   detail: Schema.String,
   nextStep: Schema.String,
   state: BotWorkItemState,
+  /** The bot says it cannot go on until its person does something. */
+  waitingOnYou: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   updatedAt: Schema.String,
   threads: Schema.Array(BotBoardThread),
   files: Schema.Array(BotBoardFile),

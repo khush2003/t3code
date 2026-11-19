@@ -52,13 +52,14 @@ const BotBoardTool = Tool.make("t3_bot_board", {
 const BotItemSaveTool = Tool.make("t3_bot_item_save", {
   ...shared,
   description:
-    "Create a work item (omit id) or change one: title, detail, the next step, or state done/dropped. threads files existing threads under it, moving them from any other item.",
+    "Create a work item (omit id) or change one: title, detail, the next step, or state done/dropped. Set waitingOnPerson true when you cannot take the next step until your person decides or does something, and say what in nextStep; set it false once they have. threads files existing threads under it, moving them from any other item.",
   parameters: Schema.Struct({
     id: Schema.optional(BotWorkItemId),
     title: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
     detail: Schema.optional(Schema.String.check(Schema.isMaxLength(2_000))),
     nextStep: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
     state: Schema.optional(BotWorkItemState),
+    waitingOnPerson: Schema.optional(Schema.Boolean),
     threads: Schema.optional(
       Schema.Array(
         Schema.Struct({ threadId: ThreadId, environmentId: Schema.optional(EnvironmentId) }),

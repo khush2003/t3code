@@ -58,6 +58,8 @@ export interface BotItemRecord {
   readonly detail: string;
   readonly nextStep: string;
   readonly state: BotWorkItemState;
+  /** The bot cannot take the next step until its person does something. */
+  readonly waitingOnPerson: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -179,6 +181,7 @@ export interface BotItemSave {
   readonly detail?: string | undefined;
   readonly nextStep?: string | undefined;
   readonly state?: BotWorkItemState | undefined;
+  readonly waitingOnPerson?: boolean | undefined;
 }
 
 export class BotStore extends Context.Service<
@@ -365,7 +368,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -500,6 +503,7 @@ const CONVERSATIONS_FROM_BOTS = `
   SELECT thread_id, name, '', created_at, context_sent, context_run, context_due
   FROM bots WHERE thread_id IS NOT NULL
 `;
+const ITEM_WAITING_COLUMN = "ALTER TABLE items ADD COLUMN waiting INTEGER NOT NULL DEFAULT 0";
 const BOT_MESSAGE_FROM_THREAD_COLUMN = "ALTER TABLE bot_messages ADD COLUMN from_thread_id TEXT";
 const EPISODE_FROM_THREAD_COLUMN = "ALTER TABLE episodes ADD COLUMN from_thread_id TEXT";
 
@@ -530,10 +534,11 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
       if (version >= 1 && version < 6) yield* sql.unsafe(OVERSEES_COLUMN);
       if (version < 7) for (const column of BOT_MESSAGE_ANSWER_COLUMNS) yield* sql.unsafe(column);
-      yield* sql.unsafe(BOT_MESSAGE_FROM_THREAD_COLUMN);
+      if (version < 8) yield* sql.unsafe(BOT_MESSAGE_FROM_THREAD_COLUMN);
       if (version >= 1) {
-        yield* sql.unsafe(EPISODE_FROM_THREAD_COLUMN);
-        yield* sql.unsafe(CONVERSATIONS_FROM_BOTS);
+        if (version < 8) yield* sql.unsafe(EPISODE_FROM_THREAD_COLUMN);
+        if (version < 8) yield* sql.unsafe(CONVERSATIONS_FROM_BOTS);
+        yield* sql.unsafe(ITEM_WAITING_COLUMN);
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         return;
       }
@@ -560,7 +565,8 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
           next_step TEXT NOT NULL,
           state TEXT NOT NULL,
           created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          waiting INTEGER NOT NULL DEFAULT 0
         )
       `;
       yield* sql`CREATE INDEX IF NOT EXISTS items_bot_state ON items (bot, state, updated_at)`;
@@ -607,6 +613,7 @@ type ItemRow = {
   state: string;
   created_at: string;
   updated_at: string;
+  waiting: number;
 };
 
 const toItem = (row: ItemRow): BotItemRecord => ({
@@ -616,6 +623,7 @@ const toItem = (row: ItemRow): BotItemRecord => ({
   detail: row.detail,
   nextStep: row.next_step,
   state: row.state as BotWorkItemState,
+  waitingOnPerson: row.waiting !== 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -809,10 +817,12 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           `item:${(yield* random.uuidV4().pipe(Effect.mapError(fail("create a work item")))).slice(0, 8)}`,
         );
         yield* sql`
-          INSERT INTO items (id, bot, title, detail, next_step, state, created_at, updated_at)
-          VALUES (
+          INSERT INTO items (
+            id, bot, title, detail, next_step, state, created_at, updated_at, waiting
+          ) VALUES (
             ${id}, ${bot}, ${input.title ?? "Untitled work"}, ${input.detail ?? ""},
-            ${input.nextStep ?? ""}, ${input.state ?? "open"}, ${at}, ${at}
+            ${input.nextStep ?? ""}, ${input.state ?? "open"}, ${at}, ${at},
+            ${input.waitingOnPerson === true ? 1 : 0}
           )
         `.pipe(Effect.mapError(fail("create a work item")));
         return (yield* getItem(id))!;
@@ -829,6 +839,7 @@ const makeWith = Effect.fn("BotStore.make")(function* (
           detail = ${input.detail ?? current.detail},
           next_step = ${input.nextStep ?? current.nextStep},
           state = ${input.state ?? current.state},
+          waiting = ${(input.waitingOnPerson ?? current.waitingOnPerson) ? 1 : 0},
           updated_at = ${at}
         WHERE id = ${input.id}
       `.pipe(Effect.mapError(fail("update a work item")));
