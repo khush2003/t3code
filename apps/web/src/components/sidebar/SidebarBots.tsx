@@ -8,14 +8,20 @@ import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { BotName, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
-import { MessagesSquareIcon, PlusIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  CircleAlertIcon,
+  LoaderCircleIcon,
+  MessagesSquareIcon,
+  PlusIcon,
+} from "lucide-react";
 import { useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { botsEnvironment } from "../../state/bots";
 import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
 import { botMainThreadId, isBotThreadId } from "../bots/botView";
-import { useOpenBotThread } from "../bots/useBot";
+import { useBotSummary, useOpenBotThread } from "../bots/useBot";
 import { hasUnseenCompletion } from "../Sidebar.logic";
 
 const botNameOfThread = (threadId: ThreadId) => botMainThreadId(threadId).replace(/^bot:/, "");
@@ -40,7 +46,14 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+} from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
 
 const isBotName = Schema.is(BotName);
@@ -204,6 +217,59 @@ function StartBotDialog(props: {
   );
 }
 
+/** Every row leads with the same slot, so names line up under one another. */
+const LEAD_SLOT = "grid size-4.5 shrink-0 place-items-center";
+
+/** One bot: who it is, and the one thing about it worth seeing from here. */
+function BotRow(props: {
+  readonly bot: EnvironmentThreadShell;
+  readonly active: boolean;
+  /** Where it runs, shown only when bots are spread over machines. */
+  readonly machine: string | null;
+  readonly onOpen: () => void;
+}) {
+  const { bot } = props;
+  const summary = useBotSummary(bot.environmentId, bot.id);
+  const waiting =
+    (summary?.waitingOnYou ?? 0) + (bot.hasPendingUserInput || bot.hasPendingApprovals ? 1 : 0);
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton size="sm" isActive={props.active} onClick={props.onOpen}>
+        <span
+          aria-hidden
+          className={cn(
+            LEAD_SLOT,
+            "rounded-sm text-2xs font-semibold uppercase",
+            // The bot that oversees the others is the one to talk to, so it stands out.
+            summary?.oversees === true
+              ? "bg-primary/20 text-primary"
+              : "bg-foreground/10 text-foreground/75",
+          )}
+        >
+          {bot.title.slice(0, 1)}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{bot.title}</span>
+        {props.machine === null ? null : (
+          <span className="shrink-0 text-2xs text-muted-foreground">{props.machine}</span>
+        )}
+        {waiting > 0 ? (
+          <span
+            aria-label={`${waiting} waiting on you`}
+            className="flex shrink-0 items-center gap-1 text-xs font-medium text-warning tabular-nums"
+          >
+            <CircleAlertIcon aria-hidden className="size-3.5" />
+            {waiting}
+          </span>
+        ) : isThreadWorking(bot) ? (
+          <LoaderCircleIcon aria-label="Working" className="size-3.5 shrink-0 text-primary" />
+        ) : hasUnseenCompletion(bot) ? (
+          <span aria-label="New reply" className="size-1.5 shrink-0 rounded-full bg-primary" />
+        ) : null}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function SidebarBots(props: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly routeThreadKey: string | null;
@@ -268,87 +334,91 @@ export function SidebarBots(props: {
           }}
         />
       )}
-      {botThreads.length === 0 ? null : (
+      {bots.length === 0 && botThreads.length === 0 ? null : (
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="sm"
-              aria-expanded={threadsOpen}
-              onClick={() => setThreadsOpen(!threadsOpen)}
-            >
-              <MessagesSquareIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">Threads</span>
-              {unseenThreads === 0 ? null : (
-                <span
-                  aria-label={`${unseenThreads} with new replies`}
-                  className="shrink-0 text-xs font-medium text-primary"
-                >
-                  {unseenThreads}
+          {botThreads.length === 0 ? null : (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="sm"
+                aria-expanded={threadsOpen}
+                onClick={() => setThreadsOpen(!threadsOpen)}
+              >
+                <span className={LEAD_SLOT}>
+                  <MessagesSquareIcon aria-hidden className="size-3.5 text-muted-foreground" />
                 </span>
-              )}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          {threadsOpen
-            ? botThreads.map((thread) => (
-                <SidebarMenuItem
-                  key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
-                >
-                  <SidebarMenuButton
-                    size="sm"
-                    onClick={() => openThread(thread.environmentId, thread.id)}
+                <span className="min-w-0 flex-1 truncate">Threads</span>
+                {unseenThreads === 0 ? null : (
+                  <span
+                    aria-label={`${unseenThreads} with new replies`}
+                    className="shrink-0 text-xs font-medium text-primary tabular-nums"
                   >
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate ps-5.5",
-                        isSettled(thread) && "text-muted-foreground",
-                      )}
+                    {unseenThreads}
+                  </span>
+                )}
+                <ChevronRightIcon
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground/70",
+                    threadsOpen && "rotate-90",
+                  )}
+                />
+              </SidebarMenuButton>
+              {threadsOpen ? (
+                <SidebarMenuSub>
+                  {botThreads.map((thread) => (
+                    <SidebarMenuSubItem
+                      key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
                     >
-                      {thread.title}
-                    </span>
-                    <span className="shrink-0 text-muted-foreground text-xs">
-                      {isSettled(thread) ? "Settled" : botNameOfThread(thread.id)}
-                    </span>
-                    {!isSettled(thread) && hasUnseenCompletion(thread) ? (
-                      <span
-                        aria-label="New replies"
-                        className="size-1.5 shrink-0 rounded-full bg-primary"
-                      />
-                    ) : null}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))
-            : null}
-        </SidebarMenu>
-      )}
-      {bots.length === 0 ? null : (
-        <SidebarMenu>
-          {bots.map((bot) => {
-            const ref = scopeThreadRef(bot.environmentId, bot.id);
-            return (
-              <SidebarMenuItem key={scopedThreadKey(ref)}>
-                <SidebarMenuButton
-                  size="sm"
-                  isActive={scopedThreadKey(ref) === props.routeThreadKey}
-                  onClick={() => void open(ref)}
-                >
-                  <span className="min-w-0 flex-1 truncate">{bot.title}</span>
-                  {spread ? (
-                    <span className="shrink-0 text-muted-foreground text-xs">
-                      {environments.find(
-                        (environment) => environment.environmentId === bot.environmentId,
-                      )?.label ?? ""}
-                    </span>
-                  ) : null}
-                  {isThreadWorking(bot) ? (
-                    <span
-                      aria-label="Working"
-                      className="size-1.5 shrink-0 rounded-full bg-primary"
-                    />
-                  ) : null}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
+                      <SidebarMenuSubButton
+                        size="sm"
+                        className="w-full"
+                        render={<button type="button" />}
+                        onClick={() => openThread(thread.environmentId, thread.id)}
+                      >
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 truncate text-left",
+                            !isSettled(thread) && hasUnseenCompletion(thread)
+                              ? "font-medium text-foreground"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {thread.title}
+                        </span>
+                        {!isSettled(thread) && hasUnseenCompletion(thread) ? (
+                          <span
+                            aria-label="New replies"
+                            className="size-1.5 shrink-0 rounded-full bg-primary"
+                          />
+                        ) : (
+                          <span className="shrink-0 text-2xs text-muted-foreground/70">
+                            {isSettled(thread) ? "Settled" : botNameOfThread(thread.id)}
+                          </span>
+                        )}
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              ) : null}
+            </SidebarMenuItem>
+          )}
+          {bots.map((bot) => (
+            <BotRow
+              key={scopedThreadKey(scopeThreadRef(bot.environmentId, bot.id))}
+              bot={bot}
+              active={
+                scopedThreadKey(scopeThreadRef(bot.environmentId, bot.id)) === props.routeThreadKey
+              }
+              machine={
+                spread
+                  ? (environments.find(
+                      (environment) => environment.environmentId === bot.environmentId,
+                    )?.label ?? null)
+                  : null
+              }
+              onOpen={() => void open(scopeThreadRef(bot.environmentId, bot.id))}
+            />
+          ))}
         </SidebarMenu>
       )}
     </div>

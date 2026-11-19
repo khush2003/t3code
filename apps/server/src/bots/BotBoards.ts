@@ -129,6 +129,7 @@ const make = Effect.gen(function* () {
             purpose: bot.purpose,
             threadId: bot.threadId,
             openItems: items.length,
+            waitingOnYou: items.filter((item) => item.waitingOnPerson).length,
             oversees: bot.oversees,
             threads: [],
           })),

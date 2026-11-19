@@ -60,6 +60,8 @@ export const BotSummary = Schema.Struct({
   /** The bot's main chat. */
   threadId: Schema.NullOr(ThreadId),
   openItems: Schema.Number,
+  /** Open items the bot says wait on its person. */
+  waitingOnYou: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   oversees: Schema.Boolean,
   /** Its threads that are neither settled nor deleted, oldest first. */
   threads: Schema.Array(BotThread).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
