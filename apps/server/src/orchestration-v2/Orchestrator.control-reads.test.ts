@@ -3,6 +3,7 @@ import * as NodeSqlite from "node:sqlite";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EnvironmentId,
   MessageId,
   EventId,
   NodeId,
@@ -1924,6 +1925,149 @@ it.effect.each([false, true])(
         "starting",
       );
     }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
+);
+
+it.effect("wakes a bot when a task it started in a project asks a question", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const reactor = yield* DelegatedTaskQuestionReactor.DelegatedTaskQuestionReactor;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const botThreadId = ThreadId.make("bot:scout");
+    const taskThreadId = ThreadId.make("thread:bot-task");
+    const environmentId = EnvironmentId.make("environment:here");
+    const thread = (threadId: ThreadId, extra: object) =>
+      orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`create:${threadId}`),
+        threadId,
+        projectId: ProjectId.make("project:question"),
+        title: "Thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+        ...extra,
+      });
+    const start = (threadId: ThreadId) =>
+      orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`start:${threadId}`),
+        threadId,
+        messageId: MessageId.make(`message:${threadId}`),
+        text: "Do the work",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+    yield* thread(botThreadId, { bot: true });
+    yield* start(botThreadId);
+    // An ordinary project thread: no parent, only the bot it names.
+    yield* thread(taskThreadId, {
+      delegatedFrom: { environmentId, threadId: botThreadId, title: "scout" },
+    });
+    yield* start(taskThreadId);
+    const botRun = (yield* projections.getThreadProjection(botThreadId)).runs[0]!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.remote.request",
+      commandId: CommandId.make("bot-task"),
+      parentThreadId: botThreadId,
+      parentRunId: botRun.id,
+      parentNodeId: botRun.rootNodeId!,
+      task: "Audit the store",
+      driver: ProviderDriverKind.make("remote"),
+      modelSelection,
+      remoteChild: { environmentId, threadId: taskThreadId, label: "server" },
+      completionWake: "always",
+    });
+    const task = (yield* projections.getThreadProjection(botThreadId)).subagents[0]!;
+    const taskRun = (yield* projections.getThreadRecords(taskThreadId, ["runs"])).runs[0]!;
+    const now = yield* DateTime.now;
+    const question = {
+      id: EventId.make("event:bot-task-question"),
+      type: "runtime-request.updated",
+      threadId: taskThreadId,
+      runId: taskRun.id,
+      occurredAt: now,
+      payload: {
+        id: RuntimeRequestId.make("request:bot-task-question"),
+        nodeId: taskRun.rootNodeId!,
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "user_input",
+        status: "pending",
+        // The bot's own run is still going: unlike a blocking wait, it is told anyway.
+        responseCapability: {
+          type: "live",
+          providerSessionId: ProviderSessionId.make("session:bot-task"),
+        },
+        createdAt: now,
+        resolvedAt: null,
+      },
+    } satisfies OrchestrationV2DomainEvent;
+    // The live path: the reactor finds the bot from the event alone, as it does in the server.
+    yield* reactor.start();
+    yield* Effect.yieldNow;
+    const beforeQuestion = yield* eventSink.latestSequence();
+    yield* eventSink.write({ events: [question] });
+    yield* eventSink.stream({ afterSequence: beforeQuestion }).pipe(
+      Stream.filter(
+        ({ event }) => event.type === "message.updated" && event.threadId === botThreadId,
+      ),
+      Stream.runHead,
+      Effect.timeout("10 seconds"),
+      TestClock.withLive,
+    );
+    yield* reactor.handle(question);
+    yield* reactor.handle(question);
+
+    const wakes = (yield* projections.getThreadProjection(botThreadId)).messages.filter(
+      (message) => message.notification !== undefined,
+    );
+    assert.deepEqual(
+      wakes.map((message) => message.notification?.source),
+      [{ kind: "delegated_task", taskIds: [task.id], childThreadId: taskThreadId }],
+    );
+    assert.include(
+      wakes[0]?.text,
+      `threadId ${taskThreadId}, and requestId ${question.payload.id}`,
+    );
+
+    // Work another machine sent here names a thread that is not here: nobody to wake.
+    const foreignThreadId = ThreadId.make("thread:from-elsewhere");
+    yield* thread(foreignThreadId, {
+      delegatedFrom: {
+        environmentId: EnvironmentId.make("environment:elsewhere"),
+        threadId: ThreadId.make("thread:not-here"),
+        title: "Elsewhere",
+      },
+    });
+    yield* start(foreignThreadId);
+    const foreignRun = (yield* projections.getThreadRecords(foreignThreadId, ["runs"])).runs[0]!;
+    const foreign = {
+      ...question,
+      id: EventId.make("event:foreign-question"),
+      threadId: foreignThreadId,
+      runId: foreignRun.id,
+      payload: {
+        ...question.payload,
+        id: RuntimeRequestId.make("request:foreign-question"),
+        nodeId: foreignRun.rootNodeId!,
+      },
+    } satisfies OrchestrationV2DomainEvent;
+    yield* eventSink.write({ events: [foreign] });
+    yield* reactor.handle(foreign);
+    assert.equal(
+      (yield* projections.getThreadProjection(botThreadId)).messages.filter(
+        (message) => message.notification !== undefined,
+      ).length,
+      1,
+    );
+  }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
 );
 
 it.effect.each([false, true])("rejects thread.create for an existing id (deleted: %s)", (deleted) =>

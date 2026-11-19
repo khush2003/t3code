@@ -5,7 +5,9 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { AnimaName, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { msg } from "gt-react";
 
+import { m } from "../../i18n/messages";
 import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
 import { animaEnvironment, describeAnimaError } from "../../state/anima";
 import { useQuietThreadShell } from "../../state/entities";
@@ -41,7 +43,8 @@ export function useThreadAnimaChoice({
   });
 
   const current = isServerThread ? (shell?.animaName ?? null) : draftAnima;
-  const locked = isServerThread && current !== null && shell?.animaWokenAt != null;
+  const locked =
+    isServerThread && current !== null && (shell?.animaWokenAt != null || shell?.bot === true);
 
   const change = async (next: AnimaName | null) => {
     if (!isServerThread) {
@@ -53,7 +56,7 @@ export function useThreadAnimaChoice({
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not change the anima",
+          title: m(msg("Could not change the anima")),
           description: describeAnimaError(squashAtomCommandFailure(result)),
         }),
       );
@@ -71,7 +74,7 @@ export function useThreadAnimaChoice({
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not start a new anima",
+            title: m(msg("Could not start a new anima")),
             description: describeAnimaError(squashAtomCommandFailure(result)),
           }),
         );

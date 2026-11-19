@@ -1,3 +1,4 @@
+import * as BotBoards from "../../bots/BotBoards.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -449,6 +450,7 @@ export function layerWithRegistry<Error>(
         layerRuntime,
         layerServerConfig,
         layerServerSettings,
+        Layer.mock(BotBoards.BotBoards)({ context: () => Effect.succeed("") }),
       ),
     ),
   );

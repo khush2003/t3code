@@ -31,6 +31,10 @@ export interface McpThreadCaller {
   readonly providerInstanceId: ProviderInstanceId;
   /** A delegated child task; its parent owns the work it hands back. */
   readonly subagent?: boolean;
+  /** A bot's conversation: it delegates and keeps a board, and does no work itself. */
+  readonly bot?: boolean;
+  /** A thread another thread started as its task, which may be a bot's. */
+  readonly delegated?: boolean;
 }
 
 export interface McpClientCaller {
@@ -193,6 +197,38 @@ export const hiddenFromOutsideClients = (): boolean => {
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   return scope === undefined || scope.thread !== undefined;
 };
+
+const callerIsBot = () => {
+  const fiber = Fiber.getCurrent();
+  return (
+    (fiber && Context.getOrUndefined(fiber.context, McpInvocationContext))?.thread?.bot === true
+  );
+};
+
+/** `McpSchema.EnabledWhen` for a bot's own tools; no other agent sees them. */
+export const onlyForBots = (): boolean => callerIsBot();
+
+/** `McpSchema.EnabledWhen` for tools only a delegated task uses, such as handing a file back. */
+export const onlyForDelegatedTasks = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  return (
+    (fiber && Context.getOrUndefined(fiber.context, McpInvocationContext))?.thread?.delegated ===
+    true
+  );
+};
+
+/** `McpSchema.EnabledWhen` for tools a bot has no use for, kept out of its context. */
+export const hiddenFromBots = (): boolean => !callerIsBot();
+
+/**
+ * The rules that never offer a tool to a client from outside, which `toLayer` requires of every
+ * thread-bound declaration: a bot and a delegated task are both threads here.
+ */
+export const hidesFromOutsideClients: ReadonlySet<unknown> = new Set([
+  hiddenFromOutsideClients,
+  onlyForBots,
+  onlyForDelegatedTasks,
+]);
 
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */
 export const hiddenWhileLinksOff = (): boolean => {

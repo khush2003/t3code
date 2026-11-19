@@ -36,6 +36,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  filterSidebarV2VisibleThreads,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -134,6 +135,23 @@ describe("deleteSelectedThreadEntries", () => {
       deletedThreadKeys: testCase.deletedThreadKeys,
       firstFailure: testCase.firstFailure,
     });
+  });
+});
+
+describe("sidebar thread lists", () => {
+  it("keeps bots out of the thread lists, since they have their own section", () => {
+    const lineage = { parentThreadId: null, relationshipToParent: null, rootThreadId: "t" };
+    const thread = {
+      archivedAt: null,
+      environmentId: "e",
+      id: "t",
+      lineage,
+      projectId: "p",
+    } as never as Parameters<typeof filterSidebarV2VisibleThreads>[0][number];
+    expect(filterSidebarV2VisibleThreads([thread], null, new Set())).toHaveLength(1);
+    expect(filterSidebarV2VisibleThreads([{ ...thread, bot: true }], null, new Set())).toHaveLength(
+      0,
+    );
   });
 });
 

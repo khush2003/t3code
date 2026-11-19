@@ -8,7 +8,7 @@ import {
   MessageId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -20,7 +20,7 @@ import * as AnimaService from "./AnimaService.ts";
  * made earlier breaths noisy: the bare template run, the wake, breaths padded with invention, and
  * retry loops after the CLI refused the input.
  */
-function breathePrompt(name: string, guide: string): string {
+function breathePrompt(name: string, guide: string, bot: boolean): string {
   return [
     `Breathe now for the anima "${name}". The user asked for this breath explicitly, so the Step 0 gate is already satisfied: skip it and do not decline.`,
     "",
@@ -32,6 +32,11 @@ function breathePrompt(name: string, guide: string): string {
     "- If it prints a template instead of saving, you left out the hsl, note or shape: supply them and rerun.",
     "- Never invent values to get past validation, and never reuse values from an earlier breath. Every value comes from this thread.",
     "- Do not pass the deprecated --files or --open flags.",
+    ...(bot
+      ? [
+          "- You have no shell: record this breath with t3_anima_record, passing the same values, instead of running the command.",
+        ]
+      : []),
     "",
     "<breathe-guide>",
     guide.replaceAll("<name>", name).trim(),
@@ -49,7 +54,7 @@ export class AnimaThreadService extends Context.Service<
   AnimaThreadService,
   {
     readonly breathe: (
-      input: typeof AnimaBreatheInput.Type,
+      input: AnimaBreatheInput,
     ) => Effect.Effect<
       typeof AnimaBreatheResult.Type,
       AnimaError | AnimaCommandRejectedError | AnimaNotFoundError
@@ -60,7 +65,7 @@ export class AnimaThreadService extends Context.Service<
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const animas = yield* AnimaService.AnimaService;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
 
   const breathe: AnimaThreadService["Service"]["breathe"] = Effect.fn("AnimaThreadService.breathe")(
     function* (input) {
@@ -96,8 +101,8 @@ const make = Effect.gen(function* () {
         });
       // Fails with AnimaNotFoundError when the anima was deleted after the thread started.
       const { breathCount } = yield* animas.summary(name);
-      const id = yield* crypto
-        .randomUUIDv4()
+      const id = yield* random
+        .uuidV4()
         .pipe(Effect.mapError((cause) => new AnimaError({ operation: "breathe", cause })));
       const sent = yield* threads
         .sendToThread({
@@ -105,7 +110,7 @@ const make = Effect.gen(function* () {
           commandId: CommandId.make(`anima-breathe:${id}`),
           threadId: input.threadId,
           messageId: MessageId.make(`anima-breathe-message:${id}`),
-          text: breathePrompt(name, guide),
+          text: breathePrompt(name, guide, shell.bot === true),
           attachments: [],
           mode: "queue",
           createdBy: "user",
@@ -121,6 +126,7 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /** The anima's one bot thread: its id derives from the name, so asking again reopens it. */
   return AnimaThreadService.of({ breathe });
 });
 

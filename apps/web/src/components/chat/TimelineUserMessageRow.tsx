@@ -87,6 +87,8 @@ import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
 import { useTallEnoughToFold } from "./useTallEnoughToFold";
+import { parseBotMessage } from "@t3tools/shared/botMessages";
+import { BotReplyInThreadButton, BotThreadMarker } from "../bots/BotChatThreads";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import {
   MESSAGE_HEADING_LEVEL,
@@ -493,15 +495,23 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const userMessage = resolveUserMessagePresentation(row.message);
+  const presented = resolveUserMessagePresentation(row.message);
+  // Between bots, the text carries instructions for the model; a person reads who said what.
+  const botMessage =
+    ctx.botThread && presented.attribution !== null ? parseBotMessage(presented.text) : null;
+  const userMessage = botMessage === null ? presented : { ...presented, text: botMessage.body };
   // Messages from other agents fold to one line so the user's own messages stay easy to find.
-  const folded = userMessage.attribution === "agent";
+  const folded = userMessage.attribution === "agent" || botMessage !== null;
   const [expanded, setExpanded] = useState(false);
   const revealFoldRef = findRevealRef(() => setExpanded(true));
   const senderShell = useQuietThreadShell(folded ? senderRef : null);
   const senderTitle = senderShell?.title.trim() || row.message.linkedSender?.title.trim();
   const senderLabel =
-    senderTitle || gt("Agent", { $context: "sender of a message from another agent" });
+    botMessage === null
+      ? senderTitle || gt("Agent", { $context: "sender of a message from another agent" })
+      : botMessage.kind === "asks"
+        ? gt("{bot} asked", { bot: botMessage.bot })
+        : gt("{bot} answered", { bot: botMessage.bot });
   // Only an environment this client is connected to can open the sender's thread there.
   const linkedSenderEnvironment = useEnvironment(row.message.linkedSender?.environmentId ?? null);
   const canOpenSender =
@@ -596,11 +606,13 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     (reference) => reference.label,
   );
   const promptLink = promptLinkFor(plainText);
-  const foldSummary =
+  const foldFirstLine =
     plainText
       .split(/\r?\n/)
       .find((line) => line.trim().length > 0)
       ?.trim() ?? "";
+  // One bot's words to another are markdown; on one line its marks are only noise.
+  const foldSummary = botMessage === null ? foldFirstLine : foldFirstLine.replace(/[*_`#]+/g, "");
   const mediaCopyRecords = mediaOnly
     ? resolvedContext.records.flatMap((record) => {
         const known = asKnownContextRecord(record);
@@ -873,6 +885,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </TooltipPopup>
       </Tooltip>
       <div className={cn("flex items-center gap-0.5", floatActions && "flex-wrap justify-end")}>
+        {folded ? null : <BotReplyInThreadButton messageId={row.message.id} />}
         {typeof revertTurnCount === "number" && (
           <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
         )}
@@ -905,7 +918,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       className="group @container flex flex-col items-end gap-1"
       data-user-message-attribution={folded ? "agent" : undefined}
     >
-      {userMessage.attribution === "t3code" ? (
+      {userMessage.attribution === "t3code" && botMessage === null ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"
           data-user-message-attribution="t3code"
@@ -1131,6 +1144,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           {messageActions}
         </div>
       ) : null}
+      {folded ? null : <BotThreadMarker messageId={row.message.id} align="end" />}
     </div>
   );
 }

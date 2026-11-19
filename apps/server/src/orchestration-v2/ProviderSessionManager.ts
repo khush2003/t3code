@@ -570,10 +570,20 @@ export const layerWithOptions = (
                 >(["orchestration", "worktree", "pull-requests", "issues"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
-                const subagent = yield* projectionStore.getThread(threadId).pipe(
-                  Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
-                  Effect.orElseSucceed(() => false),
-                );
+                const { subagent, bot, delegated } = yield* projectionStore
+                  .getThread(threadId)
+                  .pipe(
+                    Effect.map((thread) => ({
+                      subagent: thread.lineage.relationshipToParent === "subagent",
+                      bot: thread.bot === true,
+                      delegated: thread.delegatedFrom !== undefined,
+                    })),
+                    Effect.orElseSucceed(() => ({
+                      subagent: false,
+                      bot: false,
+                      delegated: false,
+                    })),
+                  );
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -596,7 +606,9 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // A credential issued while the lineage read failed is replaced once it works.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    (resolved.thread.bot === true) === bot &&
+                    (resolved.thread.delegated === true) === delegated
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -609,6 +621,8 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                   subagent,
+                  bot,
+                  delegated,
                 });
                 yield* mcpSessions.set({
                   ...credential.config,

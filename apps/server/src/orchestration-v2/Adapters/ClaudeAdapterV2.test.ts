@@ -578,6 +578,30 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
   });
 
+  it("gives a bot no built-in tools, whatever its policy allows", () => {
+    assert.deepEqual(ClaudeAdapterV2.claudeBuiltInTools({ bot: true }, { tools: ["Read"] }), []);
+    assert.deepEqual(ClaudeAdapterV2.claudeBuiltInTools({}, { tools: ["Read"] }), ["Read"]);
+    // No tool search either, so the user's own servers would be sent to it in full.
+    const options = (botRules?: string) =>
+      ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-sonnet-5-5",
+        },
+        nativeThreadId: "native-thread-claude-bot",
+        resume: false,
+        cwd: "/workspace",
+        environment: {},
+        ...(botRules === undefined ? {} : { botRules }),
+      });
+    assert.isTrue(options("You are a bot.").strictMcpConfig);
+    assert.include(
+      (options("You are a bot.").systemPrompt as { readonly append?: string }).append,
+      "You are a bot.",
+    );
+    assert.isUndefined(options().strictMcpConfig);
+  });
+
   it("does not auto-allow reads for canonical restricted read-only never policy", () => {
     const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
       ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({

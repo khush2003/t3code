@@ -72,6 +72,8 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as AnimaRuntime from "../anima/AnimaRuntime.ts";
+import * as BotBoards from "../bots/BotBoards.ts";
+import { botSessionDue, SESSION_TAIL_RUNS } from "../bots/BotSession.ts";
 import * as ThreadAnimaWake from "./ThreadAnimaWake.ts";
 import {
   isRestartNoteContinuation,
@@ -273,6 +275,7 @@ export const layer: Layer.Layer<
   | TurnItemPositionStore.TurnItemPositionStoreV2
   | ThreadAnimaWake.ThreadAnimaWake
   | AnimaRuntime.AnimaRuntime
+  | BotBoards.BotBoards
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -292,6 +295,7 @@ export const layer: Layer.Layer<
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
     const animaWake = yield* ThreadAnimaWake.ThreadAnimaWake;
     const animaRuntime = yield* AnimaRuntime.AnimaRuntime;
+    const botBoards = yield* BotBoards.BotBoards;
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
     const makeRunControls = (input: {
@@ -1027,9 +1031,45 @@ export const layer: Layer.Layer<
         activeAnima === null
           ? ""
           : yield* animaWake.recall({ name: activeAnima, message: userText });
-      const wakeContext = [identityContext, recallContext, runtimeNotices.text]
-        .filter((part) => part !== "")
-        .join("\n\n");
+      // Only Claude can run with its built-in tools removed, so a bot on any other provider
+      // would be an agent with a shell and rules telling it not to use one.
+      if (projection.thread.bot === true && session.driver !== "claudeAgent") {
+        return yield* new ProviderTurnStartError({
+          runId,
+          cause: "A bot runs on Claude. Choose a Claude model for this thread.",
+        });
+      }
+      const botContextFor = (fresh: boolean) =>
+        projection.thread.bot === true
+          ? botBoards.context(projection.thread.id, projection.subagents, {
+              runId,
+              fresh,
+              startedRunIds: new Set(
+                projection.runs.flatMap((source) => (source.startedAt === null ? [] : [source.id])),
+              ),
+            })
+          : Effect.succeed("");
+      const wakeContextWith = (botContext: string) =>
+        [identityContext, botContext, recallContext, runtimeNotices.text]
+          .filter((part) => part !== "")
+          .join("\n\n");
+      const wakeContext = wakeContextWith(yield* botContextFor(false));
+      const lastEndedRun = projection.runs.findLast(
+        (source) => source.ordinal < run.ordinal && source.completedAt !== null,
+      );
+      const replaceBotSession =
+        projection.thread.bot === true &&
+        providerThread.nativeThreadRef !== null &&
+        // A turn that only compacts needs the session it was asked to compact.
+        !isCompactionCommandMessage(message) &&
+        botSessionDue({
+          usedTokens: (
+            latestNativeContextUsage(projection, providerThread)?.usage ??
+            providerThread.contextUsage
+          )?.usedTokens,
+          lastRunEndedAt: lastEndedRun?.completedAt ?? null,
+          now: yield* DateTime.now,
+        });
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -1259,7 +1299,16 @@ export const layer: Layer.Layer<
             type: "provider_resume_fallback",
           });
           const createdAt = yield* DateTime.now;
-          const history = yield* projectionStore.getTurnStartHistory(input.threadId);
+          const history = yield* projectionStore.getTurnStartHistory(
+            input.threadId,
+            // A bot's conversation never ends: its fresh session gets the tail, its memory the rest.
+            projection.thread.bot === true
+              ? projection.runs
+                  .filter((source) => source.ordinal < run.ordinal)
+                  .slice(-SESSION_TAIL_RUNS)
+                  .map((source) => source.id)
+              : undefined,
+          );
           const boundary = contextBoundaryOrdinal({ runs: projection.runs, turnItems: history });
           const from = Math.max(1, boundary);
           const handoff = yield* contextHandoffService.prepareProviderHandoff({
@@ -1545,7 +1594,7 @@ export const layer: Layer.Layer<
               handoff.strategy === "manual_context",
           );
         const resumed = yield* Effect.result(
-          uncertainDelivery || nativeSessionLacksKeptTurns
+          uncertainDelivery || nativeSessionLacksKeptTurns || replaceBotSession
             ? Effect.fail(
                 new ProviderAdapter.ProviderAdapterTurnStartError({
                   driver: session.driver,
@@ -1554,7 +1603,9 @@ export const layer: Layer.Layer<
                   runId,
                   cause: uncertainDelivery
                     ? "Uncertain native history injection"
-                    : "Native session holds none of the kept conversation",
+                    : replaceBotSession
+                      ? "A bot's session is replaced"
+                      : "Native session holds none of the kept conversation",
                 }),
               )
             : session.resumeThread({
@@ -1637,9 +1688,11 @@ export const layer: Layer.Layer<
             ? "uncertain_history_delivery"
             : nativeSessionLacksKeptTurns
               ? "native_session_lacks_kept_turns"
-              : resumed._tag === "Success"
-                ? "handoff_budget_exhausted"
-                : "resume_failed",
+              : replaceBotSession
+                ? "bot_session_replaced"
+                : resumed._tag === "Success"
+                  ? "handoff_budget_exhausted"
+                  : "resume_failed",
           errorTag: resumed._tag === "Failure" ? resumed.failure._tag : "ContextHandoffBudgetError",
         });
         const replacement = yield* loadFromProvider(
@@ -1970,7 +2023,12 @@ export const layer: Layer.Layer<
               ? ""
               : sideChatHandoff.summaryText;
           const context = [
-            compact ? "" : wakeContext,
+            // A session that turned out fresh holds nothing: the bot gets its charter and board whole.
+            compact
+              ? ""
+              : resumeFellBack && projection.thread.bot === true
+                ? wakeContextWith(yield* botContextFor(true))
+                : wakeContext,
             delivery.context,
             sideChatContext,
             restartNote,

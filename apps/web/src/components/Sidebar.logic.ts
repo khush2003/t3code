@@ -590,6 +590,7 @@ export async function deleteSelectedThreadEntries<
 export function filterSidebarV2VisibleThreads<
   T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
     projectId: string;
+    bot?: boolean;
   },
 >(
   threads: readonly T[],
@@ -599,6 +600,8 @@ export function filterSidebarV2VisibleThreads<
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
+      // Bots have their own section; they are not work in a project.
+      thread.bot !== true &&
       !isShownUnderParent(
         { environmentId: thread.environmentId, threadId: thread.id },
         thread.lineage,

@@ -26,6 +26,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadAnimaRows } from "./ThreadAnimaRows";
+import { BotPanel } from "../bots/BotPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
@@ -59,6 +60,8 @@ interface ThreadDetailsPanelProps extends Pick<
   projectId: ProjectId;
   worktreePath: string | null;
   isServerThread: boolean;
+  /** A bot has no checkout: its board takes the place of the workspace and Git rows. */
+  bot?: boolean;
   draftId?: DraftId;
   composerDraftTarget: ComposerThreadTarget;
   activeProjectName: string | undefined;
@@ -167,16 +170,21 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       }}
     >
       {(density) => {
+        // A bot has no checkout, and its card is the bot itself: what waits, what runs, its files.
+        if (props.bot === true && !props.draftId)
+          return <BotPanel environmentId={props.environmentId} threadId={props.threadId} />;
         // Section flags follow the rows that will render, so no empty section steals the divider rule.
+        const works = props.bot !== true;
         const show = {
           environment: density === "full" && visible.environment,
-          openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
-          scripts: visible.scripts && props.activeProjectScripts !== undefined,
-          anima: density !== "essential",
-          branch: offersGit && props.isGitRepo && visible.branch,
+          openIn: works && density !== "essential" && visible.openIn && props.showOpenInPicker,
+          scripts: works && visible.scripts && props.activeProjectScripts !== undefined,
+          anima: works && density !== "essential",
+          branch: works && offersGit && props.isGitRepo && visible.branch,
           // Without a branch selector, linked pull requests still need somewhere to show.
-          pullRequests: !(offersGit && props.isGitRepo) && visible.branch,
+          pullRequests: works && !(offersGit && props.isGitRepo) && visible.branch,
           git:
+            works &&
             offersGit &&
             props.activeProjectName !== undefined &&
             (visible.gitActions || (visible.changes && props.isGitRepo)),
@@ -277,7 +285,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ) : null}
 
-              {density === "full" && !props.draftId && visible.servers ? (
+              {works && density === "full" && !props.draftId && visible.servers ? (
                 <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}
 
@@ -292,7 +300,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 <ThreadRelationshipsPanel
                   environmentId={props.environmentId}
                   threadId={props.threadId}
-                  showLineage={visible.lineage}
+                  // A bot's tasks are on its board.
+                  showLineage={works && visible.lineage}
                   showSideChats={visible.sideChats}
                 />
               ) : null}

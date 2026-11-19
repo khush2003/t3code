@@ -1591,6 +1591,96 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "bot-board":
+      label = done ? resolve(msg("Read the board")) : resolve(msg("Tried to read the board"));
+      break;
+    case "bot-item-save": {
+      const count = countEntities(
+        selected.map((call) => id(call.output?.id) ?? id(call.input?.id) ?? id(call.input?.title)),
+      );
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Saved {count} work item} other {Saved {count} work items}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to save {count} work item} other {Tried to save {count} work items}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "bot-charter-set":
+      label = done
+        ? resolve(msg("Changed its charter"))
+        : resolve(msg("Tried to change its charter"));
+      break;
+    case "bot-recall":
+      label = done
+        ? resolve(msg("Looked back through its memory"))
+        : resolve(msg("Tried to look back through its memory"));
+      break;
+    case "bot-note-retire": {
+      const count = countEntities(entityIds("id"));
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Retired {count} note} other {Retired {count} notes}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to retire {count} note} other {Tried to retire {count} notes}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "bot-tell": {
+      const bots = [...new Set(entityIds("bot").filter((bot) => bot !== undefined))];
+      if (bots.length === 1) {
+        const bot = bots[0]!;
+        label = done
+          ? resolve(msg("Asked {bot}", { bot }))
+          : resolve(msg("Tried to ask {bot}", { bot }));
+        break;
+      }
+      const count = Math.max(bots.length, 1);
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Asked {count} other bot} other {Asked {count} other bots}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to ask {count} other bot} other {Tried to ask {count} other bots}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "bot-file-give": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Handed over {count} file} other {Handed over {count} files}}",
+              {
+                count,
+              },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to hand over {count} file} other {Tried to hand over {count} files}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "anima-health": {
       const count = countEntities(entityIds("name"));
       label = done

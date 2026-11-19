@@ -1450,6 +1450,64 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.label).toBe("Worked for 12s");
   });
 
+  it("folds a bot's finished turn under what it did, with how long it took beside it", () => {
+    const at = (second: number) => `2026-01-01T00:00:${String(second).padStart(2, "0")}Z`;
+    const message = (id: string, role: "user" | "assistant", second: number) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at(second),
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        runId: (role === "user" ? null : "turn-1") as never,
+        createdAt: at(second),
+        updatedAt: at(second),
+        streaming: false,
+      },
+    });
+    const input = {
+      timelineEntries: [
+        message("user-1", "user", 0),
+        {
+          id: "work-entry-1",
+          kind: "work" as const,
+          createdAt: at(3),
+          entry: {
+            id: "work-1",
+            createdAt: at(3),
+            runId: "turn-1" as never,
+            label: "mcp__t3-code__t3_bot_tell",
+            tone: "tool" as const,
+            toolLifecycleStatus: "completed" as const,
+            toolData: { input: { bot: "rover", message: "is beta 8 out?" } },
+          },
+        },
+        message("assistant-1", "assistant", 9),
+      ],
+      latestRun: {
+        runId: "turn-1" as never,
+        status: "completed" as const,
+        startedAt: at(0),
+        completedAt: at(9),
+      },
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    };
+    const fold = (rows: ReturnType<typeof deriveMessagesTimelineRows>) =>
+      rows.find(
+        (row): row is Extract<(typeof rows)[number], { kind: "turn-fold" }> =>
+          row.kind === "turn-fold",
+      );
+    expect(fold(deriveMessagesTimelineRows({ ...input, foldInWords: true }))).toMatchObject({
+      label: "Asked rover",
+      meta: "9s",
+    });
+    expect(fold(deriveMessagesTimelineRows(input))).toMatchObject({ label: "Worked for 9s" });
+    expect(fold(deriveMessagesTimelineRows(input))).not.toHaveProperty("meta");
+  });
+
   it("uses latest-turn timings and the stopped label for an interrupted latest turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [

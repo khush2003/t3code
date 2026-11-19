@@ -71,6 +71,13 @@ export type T3McpToolSummaryAction =
   | "anima-library-list"
   | "anima-library-read"
   | "anima-health"
+  | "bot-board"
+  | "bot-item-save"
+  | "bot-charter-set"
+  | "bot-recall"
+  | "bot-note-retire"
+  | "bot-tell"
+  | "bot-file-give"
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
@@ -435,6 +442,13 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_theme_read: tool(["Read", "Reading", "Read", "themes"], "theme-read"),
   t3_theme_set: tool(["Set", "Setting", "Set", "the theme"], "theme-set"),
   t3_anima_list: tool(["List", "Listing", "Listed", "animas"], "anima-list"),
+  t3_bot_board: tool(["Read", "Reading", "Read", "the board"], "bot-board"),
+  t3_bot_item_save: tool(["Save", "Saving", "Saved", "a work item"], "bot-item-save"),
+  t3_bot_charter_set: tool(["Change", "Changing", "Changed", "its charter"], "bot-charter-set"),
+  t3_bot_recall: tool(["Look", "Looking", "Looked", "back through its memory"], "bot-recall"),
+  t3_bot_note_retire: tool(["Retire", "Retiring", "Retired", "a note"], "bot-note-retire"),
+  t3_bot_tell: tool(["Ask", "Asking", "Asked", "another bot"], "bot-tell"),
+  t3_bot_file_give: tool(["Hand", "Handing", "Handed", "over a file"], "bot-file-give"),
   t3_anima_read: tool(["Read", "Reading", "Read", "an anima"], "anima-read"),
   t3_anima_policy: tool(["Update", "Updating", "Updated", "an anima policy"], "anima-policy"),
   t3_anima_attach: tool(

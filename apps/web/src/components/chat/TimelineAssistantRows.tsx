@@ -38,6 +38,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { vcsEnvironment } from "../../state/vcs";
 
 const NO_VCS_STATUS = Atom.make(AsyncResult.initial());
+import { BotReplyInThreadButton, BotThreadMarker } from "../bots/BotChatThreads";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -55,7 +56,14 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     <>
       <div className="relative min-w-0 px-1 py-0.5">
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <div data-thread-find-text="true">
+        <div
+          data-thread-find-text="true"
+          className={
+            ctx.botThread
+              ? "w-fit max-w-4/5 rounded-2xl rounded-es-md bg-message px-3.5 py-2 text-message-foreground"
+              : undefined
+          }
+        >
           <AssistantCitationSource
             messageId={row.message.id}
             {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
@@ -83,6 +91,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             />
           </AssistantCitationSource>
         </div>
+        <BotThreadMarker messageId={row.message.id} align="start" />
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection
             turnSummary={row.assistantTurnDiffSummary}
@@ -245,6 +254,7 @@ function AssistantMessageMeta({
       {projectedItem && projectedItem.item.status !== "completed" ? (
         <AssistantStatusBadge status={projectedItem.item.status} />
       ) : null}
+      {message.streaming ? null : <BotReplyInThreadButton messageId={message.id} />}
       <AssistantCopyButton
         message={message}
         showCopyButton={showCopyButton}

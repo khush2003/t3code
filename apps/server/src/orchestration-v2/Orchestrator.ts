@@ -2339,7 +2339,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .subagents[0];
     // An unknown task gives no evidence the question is obsolete.
     if (task === undefined) return false;
-    const childThreadId = task.childThreadId;
+    // A bot's task is an ordinary thread here, which the task names as its remote child.
+    const childThreadId =
+      task.childThreadId ??
+      (task.remoteChild !== undefined && task.remoteChild.threadId === source.childThreadId
+        ? task.remoteChild.threadId
+        : null);
     if (
       childThreadId === null ||
       ["completed", "failed", "cancelled", "interrupted"].includes(task.status)
@@ -3807,14 +3812,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(command.bot === true ? { bot: true } : {}),
       ...(command.animaName == null ? {} : { animaName: command.animaName }),
       activeProviderThreadId: null,
       pullRequests: [],
       ...(command.linkOrigin === undefined ? {} : { linkOrigin: command.linkOrigin }),
-      // Only stamped work names a remote parent, so a client cannot claim one.
-      ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
-        ? {}
-        : { delegatedFrom: command.delegatedFrom }),
+      // Only the server sets this: client commands and agent launches without a link drop it.
+      ...(command.delegatedFrom === undefined ? {} : { delegatedFrom: command.delegatedFrom }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -4257,7 +4261,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.metadata.update" &&
       command.animaName !== undefined &&
-      thread.animaWokenAt != null &&
+      (thread.animaWokenAt != null || thread.bot === true) &&
       thread.animaName != null &&
       command.animaName !== thread.animaName
     ) {
@@ -7187,6 +7191,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         0 &&
       !hasTitleSetBeforeFirstMessage(projection.thread, command.titleSeed);
     if (
+      // A bot's chat spans all its work, so it stays named after its anima.
+      projection.thread.bot !== true &&
       !isNativeMaintenanceCommand(command) &&
       (seedsUntitledThread || (command.createdBy === "user" && (yield* onlyMaintenanceHistory)))
     ) {

@@ -16,10 +16,43 @@ import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineRowCtx, type TimelineRow } from "./timelineRowContext";
 import { subagentGroupTiming } from "./TimelineV2EventRow.logic";
+import { BotChatTask } from "../bots/BotChatTask";
 
 export function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
   const { item, visibility } = row.projectedItem;
+  // A bot's tasks read as the task blocks its board shows, one under the other.
+  if (ctx.botThread && ctx.threadRef !== null && item.type === "subagent") {
+    const botThreadId = ctx.threadRef.threadId;
+    return (
+      <div className="flex flex-col px-1">
+        {(row.subagents ?? [row.projectedItem]).map(({ item: task }) => {
+          if (task.type !== "subagent") return null;
+          const card = (
+            <V2LifecycleRow
+              key={task.id}
+              environmentId={ctx.activeThreadEnvironmentId}
+              item={task}
+              runs={ctx.runs}
+              onOpenThread={ctx.onOpenThread}
+            />
+          );
+          const taskThreadId = task.remoteChild?.threadId ?? task.childThreadId;
+          return taskThreadId == null ? (
+            card
+          ) : (
+            <BotChatTask
+              key={task.id}
+              environmentId={ctx.activeThreadEnvironmentId}
+              botThreadId={botThreadId}
+              taskThreadId={taskThreadId}
+              fallback={card}
+            />
+          );
+        })}
+      </div>
+    );
+  }
   if (item.type === "subagent" && (row.subagents?.length ?? 1) > 1) {
     return <V2SubagentGroup key={row.id} row={row} />;
   }

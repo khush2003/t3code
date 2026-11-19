@@ -307,6 +307,10 @@ export const AnimaRecordInput = Schema.Struct({
   tensions: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   /** Tensions this breath resolves; the CLI closes a tension named among the decisions. */
   resolves: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** Consequential choices and what came of them. */
+  decisions: Schema.optional(TrimmedNonEmptyString),
+  /** The surprise, failure or correction this breath records. */
+  friction: Schema.optional(TrimmedNonEmptyString),
 });
 export type AnimaRecordInput = typeof AnimaRecordInput.Type;
 

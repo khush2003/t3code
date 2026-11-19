@@ -4,6 +4,13 @@ import * as Random from "effect/Random";
 import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
+import * as BotBoards from "./bots/BotBoards.ts";
+import * as BotFiles from "./bots/BotFiles.ts";
+import * as BotJournal from "./bots/BotJournal.ts";
+import * as BotReflection from "./bots/BotReflection.ts";
+import * as BotRelay from "./bots/BotRelay.ts";
+import * as BotService from "./bots/BotService.ts";
+import * as DiskGuard from "./diskGuard.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
@@ -90,6 +97,7 @@ import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrid
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
+import * as HereTaskThreads from "./peer/HereTaskThreads.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
@@ -694,7 +702,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
   layerIdleCompactionWorker,
-  StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
+  DiskGuard.layer.pipe(
+    Layer.provideMerge(StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  ),
   DatabaseStorage.layer.pipe(
     Layer.provide(ProjectionMaintenance.layer),
     Layer.provide(layerServerRestart),
@@ -729,6 +739,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
+  BotService.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,
   ReplayMarkers.layer,
@@ -757,6 +768,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(ProviderInstallationGate.layer),
   // Below hydration so the Claude adapter's pre-tool hook reaches the instance orchestration feeds.
   Layer.provideMerge(AnimaRuntime.layer),
+  // Bot memory lives in its own database beside statev2.sqlite.
+  Layer.provideMerge(BotBoards.layerProvided),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),
@@ -874,12 +887,30 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.effectDiscard(
     RemoteDelegation.RemoteDelegation.pipe(Effect.flatMap((remote) => remote.start())),
   ),
+  // Reads a task's messages from its machine through the delegation above.
+  Layer.effectDiscard(
+    BotJournal.BotJournal.pipe(Effect.flatMap((journal) => journal.start())),
+  ).pipe(Layer.provide(BotJournal.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    BotReflection.BotReflection.pipe(Effect.flatMap((reflection) => reflection.start())),
+  ).pipe(Layer.provide(BotReflection.layer)),
+  Layer.effectDiscard(BotRelay.BotRelay.pipe(Effect.flatMap((relay) => relay.start()))).pipe(
+    Layer.provide(BotRelay.layer),
+    Layer.provide(ProjectionStoreV2.layer),
+  ),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
   ),
+  // What a bot's tasks hand it, from /mcp.
+  Layer.provide(BotFiles.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // delegate_task to a linked environment, from /mcp and the follower above.
-  Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  Layer.provide(
+    RemoteDelegation.layer.pipe(
+      Layer.provide(ProjectionStoreV2.layer),
+      Layer.provide(HereTaskThreads.layer),
+    ),
+  ),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.

@@ -148,6 +148,22 @@ import {
   AnimaOnboardingPromptResult,
 } from "./anima.ts";
 import {
+  BotBoard,
+  BotBoardInput,
+  BotCharterSetInput,
+  BotMemory,
+  BotMemoryInput,
+  BotNoteRetireInput,
+  BotError,
+  BotListResult,
+  BotRejectedError,
+  BotStartInput,
+  BotStartResult,
+  BotLookSetInput,
+  BotThreadStartInput,
+  BotThreadStartResult,
+} from "./bots.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -515,6 +531,14 @@ export const WS_METHODS = {
   animaBreathe: "anima.breathe",
   animaWakePreview: "anima.wakePreview",
   animaOnboardingPrompt: "anima.onboardingPrompt",
+  botsStart: "bots.start",
+  botsThreadStart: "bots.threadStart",
+  botsList: "bots.list",
+  botsBoard: "bots.board",
+  botsMemory: "bots.memory",
+  botsNoteRetire: "bots.noteRetire",
+  botsCharterSet: "bots.charterSet",
+  botsLookSet: "bots.lookSet",
   animaExport: "anima.export",
   animaCompare: "anima.compare",
   animaImport: "anima.import",
@@ -1792,6 +1816,54 @@ const WsAnimaOnboardingPromptRpc = Rpc.make(WS_METHODS.animaOnboardingPrompt, {
   ]),
 });
 
+const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
+  payload: BotStartInput,
+  success: BotStartResult,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsThreadStartRpc = Rpc.make(WS_METHODS.botsThreadStart, {
+  payload: BotThreadStartInput,
+  success: BotThreadStartResult,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsListRpc = Rpc.make(WS_METHODS.botsList, {
+  payload: Schema.Struct({}),
+  success: BotListResult,
+  error: Schema.Union([BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsBoardRpc = Rpc.make(WS_METHODS.botsBoard, {
+  payload: BotBoardInput,
+  success: BotBoard,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsMemoryRpc = Rpc.make(WS_METHODS.botsMemory, {
+  payload: BotMemoryInput,
+  success: BotMemory,
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsNoteRetireRpc = Rpc.make(WS_METHODS.botsNoteRetire, {
+  payload: BotNoteRetireInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsLookSetRpc = Rpc.make(WS_METHODS.botsLookSet, {
+  payload: BotLookSetInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
+const WsBotsCharterSetRpc = Rpc.make(WS_METHODS.botsCharterSet, {
+  payload: BotCharterSetInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([BotRejectedError, BotError, EnvironmentAuthorizationError]),
+});
+
 const WsAnimaWakePreviewRpc = Rpc.make(WS_METHODS.animaWakePreview, {
   payload: AnimaWakePreviewInput,
   success: AnimaWakePreviewResult,
@@ -2769,6 +2841,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsAnimaBreatheRpc,
   WsAnimaWakePreviewRpc,
   WsAnimaOnboardingPromptRpc,
+  WsBotsStartRpc,
+  WsBotsThreadStartRpc,
+  WsBotsListRpc,
+  WsBotsBoardRpc,
+  WsBotsMemoryRpc,
+  WsBotsNoteRetireRpc,
+  WsBotsCharterSetRpc,
+  WsBotsLookSetRpc,
   WsAnimaExportRpc,
   WsAnimaCompareRpc,
   WsAnimaImportRpc,

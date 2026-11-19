@@ -4,7 +4,12 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as AnimaService from "./AnimaService.ts";
 import * as AnimaThreadService from "./AnimaThreadService.ts";
 
@@ -44,7 +49,18 @@ const run = (
       ),
     });
     const layer = AnimaThreadService.layer.pipe(
-      Layer.provide(Layer.mergeAll(threads, animas, NodeCrypto.layer)),
+      Layer.provide(
+        Layer.mergeAll(
+          threads,
+          animas,
+          NodeCrypto.layer,
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({} as never),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+          ServerSettings.layerTest(),
+        ),
+      ),
     );
     const service = yield* AnimaThreadService.AnimaThreadService.pipe(Effect.provide(layer));
     return service;

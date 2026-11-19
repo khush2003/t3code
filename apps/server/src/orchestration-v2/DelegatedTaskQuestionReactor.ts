@@ -1,4 +1,5 @@
 import {
+  type OrchestrationV2AppThread,
   CommandId,
   MessageId,
   type OrchestrationV2DomainEvent,
@@ -34,9 +35,9 @@ const make = Effect.gen(function* () {
 
   const wakeParent = Effect.fnUntraced(function* (
     task: OrchestrationV2Subagent,
+    childThreadId: ThreadId,
     request: OrchestrationV2RuntimeRequest,
   ) {
-    if (task.childThreadId === null) return;
     const key = `${task.threadId}:${request.id}`;
     const label = reportLabel(task.title?.trim() || task.prompt);
     const situation =
@@ -48,9 +49,9 @@ const make = Effect.gen(function* () {
       commandId: CommandId.make(`server:delegated-task-question:${key}`),
       threadId: task.threadId,
       messageId: MessageId.make(`message:delegated-task-question:${key}`),
-      text: `${situation} Read it with t3_pending_request action read, threadId ${task.childThreadId}, and requestId ${request.id}. Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it. If it is no longer pending, it was answered or dismissed.`,
+      text: `${situation} Read it with t3_pending_request action read, threadId ${childThreadId}, and requestId ${request.id}. Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it. If it is no longer pending, it was answered or dismissed.`,
       notification: {
-        source: { kind: "delegated_task", taskIds: [task.id], childThreadId: task.childThreadId },
+        source: { kind: "delegated_task", taskIds: [task.id], childThreadId },
         outcome: "updated",
         summary: `Delegated task${label === undefined ? "" : ` "${label}"`} has a question`,
       },
@@ -92,6 +93,22 @@ const make = Effect.gen(function* () {
     }
   });
 
+  /**
+   * A bot's task is an ordinary project thread with no parent; it names its bot instead, and the
+   * bot's task record names it back. Work sent from another machine names a thread not here.
+   */
+  const botTaskFor = (child: OrchestrationV2AppThread) =>
+    child.delegatedFrom === undefined
+      ? Effect.undefined
+      : projections.getThreadRecords(child.delegatedFrom.threadId, ["subagents"]).pipe(
+          Effect.map(({ subagents }) =>
+            subagents.find(
+              (task) => task.remoteChild?.threadId === child.id && task.result === null,
+            ),
+          ),
+          Effect.orElseSucceed(() => undefined),
+        );
+
   // Runs for every domain event; most events return before any work is needed.
   const handle: DelegatedTaskQuestionReactor["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
@@ -121,7 +138,7 @@ const make = Effect.gen(function* () {
             ) {
               continue;
             }
-            yield* wakeParent(task, request).pipe(
+            yield* wakeParent(task, task.childThreadId, request).pipe(
               Effect.catchCause((cause) =>
                 Effect.logWarning("catching up a delegated task question failed", {
                   taskId: task.id,
@@ -178,7 +195,8 @@ const make = Effect.gen(function* () {
         return;
       }
       const child = yield* projections.getThread(event.threadId);
-      const parentThreadId = child.lineage.parentThreadId;
+      const botTask = child.lineage.parentThreadId === null ? yield* botTaskFor(child) : undefined;
+      const parentThreadId = child.lineage.parentThreadId ?? botTask?.threadId ?? null;
       if (parentThreadId === null) return;
       const request = yield* projections.getRuntimeRequest(event.threadId, event.payload.id);
       if (event.payload.status !== "pending" || request?.status !== "pending") {
@@ -193,9 +211,11 @@ const make = Effect.gen(function* () {
       const taskId =
         run?.delegatedTaskId ??
         (child.forkedFrom?.type === "node" ? child.forkedFrom.nodeId : undefined);
-      const task = parent.subagents.find(
-        (candidate) => candidate.origin === "app_owned" && candidate.id === taskId,
-      );
+      const task =
+        botTask ??
+        parent.subagents.find(
+          (candidate) => candidate.origin === "app_owned" && candidate.id === taskId,
+        );
       if (
         task === undefined ||
         parent.thread.archivedAt !== null ||
@@ -203,8 +223,9 @@ const make = Effect.gen(function* () {
       ) {
         return;
       }
-      // A blocking delegate_task wait delivers the question itself.
+      // A blocking delegate_task wait delivers the question itself; a bot never waits.
       if (
+        botTask === undefined &&
         task.completionWake === "settled_only" &&
         event.payload.responseCapability.type === "live" &&
         parent.runs.some(
@@ -215,7 +236,7 @@ const make = Effect.gen(function* () {
       ) {
         return;
       }
-      yield* wakeParent(task, request);
+      yield* wakeParent(task, child.id, request);
     },
     (effect, event) =>
       effect.pipe(
@@ -238,9 +259,14 @@ const make = Effect.gen(function* () {
         return Effect.succeed(event.payload.threadId);
       case "runtime-request.updated":
         return event.payload.kind === "user_input"
-          ? projections
-              .getThread(event.threadId)
-              .pipe(Effect.map((child) => child.lineage.parentThreadId))
+          ? projections.getThread(event.threadId).pipe(
+              Effect.flatMap((child) =>
+                child.lineage.parentThreadId === null
+                  ? // A bot's task has no parent; the bot that started it is who it asks.
+                    botTaskFor(child).pipe(Effect.map((task) => task?.threadId ?? null))
+                  : Effect.succeed<ThreadId | null>(child.lineage.parentThreadId),
+              ),
+            )
           : Effect.succeed(null);
       default:
         return Effect.succeed(null);

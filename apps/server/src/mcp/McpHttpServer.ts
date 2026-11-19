@@ -59,6 +59,8 @@ import * as AnimaService from "../anima/AnimaService.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { AnimaToolkit } from "./toolkits/anima/tools.ts";
 import * as AnimaHandlers from "./toolkits/anima/handlers.ts";
+import { BotToolkit } from "./toolkits/bots/tools.ts";
+import * as BotHandlers from "./toolkits/bots/handlers.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
@@ -1346,6 +1348,11 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
   Layer.provide(ThreadCommandExecutor.layer),
 );
 
+const layerBotToolkit = toolkitRegistration(BotToolkit, BotHandlers.layer).pipe(
+  // One bot tells another through the same send every thread uses.
+  Layer.provide(OrchestratorMcpService.layer),
+);
+
 const layerAnimaToolkit = toolkitRegistration(AnimaToolkit, AnimaHandlers.layer).pipe(
   Layer.provide(AnimaService.layer),
   Layer.provide(ProcessRunner.layer),
@@ -1419,6 +1426,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerThemeToolkit,
   layerAnimaToolkit,
+  layerBotToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

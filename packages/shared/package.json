@@ -187,6 +187,10 @@
       "types": "./src/t3ProjectFile.ts",
       "import": "./src/t3ProjectFile.ts"
     },
+    "./botMessages": {
+      "types": "./src/botMessages.ts",
+      "import": "./src/botMessages.ts"
+    },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
       "import": "./src/orchestrationTiming.ts"

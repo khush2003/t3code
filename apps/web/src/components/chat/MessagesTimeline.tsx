@@ -304,6 +304,7 @@ interface MessagesTimelineProps {
   onFileDownload?: (attachment: ChatFileAttachment) => void;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
+  botThread?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -406,6 +407,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onFileDownload = NOOP_OPEN_ATTACHMENT,
   activeThreadEnvironmentId,
   markdownCwd,
+  botThread = false,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
@@ -759,6 +761,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
     toolCallVisibility,
     revealedMessageId,
+    foldInWords: botThread,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
   const matchedApprovalRequestIds = new Set<string>();
@@ -1115,6 +1118,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     routeThreadKey,
     threadRef: citationThreadRef,
     markdownCwd,
+    botThread,
     resolvedTheme,
     workspaceRoot,
     skills,
@@ -1877,6 +1881,9 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
             {row.label}
             {error ? ` · ${error}` : ""}
           </span>
+          {row.meta === undefined ? null : (
+            <span className="ms-1 text-xs text-muted-foreground/70">{row.meta}</span>
+          )}
           {row.expanded ? (
             <ChevronDownIcon className="size-3.5" />
           ) : (

@@ -304,7 +304,9 @@ function CleanupResults({
                 : entry.path?.split(/[\\/]/).findLast(Boolean)) ?? gt("Worktrees"))
             : entry.kind === "logs"
               ? gt("Rotated logs")
-              : gt("Browser artifacts");
+              : entry.kind === "tool-output"
+                ? gt("Old tool output")
+                : gt("Browser artifacts");
         return (
           <SettingsRow
             key={`${entry.path ?? entry.kind}:${entry.threadId ?? index}`}
@@ -352,10 +354,15 @@ function CleanupResults({
                 <span className="text-xs text-muted-foreground">
                   {[
                     entry.kind !== "worktree" && entry.files !== null
-                      ? gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
-                          count: entry.files,
-                          formatted: entry.files.toLocaleString(),
-                        })
+                      ? entry.kind === "tool-output"
+                        ? gt(
+                            "{count, plural, one {{formatted} tool call} other {{formatted} tool calls}}",
+                            { count: entry.files, formatted: entry.files.toLocaleString() },
+                          )
+                        : gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
+                            count: entry.files,
+                            formatted: entry.files.toLocaleString(),
+                          })
                       : null,
                     entry.bytes !== null ? formatBytes(entry.bytes) : null,
                   ]

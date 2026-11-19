@@ -35,6 +35,32 @@ describe("summarizeT3ToolCalls", () => {
     ).toBe("Sent 2 messages to 1 thread");
   });
 
+  it("says what a bot did in the words its person uses", () => {
+    expect(summarizeT3ToolCalls("bot-board", [completed({})]).label).toBe("Read the board");
+    expect(
+      summarizeT3ToolCalls("bot-tell", [
+        completed({ bot: "rover", message: "a" }),
+        completed({ bot: "rover", message: "b" }),
+      ]).label,
+    ).toBe("Asked rover");
+    expect(
+      summarizeT3ToolCalls("bot-tell", [completed({ bot: "rover" }), completed({ bot: "scout" })])
+        .label,
+    ).toBe("Asked 2 other bots");
+    // Saving one item twice is one item.
+    expect(
+      summarizeT3ToolCalls("bot-item-save", [
+        completed({ title: "Posters" }, { id: "item:1" }),
+        completed({ id: "item:1", nextStep: "wait" }, { id: "item:1" }),
+        completed({ title: "Video" }, { id: "item:2" }),
+      ]).label,
+    ).toBe("Saved 2 work items");
+    expect(
+      summarizeT3ToolCalls("bot-file-give", [{ input: {}, output: undefined, outcome: "failed" }])
+        .label,
+    ).toBe("Tried to hand over 1 file");
+  });
+
   it("counts the pull requests batch link and unlink calls changed", () => {
     const urls = ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/1", "not-a-pr"];
     const links = completed({ urls }, { linkedCount: 1 });

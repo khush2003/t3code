@@ -230,16 +230,25 @@ function resolveT3McpToolPresentation(
             : status === "stopped"
               ? `Stopped ${running.toLowerCase()}`
               : running;
+  // A bot's row names who it asked and what it saved, which no fixed sentence can.
+  const botDetail =
+    definition.summaryAction === "bot-tell" && typeof input?.bot === "string"
+      ? input.bot
+      : definition.summaryAction === "bot-item-save" && typeof input?.title === "string"
+        ? `work item ${input.title}`
+        : null;
   const displayName =
-    sentence === undefined
-      ? `${fallbackVerb} ${pullRequestNumber === null ? detail : `${shortLabel} #${pullRequestNumber}`}`
-      : pullRequestNumber !== null && sentence.changeRequest !== undefined
-        ? resolve(sentence.changeRequest, {
-            status: statusKey,
-            changeRequest: shortLabel,
-            number: String(pullRequestNumber),
-          })
-        : resolve(sentence.detail, { status: statusKey });
+    botDetail !== null
+      ? `${fallbackVerb} ${botDetail}`
+      : sentence === undefined
+        ? `${fallbackVerb} ${pullRequestNumber === null ? detail : `${shortLabel} #${pullRequestNumber}`}`
+        : pullRequestNumber !== null && sentence.changeRequest !== undefined
+          ? resolve(sentence.changeRequest, {
+              status: statusKey,
+              changeRequest: shortLabel,
+              number: String(pullRequestNumber),
+            })
+          : resolve(sentence.detail, { status: statusKey });
   return {
     displayName,
     icon: definition.icon,
@@ -666,6 +675,9 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "attachment-prepare":
     case "attachment-discard":
     case "attachment-send":
+    case "bot-item-save":
+    case "bot-tell":
+    case "bot-file-give":
       return 0;
     case "other":
     case "update":
@@ -675,9 +687,20 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
   }
 }
 
+/** Finding out where things are, which a brief summary leaves out when anything was done. */
+const BRIEF_LOOKUPS: ReadonlySet<ToolGroupAction | T3McpToolSummaryAction> = new Set([
+  "capabilities",
+  "project-list",
+  "project-read",
+  "environment-read",
+  "environment-links",
+]);
+
 export function summarizeToolGroup(
   entries: ReadonlyArray<WorkLogPresentationEntry>,
   resolve: MFunctionType = mFallback,
+  /** `brief` names what was done and leaves out lookups, retried failures and the uncounted rest. */
+  options?: { readonly brief?: boolean },
 ): {
   summary: string;
   hasFailure: boolean;
@@ -717,7 +740,7 @@ export function summarizeToolGroup(
     if (group) group.entries.push(entry);
     else groups.set(key, { action, t3Action, entries: [entry] });
   }
-  const summaries = [...groups].map(([action, group], index) => ({
+  const allSummaries = [...groups].map(([action, group], index) => ({
     index,
     count: group.entries.length,
     priority: summaryActionPriority(action),
@@ -732,6 +755,11 @@ export function summarizeToolGroup(
           failedCount: group.entries.filter(workEntryDisplayIndicatesToolFailure).length,
         }),
   }));
+  const told = allSummaries.filter(
+    (group, index) =>
+      !BRIEF_LOOKUPS.has([...groups.keys()][index]!) && group.failedCount < group.count,
+  );
+  const summaries = options?.brief === true && told.length > 0 ? told : allSummaries;
   const selected = [...summaries]
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
     .slice(0, 2)
@@ -760,7 +788,7 @@ export function summarizeToolGroup(
   ).length;
   const remainingCount =
     entries.length - sourcedCount - selected.reduce((count, group) => count + group.count, 0);
-  if (remainingCount > 0) {
+  if (remainingCount > 0 && (options?.brief !== true || labels.length === 0)) {
     labels.push(
       resolve(
         msg(

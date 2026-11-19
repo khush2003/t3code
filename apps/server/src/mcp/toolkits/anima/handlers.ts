@@ -1,6 +1,5 @@
 import { type AnimaName, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as AnimaService from "../../../anima/AnimaService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { loadCaller, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
@@ -79,37 +78,6 @@ export const layer = McpToolAccess.toLayer(AnimaToolkit, {
       const animas = yield* AnimaService.AnimaService;
       return yield* animas
         .record({ ...input, name: name as AnimaName })
-        .pipe(Effect.mapError(failure));
-    }),
-  ),
-  t3_anima_inbox_read: McpToolAccess.reads((input) =>
-    Effect.gen(function* () {
-      const name = yield* callerAnima(input.name);
-      const animas = yield* AnimaService.AnimaService;
-      const messages = yield* animas.inbox(name).pipe(Effect.mapError(failure));
-      return { name, messages };
-    }),
-  ),
-  t3_anima_inbox_send: McpToolAccess.writesEnvironment((input) =>
-    Effect.gen(function* () {
-      const { action } = input;
-      const animas = yield* AnimaService.AnimaService;
-      if (action.type === "reply") {
-        const name = yield* callerAnima(input.name);
-        return yield* animas.inboxAction({ name, action }).pipe(Effect.mapError(failure));
-      }
-      if (input.name === undefined)
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "Pass name: the anima to message.",
-        });
-      const from =
-        action.from ?? Option.getOrUndefined(yield* Effect.option(callerAnima(undefined)));
-      return yield* animas
-        .inboxAction({
-          name: input.name,
-          action: from === undefined ? action : { ...action, from },
-        })
         .pipe(Effect.mapError(failure));
     }),
   ),

@@ -163,6 +163,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { BOT_RULES } from "../../bots/BotContext.ts";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
 import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExecutable.ts";
 import * as ProviderInstallationGate from "../../provider/ProviderInstallationGate.ts";
@@ -2249,6 +2250,7 @@ export function makeClaudeQueryOptions(input: {
   readonly hooks?: ClaudeQueryOptions["hooks"];
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
+  readonly botRules?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
 }): ClaudeAgentSdkQueryOptions {
@@ -2384,6 +2386,9 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    // With no built-in tools there is no tool search, so every tool of every server the user
+    // has set up would be spelled out in a bot's session. A bot uses T3's tools alone.
+    ...(input.botRules === undefined ? {} : { strictMcpConfig: true }),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
@@ -2397,6 +2402,7 @@ export function makeClaudeQueryOptions(input: {
               (deviceInstructions
                 ? `\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH}\n`
                 : "")),
+        ...(input.botRules === undefined ? [] : [input.botRules]),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -3442,6 +3448,14 @@ const CLAUDE_BYPASS_FULLY_AVAILABLE: ClaudeBypassAvailability = {
   bypassDisabled: false,
   autoDisabled: false,
 };
+
+/** A bot only talks and delegates: MCP tools stay, every built-in tool goes. */
+export function claudeBuiltInTools(
+  appThread: Pick<OrchestrationV2AppThread, "bot">,
+  queryPolicy: Pick<ClaudeRuntimeQueryPolicy, "tools">,
+): ClaudeAgentSdkQueryTools {
+  return appThread.bot === true ? [] : (queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS);
+}
 
 export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
@@ -12985,7 +12999,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 : undefined,
               shouldResume,
             ),
-            tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
+            tools: claudeBuiltInTools(turnInput.appThread, queryPolicy),
+            ...(turnInput.appThread.bot === true ? { botRules: BOT_RULES } : {}),
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),

@@ -1,3 +1,8 @@
+import { BotBoards } from "../bots/BotBoards.ts";
+import { BotFiles } from "../bots/BotFiles.ts";
+import { BotStore } from "../bots/BotStore.ts";
+import { DiskGuard } from "../diskGuard.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -64,6 +69,11 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(McpProviderSessions)({}),
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
+  Layer.mock(DiskGuard)({}),
+  Layer.mock(BotStore)({}),
+  Layer.mock(BotBoards)({}),
+  Layer.mock(BotFiles)({}),
+  Layer.mock(ProjectStoreV2)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
