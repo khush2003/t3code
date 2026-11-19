@@ -1,5 +1,6 @@
 import {
   BotError,
+  type BotLook,
   type BotName,
   BotWorkItemId,
   type BotWorkItemState,
@@ -220,6 +221,9 @@ export class BotStore extends Context.Service<
     readonly markBotMessageAnswered: (id: number) => Effect.Effect<void, BotError>;
     /** Names a bot's main chat. */
     readonly setThread: (name: BotName, threadId: ThreadId) => Effect.Effect<void, BotError>;
+    /** How each bot that was given a look shows, by name. */
+    readonly looks: Effect.Effect<ReadonlyMap<BotName, BotLook>, BotError>;
+    readonly setLook: (name: BotName, look: BotLook) => Effect.Effect<void, BotError>;
     /** The bot a conversation belongs to: its main chat or any thread opened beside it. */
     readonly botForThread: (threadId: ThreadId) => Effect.Effect<BotRecord | null, BotError>;
     readonly conversation: (threadId: ThreadId) => Effect.Effect<BotConversation | null, BotError>;
@@ -368,7 +372,7 @@ export class BotStore extends Context.Service<
   }
 >()("t3/bots/BotStore") {}
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 const BACKUPS_KEPT = 7;
 const BACKUP_NAME = /^bots-\d{4}-\d{2}-\d{2}\.sqlite$/;
 
@@ -495,6 +499,14 @@ const CONVERSATIONS = [
   )`,
   "CREATE INDEX IF NOT EXISTS conversations_bot ON conversations (bot, created_at)",
 ];
+const LOOKS = [
+  `CREATE TABLE IF NOT EXISTS bot_looks (
+    bot TEXT PRIMARY KEY,
+    icon TEXT,
+    color TEXT,
+    avatar TEXT
+  )`,
+];
 // A bot's session state lived on its row while it had one conversation; those columns stay unread.
 const CONVERSATIONS_FROM_BOTS = `
   INSERT OR IGNORE INTO conversations (
@@ -529,6 +541,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
         ...FILES,
         ...BOT_MESSAGES,
         ...CONVERSATIONS,
+        ...LOOKS,
       ])
         yield* sql.unsafe(statement);
       if (version === 1) for (const column of CONTEXT_COLUMNS) yield* sql.unsafe(column);
@@ -538,7 +551,7 @@ const migrate = Effect.fn("BotStore.migrate")(function* (sql: SqlClient.SqlClien
       if (version >= 1) {
         if (version < 8) yield* sql.unsafe(EPISODE_FROM_THREAD_COLUMN);
         if (version < 8) yield* sql.unsafe(CONVERSATIONS_FROM_BOTS);
-        yield* sql.unsafe(ITEM_WAITING_COLUMN);
+        if (version < 9) yield* sql.unsafe(ITEM_WAITING_COLUMN);
         yield* sql.unsafe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         return;
       }
@@ -731,6 +744,31 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     },
     Effect.mapError(fail("update a bot")),
   );
+
+  const looks: BotStore["Service"]["looks"] = sql<{
+    bot: BotName;
+    icon: string | null;
+    color: string | null;
+    avatar: string | null;
+  }>`SELECT * FROM bot_looks`.pipe(
+    Effect.map(
+      (rows) =>
+        new Map(
+          rows.map((row) => [
+            row.bot,
+            { icon: row.icon, color: row.color, avatarAttachmentId: row.avatar },
+          ]),
+        ),
+    ),
+    Effect.mapError(fail("read how bots look")),
+  );
+  const setLook: BotStore["Service"]["setLook"] = (name, look) =>
+    sql`
+      INSERT INTO bot_looks (bot, icon, color, avatar)
+      VALUES (${name}, ${look.icon}, ${look.color}, ${look.avatarAttachmentId})
+      ON CONFLICT (bot) DO UPDATE SET
+        icon = excluded.icon, color = excluded.color, avatar = excluded.avatar
+    `.pipe(Effect.asVoid, Effect.mapError(fail("set how a bot looks")));
 
   const listBots: BotStore["Service"]["listBots"] = sql<BotRow>`
     SELECT * FROM bots ORDER BY name
@@ -1411,6 +1449,8 @@ const makeWith = Effect.fn("BotStore.make")(function* (
     listBots,
     ensureBot,
     setThread,
+    looks,
+    setLook,
     botForThread,
     conversation,
     conversations,

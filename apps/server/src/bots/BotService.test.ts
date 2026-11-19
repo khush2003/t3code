@@ -11,6 +11,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
 import * as BotBoards from "./BotBoards.ts";
 import * as BotService from "./BotService.ts";
 import * as BotStore from "./BotStore.ts";
@@ -98,6 +99,11 @@ describe("BotService.start", () => {
                 getProviders: Effect.succeed((options.providers ?? [claude]) as never),
               }),
               ServerSettings.layerTest(),
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-bot-service-" }).pipe(
+                Layer.provide(NodeServices.layer),
+                Layer.orDie,
+              ),
+              NodeServices.layer,
             ),
           ),
           Layer.provideMerge(store),
@@ -177,6 +183,38 @@ describe("BotService.start", () => {
       );
       expect(missing._tag).toBe("BotRejectedError");
       expect(launched).toHaveLength(1);
+    }),
+  );
+
+  it.effect("gives a bot an icon and a picture, one part at a time", () =>
+    Effect.gen(function* () {
+      const main = ThreadId.make("bot:atlas");
+      const png = {
+        mimeType: "image/png" as const,
+        base64: Buffer.from("picture").toString("base64"),
+      };
+      const looks = yield* start({ launched: [], dispatched: [] }, (service, store) =>
+        Effect.gen(function* () {
+          const look = store.looks.pipe(Effect.map((all) => all.get(BotName.make("atlas"))));
+          yield* service.setLook({ threadId: main, icon: "rocket", color: "teal" });
+          yield* service.setLook({ threadId: main, avatar: png });
+          const first = yield* look;
+          // A new picture takes the place of the last, and the icon is left as it was.
+          yield* service.setLook({ threadId: main, avatar: png });
+          const second = yield* look;
+          yield* service.setLook({ threadId: main, avatar: null, icon: null });
+          const empty = yield* service
+            .setLook({ threadId: main, avatar: { ...png, base64: "" } })
+            .pipe(Effect.flip);
+          return { first, second, cleared: yield* look, empty: empty._tag };
+        }),
+      );
+      expect(looks.first).toMatchObject({ icon: "rocket", color: "teal" });
+      expect(looks.first?.avatarAttachmentId).toMatch(/png$/);
+      expect(looks.second?.avatarAttachmentId).not.toBe(looks.first?.avatarAttachmentId);
+      expect(looks.second?.icon).toBe("rocket");
+      expect(looks.cleared).toEqual({ icon: null, color: "teal", avatarAttachmentId: null });
+      expect(looks.empty).toBe("BotRejectedError");
     }),
   );
 

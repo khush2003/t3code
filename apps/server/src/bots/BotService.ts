@@ -11,6 +11,7 @@ import {
   BotRejectedError,
   type BotStartInput,
   type BotStartResult,
+  type BotLookSetInput,
   type BotThreadStartInput,
   type BotThreadStartResult,
   type BotWorkItemId,
@@ -24,9 +25,13 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
+import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
+import { createAttachmentId, parseAttachmentFileExtension } from "../attachmentStore.ts";
+import * as ServerConfig from "../config.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -41,6 +46,13 @@ const DEFAULT_BOT_PURPOSE = "Help with work across my projects.";
 const PASSES_SHOWN = 10;
 const THREAD_TITLE_CHARS = 60;
 
+const AVATAR_EXTENSIONS = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+} as const;
+/** A bot's picture is shown small, so the client sends it small. */
+const AVATAR_BYTES = 256 * 1024;
 const initialCharter = (purpose: string) =>
   [`What I am for: ${purpose}`, "", "How my person wants work done: nothing recorded yet."].join(
     "\n",
@@ -68,6 +80,8 @@ export class BotService extends Context.Service<
     readonly setCharter: (
       input: BotCharterSetInput,
     ) => Effect.Effect<void, BotRejectedError | BotError>;
+    /** Changes a bot's icon, colour or picture. A new picture replaces the one it had. */
+    readonly setLook: (input: BotLookSetInput) => Effect.Effect<void, BotRejectedError | BotError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -121,6 +135,8 @@ const make = Effect.gen(function* () {
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const settings = yield* ServerSettings.ServerSettingsService;
   const random = yield* SecureRandom.SecureRandom;
+  const config = yield* ServerConfig.ServerConfig;
+  const fs = yield* FileSystem.FileSystem;
 
   const start: BotService["Service"]["start"] = Effect.fn("BotService.start")(function* (input) {
     const failed = (cause: unknown) => new BotError({ operation: "start", cause });
@@ -340,7 +356,68 @@ const make = Effect.gen(function* () {
     Effect.provideService(BotStore.BotStore, store),
   );
 
-  return BotService.of({ start, startThread, list, board, memory, retireNote, setCharter });
+  const setLook: BotService["Service"]["setLook"] = Effect.fn("BotService.setLook")(
+    function* (input) {
+      const bot = yield* store.botForThread(input.threadId);
+      if (bot === null || bot.threadId === null)
+        return yield* new BotRejectedError({ reason: "This thread is not a bot." });
+      const had = (yield* store.looks).get(bot.name) ?? {
+        icon: null,
+        color: null,
+        avatarAttachmentId: null,
+      };
+      const pathOf = (attachmentId: string) => {
+        const extension = parseAttachmentFileExtension(attachmentId);
+        return extension === null
+          ? null
+          : resolveAttachmentRelativePath({
+              attachmentsDir: config.attachmentsDir,
+              relativePath: `${attachmentId}.${extension}`,
+            });
+      };
+      let avatarAttachmentId = had.avatarAttachmentId;
+      if (input.avatar !== undefined) {
+        avatarAttachmentId =
+          input.avatar === null
+            ? null
+            : createAttachmentId(bot.threadId, AVATAR_EXTENSIONS[input.avatar.mimeType]);
+        const target = avatarAttachmentId === null ? null : pathOf(avatarAttachmentId);
+        if (input.avatar !== null) {
+          const bytes = Buffer.from(input.avatar.base64, "base64");
+          if (target === null || bytes.length === 0 || bytes.length > AVATAR_BYTES)
+            return yield* new BotRejectedError({
+              reason: "That picture cannot be kept. Use a smaller PNG, JPEG or WebP.",
+            });
+          yield* fs.makeDirectory(config.attachmentsDir, { recursive: true }).pipe(
+            Effect.andThen(fs.writeFile(target, bytes)),
+            Effect.mapError((cause) => new BotError({ operation: "keep a bot's picture", cause })),
+          );
+        }
+      }
+      yield* store.setLook(bot.name, {
+        icon: input.icon === undefined ? had.icon : input.icon,
+        color: input.color === undefined ? had.color : input.color,
+        avatarAttachmentId,
+      });
+      // The picture it had is no longer shown anywhere.
+      const old =
+        had.avatarAttachmentId !== null && had.avatarAttachmentId !== avatarAttachmentId
+          ? pathOf(had.avatarAttachmentId)
+          : null;
+      if (old !== null) yield* fs.remove(old).pipe(Effect.ignore);
+    },
+  );
+
+  return BotService.of({
+    start,
+    startThread,
+    list,
+    board,
+    memory,
+    retireNote,
+    setCharter,
+    setLook,
+  });
 });
 
 export const layer = Layer.effect(BotService, make);

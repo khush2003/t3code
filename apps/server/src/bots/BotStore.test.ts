@@ -95,6 +95,51 @@ describe("BotStore", () => {
     }).pipe(Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer))),
   );
 
+  it.effect("opens a store the last version wrote, and keeps what was in it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const base = yield* fs.makeTempDirectoryScoped({ prefix: "bot-store-" });
+      const config = yield* Layer.build(ServerConfig.ServerConfig.layerTest(process.cwd(), base));
+      const { stateDir } = Context.get(config, ServerConfig.ServerConfig);
+      const open = <A, E>(use: (store: BotStore.BotStore["Service"]) => Effect.Effect<A, E>) =>
+        Effect.scoped(
+          BotStore.BotStore.pipe(
+            Effect.flatMap(use),
+            Effect.provide(BotStore.layer.pipe(Layer.provide(Layer.succeedContext(config)))),
+          ),
+        );
+      yield* open((store) =>
+        Effect.gen(function* () {
+          yield* store.ensureBot({ name: atlas, purpose: "Ship it", charter: "c" });
+          yield* store.saveItem(atlas, { title: "Launch", waitingOnPerson: true });
+        }),
+      );
+      // As version 9 left it: items already say what waits, and no bot has a look yet.
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const raw = yield* Layer.build(
+            NodeSqliteClient.layer({ filename: path.join(stateDir, "bots.sqlite") }),
+          );
+          const sql = Context.get(raw, SqlClient.SqlClient);
+          yield* sql.unsafe("DROP TABLE bot_looks");
+          yield* sql.unsafe("PRAGMA user_version = 9");
+        }),
+      );
+      const reopened = yield* open((store) =>
+        Effect.gen(function* () {
+          yield* store.setLook(atlas, { icon: "rocket", color: "teal", avatarAttachmentId: null });
+          return {
+            items: yield* store.listItems(atlas),
+            look: (yield* store.looks).get(atlas),
+          };
+        }),
+      );
+      expect(reopened.items).toMatchObject([{ title: "Launch", waitingOnPerson: true }]);
+      expect(reopened.look).toEqual({ icon: "rocket", color: "teal", avatarAttachmentId: null });
+    }).pipe(Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer))),
+  );
+
   it.effect("keeps a bot's items, moves a thread between them, and records each result once", () =>
     Effect.gen(function* () {
       const store = yield* BotStore.BotStore;

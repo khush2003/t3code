@@ -30,6 +30,35 @@ export const BotThreadStatus = Schema.Literals([
 ]);
 export type BotThreadStatus = typeof BotThreadStatus.Type;
 
+/** How a bot shows in lists and beside its chat: a picture, or an icon on a colour. */
+export const BotLook = Schema.Struct({
+  /** A name from the client's icon set; null shows the bot's initial. */
+  icon: Schema.NullOr(Schema.String),
+  /** A name from the client's colours; null picks one from the bot's name. */
+  color: Schema.NullOr(Schema.String),
+  /** A picture kept as an attachment; it takes the place of the icon. */
+  avatarAttachmentId: Schema.NullOr(Schema.String),
+});
+export type BotLook = typeof BotLook.Type;
+
+export const BotLookSetInput = Schema.Struct({
+  /** Any conversation of the bot. */
+  threadId: ThreadId,
+  /** Left out, a part stays as it is; null clears it. */
+  icon: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(40)))),
+  color: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(20)))),
+  avatar: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        mimeType: Schema.Literals(["image/png", "image/jpeg", "image/webp"]),
+        /** The client scales the picture down first; this bounds what a server will keep. */
+        base64: Schema.String.check(Schema.isMaxLength(400_000)),
+      }),
+    ),
+  ),
+});
+export type BotLookSetInput = typeof BotLookSetInput.Type;
+
 export const BotStartInput = Schema.Struct({
   name: BotName,
   purpose: Schema.optional(BotPurpose),
@@ -63,6 +92,11 @@ export const BotSummary = Schema.Struct({
   /** Open items the bot says wait on its person. */
   waitingOnYou: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   oversees: Schema.Boolean,
+  look: BotLook.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({ icon: null, color: null, avatarAttachmentId: null }),
+    ),
+  ),
   /** Its threads that are neither settled nor deleted, oldest first. */
   threads: Schema.Array(BotThread).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });

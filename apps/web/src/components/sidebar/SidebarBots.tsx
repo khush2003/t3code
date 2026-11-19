@@ -21,6 +21,7 @@ import { cn } from "~/lib/utils";
 import { botsEnvironment } from "../../state/bots";
 import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
 import { botMainThreadId, isBotThreadId } from "../bots/botView";
+import { BotAvatar } from "../bots/BotAvatar";
 import { useBotSummary, useOpenBotThread } from "../bots/useBot";
 import { hasUnseenCompletion } from "../Sidebar.logic";
 
@@ -217,10 +218,10 @@ function StartBotDialog(props: {
   );
 }
 
-/** Every row leads with the same slot, so names line up under one another. */
-const LEAD_SLOT = "grid size-4.5 shrink-0 place-items-center";
+/** The Threads row leads with a slot as wide as a bot's avatar, so names line up. */
+const LEAD_SLOT = "grid size-8 shrink-0 place-items-center";
 
-/** One bot: who it is, and the one thing about it worth seeing from here. */
+/** One bot: its face, its name, and the one thing about it worth seeing from here. */
 function BotRow(props: {
   readonly bot: EnvironmentThreadShell;
   readonly active: boolean;
@@ -232,38 +233,51 @@ function BotRow(props: {
   const summary = useBotSummary(bot.environmentId, bot.id);
   const waiting =
     (summary?.waitingOnYou ?? 0) + (bot.hasPendingUserInput || bot.hasPendingApprovals ? 1 : 0);
+  const working = isThreadWorking(bot);
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton size="sm" isActive={props.active} onClick={props.onOpen}>
-        <span
-          aria-hidden
-          className={cn(
-            LEAD_SLOT,
-            "rounded-sm text-2xs font-semibold uppercase",
-            // The bot that oversees the others is the one to talk to, so it stands out.
-            summary?.oversees === true
-              ? "bg-primary/20 text-primary"
-              : "bg-foreground/10 text-foreground/75",
-          )}
-        >
-          {bot.title.slice(0, 1)}
-        </span>
-        <span className="min-w-0 flex-1 truncate">{bot.title}</span>
-        {props.machine === null ? null : (
-          <span className="shrink-0 text-2xs text-muted-foreground">{props.machine}</span>
-        )}
-        {waiting > 0 ? (
-          <span
-            aria-label={`${waiting} waiting on you`}
-            className="flex shrink-0 items-center gap-1 text-xs font-medium text-warning tabular-nums"
-          >
-            <CircleAlertIcon aria-hidden className="size-3.5" />
-            {waiting}
+      <SidebarMenuButton size="lg" isActive={props.active} onClick={props.onOpen}>
+        <BotAvatar
+          environmentId={bot.environmentId}
+          name={bot.title}
+          look={summary?.look}
+          size="md"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-sm font-medium text-sidebar-foreground">
+              {bot.title}
+            </span>
+            {summary?.oversees === true ? (
+              <span className="shrink-0 rounded-sm bg-foreground/10 px-1 text-2xs font-medium text-muted-foreground">
+                Lead
+              </span>
+            ) : null}
           </span>
-        ) : isThreadWorking(bot) ? (
-          <LoaderCircleIcon aria-label="Working" className="size-3.5 shrink-0 text-primary" />
+          <span
+            className={cn(
+              "block truncate text-xs font-normal",
+              waiting > 0 ? "text-warning" : working ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            {waiting > 0
+              ? `${waiting} waiting on you`
+              : working
+                ? "Working"
+                : (props.machine ?? (summary?.purpose || "No open work"))}
+          </span>
+        </span>
+        {/* In a span: the row colours the icons that are its own children. */}
+        {waiting > 0 ? (
+          <span className="shrink-0 text-warning">
+            <CircleAlertIcon aria-hidden className="size-4" />
+          </span>
+        ) : working ? (
+          <span className="shrink-0 text-primary">
+            <LoaderCircleIcon aria-hidden className="size-4" />
+          </span>
         ) : hasUnseenCompletion(bot) ? (
-          <span aria-label="New reply" className="size-1.5 shrink-0 rounded-full bg-primary" />
+          <span aria-label="New reply" className="size-2 shrink-0 rounded-full bg-primary" />
         ) : null}
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -284,7 +298,10 @@ export function SidebarBots(props: {
   const conversations = props.threads.filter(
     (thread) => thread.bot === true && thread.archivedAt === null,
   );
-  const bots = conversations.filter((thread) => !isBotThreadId(thread.id));
+  // By name, so a bot keeps its place whichever one spoke last.
+  const bots = conversations
+    .filter((thread) => !isBotThreadId(thread.id))
+    .toSorted((a, b) => a.title.localeCompare(b.title));
   // A thread opened and left without a message is not listed. Settled ones go last, so a thread
   // put away can still be found and brought back.
   const isSettled = (thread: EnvironmentThreadShell) => thread.settledOverride === "settled";
@@ -339,12 +356,11 @@ export function SidebarBots(props: {
           {botThreads.length === 0 ? null : (
             <SidebarMenuItem>
               <SidebarMenuButton
-                size="sm"
                 aria-expanded={threadsOpen}
                 onClick={() => setThreadsOpen(!threadsOpen)}
               >
                 <span className={LEAD_SLOT}>
-                  <MessagesSquareIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                  <MessagesSquareIcon aria-hidden className="size-4 text-muted-foreground" />
                 </span>
                 <span className="min-w-0 flex-1 truncate">Threads</span>
                 {unseenThreads === 0 ? null : (

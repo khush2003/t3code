@@ -29,6 +29,7 @@ import { ThreadBotMemoryDialog } from "../chat/ThreadBotMemoryDialog";
 import { hasUnseenCompletion } from "../Sidebar.logic";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { BotLookPicker } from "./BotAvatar";
 import { BotHint, BotImageStrip, useOpenBotTask } from "./BotBlocks";
 import { botItemColumn, splitBotFiles } from "./botBoard.logic";
 import { botMainThreadId, useOpenBotView } from "./botView";
@@ -213,8 +214,14 @@ export function BotPanel(props: {
 
   return (
     <section data-bot-panel aria-label="Bot" className="flex flex-col px-4.5 pt-4 pb-3">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
+      <div className="flex items-start gap-3">
+        <BotLookPicker
+          environmentId={environmentId}
+          threadId={main}
+          name={board.data?.name ?? bot?.name ?? "?"}
+          look={bot?.look}
+        />
+        <div className="min-w-0 flex-1 self-center">
           <h2 className="truncate text-sm font-semibold text-foreground">
             {board.data?.name ?? bot?.name ?? "Bot"}
           </h2>

@@ -3028,6 +3028,7 @@ export const layerWsRpc = (
         [WS_METHODS.botsMemory]: (input) => bots.memory(input),
         [WS_METHODS.botsNoteRetire]: (input) => bots.retireNote(input).pipe(Effect.as({})),
         [WS_METHODS.botsCharterSet]: (input) => bots.setCharter(input).pipe(Effect.as({})),
+        [WS_METHODS.botsLookSet]: (input) => bots.setLook(input).pipe(Effect.as({})),
         [WS_METHODS.animaOnboardingPrompt]: () =>
           anima.onboardingPrompt.pipe(Effect.map((prompt) => ({ prompt }))),
         [WS_METHODS.animaWakePreview]: (input) =>

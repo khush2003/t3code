@@ -64,6 +64,15 @@ export function createBotEnvironmentAtoms<R, E>(
         key: ({ environmentId }: { environmentId: string }) => environmentId,
       },
     }),
+    setLook: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:look-set",
+      tag: WS_METHODS.botsLookSet,
+      scheduler,
+      concurrency: {
+        mode: "serial" as const,
+        key: ({ environmentId }: { environmentId: string }) => environmentId,
+      },
+    }),
     start: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:start",
       tag: WS_METHODS.botsStart,

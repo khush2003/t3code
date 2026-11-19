@@ -183,6 +183,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.botsMemory]: "workspace",
   [WS_METHODS.botsNoteRetire]: "workspace",
   [WS_METHODS.botsCharterSet]: "workspace",
+  [WS_METHODS.botsLookSet]: "workspace",
   [WS_METHODS.animaImport]: "workspace",
   [WS_METHODS.animaMergeStart]: "workspace",
   [WS_METHODS.animaMergeApply]: "workspace",

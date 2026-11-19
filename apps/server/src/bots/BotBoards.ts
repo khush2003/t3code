@@ -54,6 +54,8 @@ export class BotBoards extends Context.Service<
   }
 >()("t3/bots/BotBoards") {}
 
+const NO_LOOK = { icon: null, color: null, avatarAttachmentId: null };
+
 const make = Effect.gen(function* () {
   const store = yield* BotStore.BotStore;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -120,8 +122,11 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const summaries: BotBoards["Service"]["summaries"] = store.listBots.pipe(
-    Effect.flatMap((bots) =>
+  const summaries: BotBoards["Service"]["summaries"] = Effect.all([
+    store.listBots,
+    store.looks,
+  ]).pipe(
+    Effect.flatMap(([bots, looks]) =>
       Effect.forEach(bots, (bot) =>
         store.listItems(bot.name).pipe(
           Effect.map((items): BotSummary => ({
@@ -131,6 +136,7 @@ const make = Effect.gen(function* () {
             openItems: items.length,
             waitingOnYou: items.filter((item) => item.waitingOnPerson).length,
             oversees: bot.oversees,
+            look: looks.get(bot.name) ?? NO_LOOK,
             threads: [],
           })),
         ),
