@@ -30,9 +30,12 @@ export const BotThreadStatus = Schema.Literals([
 ]);
 export type BotThreadStatus = typeof BotThreadStatus.Type;
 
-/** How a bot shows in lists and beside its chat: a picture, or an icon on a colour. */
+/** How a bot shows in lists and beside its chat: a picture, a character, or an icon on a colour. */
 export const BotLook = Schema.Struct({
-  /** A name from the client's icon set; null shows the bot's initial. */
+  /**
+   * A name from the client's set: a character (`face-cat`), a glyph, or `initial`. Null lets the
+   * client pick a character from the bot's name.
+   */
   icon: Schema.NullOr(Schema.String),
   /** A name from the client's colours; null picks one from the bot's name. */
   color: Schema.NullOr(Schema.String),

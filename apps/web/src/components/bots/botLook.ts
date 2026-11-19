@@ -57,24 +57,54 @@ export const BOT_ICONS: Readonly<Record<string, LucideIcon>> = {
   sparkles: SparklesIcon,
 };
 
-/** Written out in full so the stylesheet keeps every one of them. */
-export const BOT_COLORS: Readonly<Record<string, { readonly tile: string; readonly dot: string }>> =
-  {
-    slate: { tile: "bg-foreground/10 text-foreground/80", dot: "bg-foreground/50" },
-    blue: { tile: "bg-blue-500/20 text-blue-600 dark:text-blue-300", dot: "bg-blue-500" },
-    teal: { tile: "bg-teal-500/20 text-teal-600 dark:text-teal-300", dot: "bg-teal-500" },
-    green: {
-      tile: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
-      dot: "bg-emerald-500",
-    },
-    amber: { tile: "bg-amber-500/20 text-amber-600 dark:text-amber-300", dot: "bg-amber-500" },
-    red: { tile: "bg-red-500/20 text-red-600 dark:text-red-300", dot: "bg-red-500" },
-    pink: { tile: "bg-pink-500/20 text-pink-600 dark:text-pink-300", dot: "bg-pink-500" },
-    violet: {
-      tile: "bg-violet-500/20 text-violet-600 dark:text-violet-300",
-      dot: "bg-violet-500",
-    },
-  };
+/**
+ * Written out in full so the stylesheet keeps every one of them. `tile` is the ground behind an
+ * icon or initial, `body` the colour a character is made of.
+ */
+export const BOT_COLORS: Readonly<
+  Record<string, { readonly tile: string; readonly dot: string; readonly body: string }>
+> = {
+  slate: {
+    tile: "bg-foreground/10 text-foreground/80",
+    dot: "bg-foreground/50",
+    body: "text-neutral-400",
+  },
+  blue: {
+    tile: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
+    dot: "bg-blue-500",
+    body: "text-blue-400",
+  },
+  teal: {
+    tile: "bg-teal-500/20 text-teal-600 dark:text-teal-300",
+    dot: "bg-teal-500",
+    body: "text-teal-400",
+  },
+  green: {
+    tile: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
+    dot: "bg-emerald-500",
+    body: "text-emerald-400",
+  },
+  amber: {
+    tile: "bg-amber-500/20 text-amber-600 dark:text-amber-300",
+    dot: "bg-amber-500",
+    body: "text-amber-400",
+  },
+  red: {
+    tile: "bg-red-500/20 text-red-600 dark:text-red-300",
+    dot: "bg-red-500",
+    body: "text-red-400",
+  },
+  pink: {
+    tile: "bg-pink-500/20 text-pink-600 dark:text-pink-300",
+    dot: "bg-pink-500",
+    body: "text-pink-400",
+  },
+  violet: {
+    tile: "bg-violet-500/20 text-violet-600 dark:text-violet-300",
+    dot: "bg-violet-500",
+    body: "text-violet-400",
+  },
+};
 
 const COLOR_NAMES = Object.keys(BOT_COLORS);
 

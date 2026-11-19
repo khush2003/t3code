@@ -558,11 +558,13 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     (reference) => reference.label,
   );
   const promptLink = promptLinkFor(plainText);
-  const foldSummary =
+  const foldFirstLine =
     plainText
       .split(/\r?\n/)
       .find((line) => line.trim().length > 0)
       ?.trim() ?? "";
+  // One bot's words to another are markdown; on one line its marks are only noise.
+  const foldSummary = botMessage === null ? foldFirstLine : foldFirstLine.replace(/[*_`#]+/g, "");
   const mediaCopyRecords = mediaOnly
     ? resolvedContext.records.flatMap((record) => {
         const known = asKnownContextRecord(record);

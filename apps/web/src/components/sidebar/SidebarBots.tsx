@@ -22,7 +22,7 @@ import { botsEnvironment } from "../../state/bots";
 import { type BotMachine, resolveBotHome } from "./SidebarBots.logic";
 import { botMainThreadId, isBotThreadId } from "../bots/botView";
 import { BotAvatar } from "../bots/BotAvatar";
-import { useBotSummary, useOpenBotThread } from "../bots/useBot";
+import { botMoodOf, useBotSummary, useOpenBotThread } from "../bots/useBot";
 import { hasUnseenCompletion } from "../Sidebar.logic";
 
 const botNameOfThread = (threadId: ThreadId) => botMainThreadId(threadId).replace(/^bot:/, "");
@@ -242,6 +242,7 @@ function BotRow(props: {
           name={bot.title}
           look={summary?.look}
           size="md"
+          mood={botMoodOf(bot, summary?.waitingOnYou ?? 0)}
         />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">

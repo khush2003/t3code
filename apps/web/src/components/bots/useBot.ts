@@ -1,12 +1,18 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import type { BotThread, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "~/rightPanelStore";
+import { useQuietThreadShell } from "~/state/entities";
+import { relativeTimeElapsedMs } from "~/timestampFormat";
 import { botsEnvironment } from "~/state/bots";
 import { useEnvironmentQuery } from "~/state/query";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
+import { hasUnseenCompletion } from "../Sidebar.logic";
+import { type BotMood, botMood } from "./botFace.logic";
 import { botMainThreadId } from "./botView";
 
 /** A bot's open work, read again every few seconds. Every screen of the bot shares this query. */
@@ -37,6 +43,24 @@ export function useBotSummary(environmentId: EnvironmentId, threadId: ThreadId) 
   const { data } = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
   return data?.bots.find((bot) => bot.threadId === main) ?? null;
 }
+
+/** What a bot's character shows right now, read from its main chat and its board. */
+export function useBotMood(environmentId: EnvironmentId, threadId: ThreadId): BotMood {
+  const shell = useQuietThreadShell(scopeThreadRef(environmentId, botMainThreadId(threadId)));
+  const summary = useBotSummary(environmentId, threadId);
+  return botMoodOf(shell, summary?.waitingOnYou ?? 0);
+}
+
+export const botMoodOf = (shell: EnvironmentThreadShell | null, waitingOnYou: number): BotMood =>
+  shell === null
+    ? "idle"
+    : botMood({
+        waiting: waitingOnYou + (shell.hasPendingUserInput || shell.hasPendingApprovals ? 1 : 0),
+        working: isThreadWorking(shell),
+        failed: shell.latestRun?.status === "failed",
+        unseen: hasUnseenCompletion(shell),
+        quietForMs: relativeTimeElapsedMs(shell.updatedAt),
+      });
 
 /** A bot's threads that have a message in them; one opened and left empty is not a thread yet. */
 export const startedBotThreads = (threads: ReadonlyArray<BotThread>) =>

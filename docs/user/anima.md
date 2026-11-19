@@ -67,8 +67,9 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
   up to 200 MB is copied and kept on the bot's machine; a larger one stays where it was and the
   board says where. Kept copies share 10 GB across all bots, and past that the oldest are dropped
   while their entries stay. A thread on another machine cannot hand a file over yet.
-- Click a bot's face at the top of the card beside its chat to give it an icon and a colour, or a
-  picture of your own. The sidebar shows it next to the bot's name, with how many of its work items
+- Every bot has a character whose face shows what it is doing: working, waiting on you, just
+  answered, or asleep when nothing has happened for hours. Click it at the top of the card beside
+  the bot's chat to choose another character, a plain icon, a colour, or a picture of your own. The sidebar shows it next to the bot's name, with how many of its work items
   wait on you.
 - **Memory**, at the foot of the card beside a bot's chat, shows what the bot carries into every
   session: its charter with every earlier version to restore, its notes with the passage each rests
