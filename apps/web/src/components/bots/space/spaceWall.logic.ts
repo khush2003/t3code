@@ -140,8 +140,8 @@ interface BoardRow {
   readonly ended: number;
   /** Its pictures, newest first. */
   readonly pictures: ReadonlyArray<BotBoardFile>;
-  /** How many other files it holds. */
-  readonly others: number;
+  /** Its other files, the pages to open first and then the newest. */
+  readonly others: ReadonlyArray<BotBoardFile>;
 }
 
 /**
@@ -168,7 +168,13 @@ export function boardRows(items: ReadonlyArray<BotBoardItem>): ReadonlyArray<Boa
         live: [...live.values()],
         ended: item.threads.filter((thread) => !isLive(thread)).length,
         pictures,
-        others: item.files.length - pictures.length,
+        others: item.files
+          .filter((file) => !isBotPicture(file))
+          .toSorted(
+            (a, b) =>
+              Number(b.url !== null) - Number(a.url !== null) ||
+              b.createdAt.localeCompare(a.createdAt),
+          ),
       };
     });
   const rank = (row: BoardRow) =>

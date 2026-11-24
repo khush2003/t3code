@@ -39,6 +39,8 @@ const FEED_LINES = 40;
 const TILE_LINES = 6;
 /** More tiles than this and none is large enough to read. */
 const TILES = 4;
+/** The other files a board row offers; the rest are reached through their task. */
+const BOARD_FILES = 3;
 
 /** The pictures among `files`, by file id, as addresses the browser can load. */
 function usePictureUrls(home: EnvironmentId, files: ReadonlyArray<BotBoardFile>) {
@@ -552,6 +554,7 @@ function BoardHolo(props: {
   readonly onShow: (screen: SpaceScreen | null) => void;
 }) {
   const gt = useGT();
+  const m = useMessages();
   const { board } = props;
   const rows = boardRows(board.items);
   const urls = usePictureUrls(
@@ -608,7 +611,7 @@ function BoardHolo(props: {
         {rows.map((row) => {
           const { item } = row;
           const picture = row.pictures[0];
-          const files = row.pictures.length + row.others;
+          const files = row.pictures.length + row.others.length;
           return (
             <article key={item.id} className={item.waitingOnYou ? s.isNeed : undefined}>
               <div>
@@ -619,6 +622,22 @@ function BoardHolo(props: {
                 {item.nextStep === "" ? null : <p>{item.nextStep}</p>}
                 {row.live.length === 0 ? null : (
                   <ul className={s.tasks}>{sortBotTasks(row.live).slice(0, 3).map(taskRow)}</ul>
+                )}
+                {row.others.length === 0 ? null : (
+                  <div className={s.docs}>
+                    {row.others.slice(0, BOARD_FILES).map((file) => (
+                      <button
+                        key={file.id}
+                        type="button"
+                        onClick={() =>
+                          props.onShow({ kind: "file", bot: board.bot, file: file.id })
+                        }
+                      >
+                        <span>{file.title}</span>
+                        <em>{botFileKind(file, m)}</em>
+                      </button>
+                    ))}
+                  </div>
                 )}
                 <small className={s.num}>
                   {[

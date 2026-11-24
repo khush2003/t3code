@@ -85,9 +85,9 @@ describe("the screen in the space", () => {
     ]);
     expect(rows.map((row) => row.item.id)).toEqual(["moving", "waits", "quiet"]);
     // Tasks of one name are one line, the one that waits standing for the others.
-    expect(rows[0]).toMatchObject({ live: [{ threadId: "b" }], ended: 1, others: 0 });
+    expect(rows[0]).toMatchObject({ live: [{ threadId: "b" }], ended: 1, others: [] });
     expect(rows[0]!.pictures.map((picture) => picture.id)).toEqual(["3", "2"]);
-    expect(rows[2]).toMatchObject({ live: [], ended: 1, others: 1 });
+    expect(rows[2]).toMatchObject({ live: [], ended: 1, others: [{ id: "1" }] });
   });
 
   it("picks the newest picture of each task for the wall, an after before its before", () => {
