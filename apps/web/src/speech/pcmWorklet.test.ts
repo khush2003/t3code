@@ -61,4 +61,17 @@ it("meters microphone-only capture like transcription without emitting PCM", asy
   );
   microphone.port.onmessage?.({ data: "stop" });
   expect(microphone.port.postMessage).toHaveBeenLastCalledWith("stopped");
+
+  // A conversation takes the audio held so far at the end of each utterance and keeps recording.
+  const sent = transcription.port.postMessage.mock.calls.length;
+  transcription.port.onmessage?.({ data: "flush" });
+  const flushed = transcription.port.postMessage.mock.calls.slice(sent).map(([data]) => data);
+  expect(flushed).toEqual([expect.any(Float32Array), "flushed"]);
+  expect((flushed[0] as Float32Array).length).toBeLessThan(8_000);
+  feed(new Float32Array(48_000).fill(0.2));
+  expect(
+    transcription.port.postMessage.mock.calls
+      .slice(sent + 2)
+      .some(([data]) => data instanceof Float32Array),
+  ).toBe(true);
 });

@@ -17,12 +17,22 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
   private levelEnergy = 0;
   private level = 0;
   private readonly meterOnly: boolean;
+  /** A conversation listens for as long as it is open; its caller sends each utterance on. */
+  private readonly continuous: boolean;
 
-  constructor(options?: { readonly processorOptions?: { readonly meterOnly?: boolean } }) {
+  constructor(options?: {
+    readonly processorOptions?: { readonly meterOnly?: boolean; readonly continuous?: boolean };
+  }) {
     super();
     this.meterOnly = options?.processorOptions?.meterOnly === true;
+    this.continuous = options?.processorOptions?.continuous === true;
     this.port.onmessage = ({ data }) => {
       if (data === "start") this.recording = true;
+      if (data === "flush") {
+        if (this.length) this.publish();
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- AudioWorklet MessagePorts do not accept a target origin
+        this.port.postMessage("flushed");
+      }
       if (data === "stop") {
         this.recording = false;
         if (!this.meterOnly && !this.flushed) this.append(this.resampler.flush());
@@ -42,7 +52,7 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 
   private append(pcm: Float32Array) {
     for (const sample of pcm) {
-      if (this.samples === 16_000 * 300) {
+      if (!this.continuous && this.samples === 16_000 * 300) {
         this.recording = false;
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- AudioWorklet MessagePorts do not accept a target origin
         this.port.postMessage("limit");

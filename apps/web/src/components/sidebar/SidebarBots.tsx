@@ -14,6 +14,7 @@ import {
   CircleAlertIcon,
   LoaderCircleIcon,
   MessagesSquareIcon,
+  OrbitIcon,
   PlusIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
@@ -344,14 +345,26 @@ export function SidebarBots(props: {
           <T>Bots</T>
         </span>
         {home === null ? null : (
-          <Button
-            variant="ghost-muted"
-            size="icon-xs"
-            aria-label={gt("Start a bot")}
-            onClick={() => setStarting(true)}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
+          <span className="flex items-center">
+            {bots.length === 0 ? null : (
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label={gt("See and talk to your bots")}
+                onClick={() => void router.navigate({ to: "/space" })}
+              >
+                <OrbitIcon aria-hidden />
+              </Button>
+            )}
+            <Button
+              variant="ghost-muted"
+              size="icon-xs"
+              aria-label={gt("Start a bot")}
+              onClick={() => setStarting(true)}
+            >
+              <PlusIcon aria-hidden />
+            </Button>
+          </span>
         )}
       </div>
       {home === null ? null : (

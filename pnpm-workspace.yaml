@@ -23,6 +23,7 @@ allowBuilds:
   node-pty: true
   # Ships N-API prebuilds; its install script only rebuilds from source.
   objc-js: false
+  protobufjs: false
   "react-native-enriched-markdown@file:apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-16db4c75.tgz": true
   sharp: true
   utf-8-validate: false
@@ -200,6 +201,10 @@ overrides:
   # pin the native passkey code that runs in its main process.
   "electron-webauthn>@electron-webauthn/macos": "catalog:"
   "@electron-webauthn/macos>objc-js": "catalog:"
+  # The web voice runs transformers.js in the browser only, so its Node inference
+  # runtime and image library (a few hundred megabytes of binaries) are left out.
+  "@huggingface/transformers>onnxruntime-node": "-"
+  "@huggingface/transformers>sharp": "-"
   lightningcss: "catalog:"
   tailwindcss: "catalog:"
   # Ranges from @effect/platform-node, jsdom, unifont, Expo and libsql otherwise
@@ -284,6 +289,7 @@ patchedDependencies:
   react-native-svg@15.16.1: patches/react-native-svg@15.16.1.patch
   # Android: double-tap zoom no longer cancels itself, and taps near a link open it.
   react-native-pdf-jsi@6.1.0: patches/react-native-pdf-jsi@6.1.0.patch
+  "@huggingface/transformers@3.8.1": patches/@huggingface__transformers@3.8.1.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

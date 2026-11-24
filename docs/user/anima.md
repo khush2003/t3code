@@ -90,6 +90,22 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
 - A bot's threads show which bot started them, and they are cleaned up on their own schedule. See
   [Storage cleanup](project-settings.md#work-a-bot-or-another-machine-started).
 
+## See and talk to your bots
+
+The orbit button beside **Bots** in the sidebar opens every bot as a light in the dark. The bot
+that oversees the others is in the middle, and it is the one you talk to. A bot with tasks
+running has a spark circling it for each, and one that needs you sends out a ring. Select a bot
+to bring its open work up beside it.
+
+Press the microphone, then speak or type. What you say goes to the middle bot's chat as a message
+that starts with `(voice)`, and its reply is read aloud while it is still being written. Start
+talking to cut it off. Tasks it starts keep running while you carry on.
+
+- Hearing you uses the speech model chosen in **Settings → Voice**, and needs one that
+  transcribes as you speak. Without one you can still type.
+- The voice is made on your device. The first use downloads it, about 260 MB, from Hugging Face.
+- Use headphones if the bot keeps hearing itself.
+
 ## Open animas
 
 Click the sparkle button at the bottom of the sidebar, or run **Open animas** from

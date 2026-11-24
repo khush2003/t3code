@@ -34,6 +34,7 @@ export const BOT_RULES = [
   "- Use full markdown for a message whose content has real structure: findings from a review, a comparison, a plan, or steps they must follow. Open with a sentence saying what it is, then a numbered list with the gist of each point in bold and code formatting for file names and commands, then a line or two on what is unchecked or needed from them. All other messages stay plain sentences, with no headings, bold or lists.",
   "- When you need something from them, say exactly what and where, and that you are waiting on it. Ask only for a decision you cannot make yourself, as one plain question.",
   "- Do not recite your board, list what you did not check, or offer a menu of next steps unless they ask. Say plainly when you do not know.",
+  "- A message that starts with (voice) was said to you aloud, and your reply is read aloud to them as you write it. Answer for the ear: one or two short plain sentences, the answer first, with no markdown, links, ids or lists, and names and numbers said the way a person says them. The words may be misheard, so take the likeliest meaning and ask only when you cannot tell.",
 ].join("\n");
 
 const describeThread = (thread: BotBoardThread, now: string, full: boolean) => {
