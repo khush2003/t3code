@@ -5,16 +5,26 @@ import type { BotSummary, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { resolveSpeechVocabulary } from "@t3tools/shared/speech";
 import { Link } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
-import { ArrowUpIcon, MessageSquareIcon, MicIcon, MicOffIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import * as Schema from "effect/Schema";
+import {
+  ArrowUpIcon,
+  MessageSquareIcon,
+  MicIcon,
+  MicOffIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { cn, newMessageId } from "~/lib/utils";
-import { createSpeechVoice, type SpeechVoice } from "~/speech/speechVoice";
+import { createSpeechVoice, isSpeechVoiceKept } from "~/speech/speechVoice";
 import { useVoiceTranscriptionDestination } from "~/speech/useEnvironmentSpeechInput";
 import { bindAudioGrant } from "~/speech/voiceConsent";
-import { startVoiceListener } from "~/speech/voiceListener";
+import { startVoiceListener, VoiceSetupNeeded } from "~/speech/voiceListener";
 import { botsEnvironment } from "~/state/bots";
 import {
   useQuietThreadShell,
@@ -57,6 +67,10 @@ const STAR_LIGHT: Readonly<Record<string, string>> = {
 
 /** Tells the bot its reply will be read aloud; BOT_RULES says what to do with it. */
 const SPOKEN = "(voice) ";
+/** Whether replies are read aloud here, kept across visits. */
+const VOICE_ON_KEY = "t3code:space-voice:v1";
+const isVoiceSetupNeeded = Schema.is(VoiceSetupNeeded);
+const OFF_LOAD = { step: "off" } as const;
 
 type StartedBot = BotSummary & { readonly threadId: ThreadId };
 
@@ -251,9 +265,12 @@ function BotScreen(props: {
   );
 }
 
+/** A reply was spoken to its end, or is not to be spoken at all. */
+const ALL_SAID = Number.POSITIVE_INFINITY;
+
 /**
- * Talking with the bot in the middle. What is said goes to its chat as a message like any other,
- * and its reply is spoken a sentence at a time while it is still being written.
+ * Talking with the bot in the middle. What is said or typed goes to its chat as a message like
+ * any other. Its replies are captioned, and spoken a sentence at a time while they are written.
  */
 function SpaceConversation(props: {
   readonly environmentId: EnvironmentId;
@@ -274,38 +291,47 @@ function SpaceConversation(props: {
     reportFailure: false,
   });
 
-  /** The conversation is on from this point of the chat; null while it is off. */
-  const [since, setSince] = useState<number | null>(null);
+  /** Replies after this point of the chat belong to this visit; null until the chat is live. */
+  const [from, setFrom] = useState<number | null>(null);
+  if (ready && from === null) setFrom(items.at(-1)?.position ?? -1);
+  const [voiceOn, setVoiceOn] = useLocalStorage(VOICE_ON_KEY, true, Schema.Boolean);
+  const [micOn, setMicOn] = useState(false);
   const [listening, setListening] = useState(false);
   /** The person is speaking, or has paused and their words are still being written down. */
   const [heard, setHeard] = useState<"speaking" | "writing" | null>(null);
   const [partial, setPartial] = useState<string | null>(null);
-  const [saying, setSaying] = useState<string | null>(null);
-  const [sent, setSent] = useState<string | null>(null);
-  const [voiceLoad, setVoiceLoad] = useState<"ready" | { loaded: number; total: number } | null>(
+  const [sent, setSent] = useState<{ readonly messageId: string; readonly text: string } | null>(
     null,
   );
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<{
+    readonly text: string;
+    readonly setup: boolean;
+  } | null>(null);
   const [draft, setDraft] = useState("");
-  const voice = useRef<SpeechVoice | null>(null);
+  /** Whether this browser holds the voice already; null until that is known. */
+  const [kept, setKept] = useState<boolean | null>(null);
+  /** The person has talked or typed here, which is when a voice not yet held is fetched. */
+  const [engaged, setEngaged] = useState(false);
+  const [voice] = useState(createSpeechVoice);
+  const voiceState = useSyncExternalStore(voice.subscribe, voice.state);
+  const { saying } = voiceState;
   const said = useRef(new Map<string, number>());
   const level = useRef(0);
-  const on = since !== null;
-  const { prepared, grantId } = destination;
+  const { prepared, grantId, cloudProvider, cloudModel } = destination;
   const canListen = prepared !== null && grantId !== null;
 
   const replies =
-    since === null
+    from === null
       ? []
       : items.flatMap(({ position, item }) =>
-          position > since && item.type === "assistant_message" && item.text.trim() !== ""
+          position > from && item.type === "assistant_message" && item.text.trim() !== ""
             ? [item]
             : [],
         );
   const sentAt =
     sent === null
       ? -1
-      : items.findIndex(({ item }) => "messageId" in item && item.messageId === sent);
+      : items.findIndex(({ item }) => "messageId" in item && item.messageId === sent.messageId);
   const answered =
     sent === null ||
     (sentAt !== -1 &&
@@ -313,13 +339,12 @@ function SpaceConversation(props: {
         .slice(sentAt + 1)
         .some(({ item }) => item.type === "assistant_message" && item.text.trim() !== ""));
   const working = shell !== null && isThreadWorking(shell);
-  const mode: SpaceVoice["mode"] = !on
-    ? "off"
-    : saying !== null
+  const mode: SpaceVoice["mode"] =
+    saying !== null
       ? "speaking"
       : heard === "speaking"
         ? "hearing"
-        : heard === "writing" || !answered || working
+        : heard === "writing" || !answered || (working && sent !== null)
           ? "thinking"
           : listening
             ? "listening"
@@ -327,15 +352,16 @@ function SpaceConversation(props: {
 
   /** Whatever the bot has not finished saying is dropped; a new reply is said from its start. */
   const hush = useStableCallback(() => {
-    voice.current?.stop();
-    for (const reply of replies) said.current.set(reply.messageId, Number.POSITIVE_INFINITY);
+    voice.stop();
+    for (const reply of replies) said.current.set(reply.messageId, ALL_SAID);
   });
 
   const send = useStableCallback(async (text: string) => {
     if (shell === null) return;
     hush();
+    setEngaged(true);
     const messageId = newMessageId();
-    setSent(messageId);
+    setSent({ messageId, text });
     setProblem(null);
     const result = await startTurn({
       environmentId,
@@ -350,12 +376,16 @@ function SpaceConversation(props: {
     if (result._tag !== "Failure") return;
     setSent(null);
     const error = squashAtomCommandFailure(result);
-    setProblem(
-      error instanceof Error ? error.message : gt("That did not reach {name}.", { name: bot.name }),
-    );
+    setProblem({
+      text:
+        error instanceof Error
+          ? error.message
+          : gt("That did not reach {name}.", { name: bot.name }),
+      setup: false,
+    });
   });
 
-  /** Read when the conversation starts; changing a speech setting does not restart it. */
+  /** Read when listening starts; changing a speech setting does not restart it. */
   const speechOptions = useStableCallback(() => ({
     speechLanguage: settings.speechLanguage,
     speechTranslateToEnglish: settings.speechTranslateToEnglish,
@@ -368,66 +398,112 @@ function SpaceConversation(props: {
     speechSilenceFiltering: settings.speechSilenceFiltering,
   }));
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the voice and the microphone are browser resources held only while the conversation is on
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the browser's cache, which is outside React, whether it holds the voice
   useEffect(() => {
-    if (!on) return;
-    const abort = new AbortController();
-    const speaker = createSpeechVoice({
-      onLoading: (loaded, total) => setVoiceLoad({ loaded, total }),
-      onReady: () => setVoiceLoad("ready"),
-      onSaying: setSaying,
-      onError: setProblem,
+    let closed = false;
+    void isSpeechVoiceKept().then((value) => {
+      if (!closed) setKept(value);
     });
-    voice.current = speaker;
-    if (prepared !== null && grantId !== null)
-      startVoiceListener({
-        prepared,
-        canSend: bindAudioGrant(grantId),
-        options: speechOptions(),
-        signal: abort.signal,
-        isGuarded: () => speaker.speaking(),
-        onLevel: (value) => {
-          level.current = value;
-        },
-        onSpeechStart: () => {
-          setHeard("speaking");
-          hush();
-        },
-        onSpeechEnd: () => setHeard("writing"),
-        onPartial: (text) => {
-          setPartial(text);
-          if (text === null) setHeard((now) => (now === "writing" ? null : now));
-        },
-        onUtterance: (text) => void send(text),
-        onError: (error) => setProblem(error.message),
-      }).then(
-        () => setListening(!abort.signal.aborted),
-        (error: unknown) => {
-          if (!abort.signal.aborted)
-            setProblem(error instanceof Error ? error.message : String(error));
-        },
-      );
+    return () => {
+      closed = true;
+    };
+  }, []);
+
+  // A voice this browser holds starts with the page; one that must be fetched waits to be wanted.
+  // Once started it stays for the visit, so turning replies off and on does not load it again.
+  const [wantVoice, setWantVoice] = useState(false);
+  if (!wantVoice && voiceOn && kept !== null && (kept || engaged)) setWantVoice(true);
+  const keptNow = useStableCallback(() => kept === true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the voice is a worker and an audio output held for as long as this page wants one, so talking again does not load it again
+  useEffect(() => {
+    if (!wantVoice) return;
+    // Read once: a download that ends flips `kept` and must not start the voice over.
+    voice.load(keptNow());
+    return voice.unload;
+  }, [wantVoice, voice, keptNow]);
+
+  const loaded = voiceState.load.step === "ready";
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- once a first download ends, asks the browser to keep it and learns whether it did
+  useEffect(() => {
+    if (!loaded || kept !== false) return;
+    let closed = false;
+    void (async () => {
+      await navigator.storage?.persist?.().catch(() => false);
+      const value = await isSpeechVoiceKept();
+      if (!closed && value) setKept(true);
+    })();
+    return () => {
+      closed = true;
+    };
+  }, [loaded, kept]);
+
+  const guarded = voice.speaking;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the microphone is a browser resource held only while listening is on
+  useEffect(() => {
+    if (!micOn || prepared === null || grantId === null) return;
+    const abort = new AbortController();
+    const failed = (error: unknown) => {
+      if (abort.signal.aborted) return;
+      setProblem({
+        text: error instanceof Error ? error.message : String(error),
+        setup: isVoiceSetupNeeded(error),
+      });
+      setHeard(null);
+    };
+    startVoiceListener({
+      prepared,
+      cloudProvider,
+      cloudModel,
+      canSend: bindAudioGrant(grantId),
+      options: speechOptions(),
+      signal: abort.signal,
+      isGuarded: guarded,
+      onLevel: (value) => {
+        level.current = value;
+      },
+      onSpeechStart: () => {
+        setHeard("speaking");
+        setProblem(null);
+        hush();
+      },
+      onSpeechEnd: () => setHeard("writing"),
+      onPartial: (text) => {
+        setPartial(text);
+        if (text === null) setHeard((now) => (now === "writing" ? null : now));
+      },
+      onUtterance: (text) => void send(text),
+      onError: failed,
+    }).then(
+      () => setListening(!abort.signal.aborted),
+      (error: unknown) => {
+        failed(error);
+        // Listening that could not start is off, not on and silently deaf.
+        if (!abort.signal.aborted) setMicOn(false);
+      },
+    );
     return () => {
       abort.abort();
-      speaker.dispose();
-      voice.current = null;
       level.current = 0;
       setListening(false);
       setHeard(null);
       setPartial(null);
-      setSaying(null);
     };
-  }, [on, prepared, grantId, speechOptions, hush, send]);
+  }, [micOn, prepared, grantId, cloudProvider, cloudModel, speechOptions, guarded, hush, send]);
 
+  // A reply that came while the voice was being downloaded is read, not said late.
+  const speaks =
+    voiceOn && (voiceState.load.step === "starting" || voiceState.load.step === "ready");
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands each newly written sentence of a reply to the voice, which is outside React
   useEffect(() => {
-    const speaker = voice.current;
-    if (speaker === null) return;
     for (const reply of replies) {
+      if (!speaks) {
+        said.current.set(reply.messageId, ALL_SAID);
+        continue;
+      }
       const units = spokenUnits(reply.text, !reply.streaming);
-      const from = said.current.get(reply.messageId) ?? 0;
-      for (const unit of units.slice(from)) speaker.say(unit);
-      if (units.length > from) said.current.set(reply.messageId, units.length);
+      const before = said.current.get(reply.messageId) ?? 0;
+      for (const unit of units.slice(before)) voice.say(unit);
+      if (units.length > before) said.current.set(reply.messageId, units.length);
     }
   });
 
@@ -439,7 +515,7 @@ function SpaceConversation(props: {
     if (scene === null) return;
     scene.voiceSource = () => ({
       mode: modeRef.current,
-      level: modeRef.current === "speaking" ? (voice.current?.level() ?? 0) : level.current,
+      level: modeRef.current === "speaking" ? voice.level() : level.current,
     });
     scene.refresh();
   });
@@ -449,53 +525,76 @@ function SpaceConversation(props: {
     const text = draft.trim();
     if (text === "" || !ready) return;
     setDraft("");
-    if (since === null) setSince(items.at(-1)?.position ?? -1);
     void send(text);
   };
 
   const lastReply = replies.at(-1);
+  // Heard a sentence at a time; with no voice the whole reply stays up to be read.
   const caption =
     saying ??
-    (voiceLoad === "ready" || lastReply === undefined
+    (lastReply === undefined
       ? null
-      : (spokenUnits(lastReply.text, !lastReply.streaming).at(-1) ?? null));
+      : spokenUnits(lastReply.text, !lastReply.streaming).join(" ") || null);
+  const load = voiceOn ? voiceState.load : OFF_LOAD;
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 px-4 pb-6">
       <div
         aria-live="polite"
-        className="flex min-h-16 max-w-2xl flex-col items-center gap-1.5 text-center"
+        className="flex min-h-16 w-full max-w-2xl flex-col items-center justify-end gap-1.5 text-center"
       >
-        {partial === null || partial === "" ? null : (
+        {partial !== null && partial !== "" ? (
           <p className="text-sm text-white/55">{partial}</p>
+        ) : sent !== null && !answered ? (
+          <p className="text-sm text-white/55">{sent.text}</p>
+        ) : null}
+        {caption === null || !answered || heard !== null ? null : (
+          <p
+            className={cn(
+              "pointer-events-auto max-h-32 overflow-y-auto text-balance text-white",
+              saying === null ? "text-base" : "text-lg",
+            )}
+          >
+            {caption}
+          </p>
         )}
-        {caption === null ? null : <p className="text-balance text-lg text-white">{caption}</p>}
-        {caption === null && partial === null && mode === "thinking" ? (
+        {partial === null && mode === "thinking" ? (
           <p className="text-sm text-white/45">{gt("{name} is on it…", { name: bot.name })}</p>
         ) : null}
       </div>
       {problem === null ? null : (
-        <p role="alert" className="max-w-xl text-center text-warning text-xs">
-          {problem}
+        <p role="alert" className="pointer-events-auto max-w-xl text-center text-sm text-warning">
+          {problem.text}
+          {problem.setup ? (
+            <>
+              {" "}
+              <Link to="/settings/voice" className="text-white underline underline-offset-2">
+                <T>Open Voice settings</T>
+              </Link>
+            </>
+          ) : null}
         </p>
       )}
-      {on && voiceLoad !== null && voiceLoad !== "ready" ? (
-        <p className="text-white/45 text-xs">
-          {gt("Fetching the voice, once: {loaded} of {total} MB", {
-            loaded: Math.round(voiceLoad.loaded / 1e6),
-            total: Math.round(voiceLoad.total / 1e6),
-          })}
+      {voiceState.error !== null ? (
+        <p role="alert" className="max-w-xl text-center text-sm text-warning">
+          {gt("The voice could not speak: {reason}", { reason: voiceState.error })}
         </p>
-      ) : null}
-      {on && !canListen ? (
-        <p className="pointer-events-auto text-white/45 text-xs">
-          <T>
-            Hearing you needs a speech model. Choose one in{" "}
-            <Link to="/settings/voice" className="text-white/80 underline underline-offset-2">
-              Voice settings
-            </Link>
-            ; until then, type.
-          </T>
+      ) : load.step === "downloading" ? (
+        <p className="text-white/45 text-xs">
+          {load.total === 0
+            ? gt("Downloading the voice, once…")
+            : gt("Downloading the voice, once: {loaded} of {total} MB", {
+                loaded: Math.round(load.loaded / 1e6),
+                total: Math.round(load.total / 1e6),
+              })}
+        </p>
+      ) : load.step === "starting" ? (
+        <p className="text-white/45 text-xs">
+          <T>Starting the voice…</T>
+        </p>
+      ) : voiceOn && loaded && kept === false ? (
+        <p className="text-white/45 text-xs">
+          <T>This browser did not keep the voice, so it downloads again next time.</T>
         </p>
       ) : null}
       <form
@@ -504,22 +603,26 @@ function SpaceConversation(props: {
       >
         <Button
           type="button"
-          variant={on ? "secondary" : "default"}
+          variant={micOn ? "default" : "secondary"}
           size="icon"
-          aria-pressed={on}
+          aria-pressed={micOn}
           disabled={!ready}
-          aria-label={
-            on
-              ? gt("Stop talking with {name}", { name: bot.name })
-              : gt("Talk with {name}", { name: bot.name })
-          }
+          aria-label={micOn ? gt("Stop listening") : gt("Talk with {name}", { name: bot.name })}
           onClick={() => {
-            hush();
-            setSent(null);
-            setSince(on ? null : (items.at(-1)?.position ?? -1));
+            setProblem(
+              micOn || canListen
+                ? null
+                : {
+                    text: gt("Choose where your voice is written down first."),
+                    setup: true,
+                  },
+            );
+            if (!micOn && !canListen) return;
+            setEngaged(true);
+            setMicOn(!micOn);
           }}
         >
-          {on ? <MicIcon /> : <MicOffIcon />}
+          {micOn ? <MicIcon /> : <MicOffIcon />}
         </Button>
         <Input
           nativeInput
@@ -542,6 +645,20 @@ function SpaceConversation(props: {
           aria-label={gt("Send")}
         >
           <ArrowUpIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost-muted"
+          size="icon"
+          aria-pressed={voiceOn}
+          aria-label={voiceOn ? gt("Stop reading replies aloud") : gt("Read replies aloud")}
+          onClick={() => {
+            hush();
+            if (!voiceOn) setEngaged(true);
+            setVoiceOn(!voiceOn);
+          }}
+        >
+          {voiceOn ? <Volume2Icon /> : <VolumeXIcon />}
         </Button>
       </form>
     </div>

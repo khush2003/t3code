@@ -51,12 +51,19 @@ it("makes one piece at a time, says them in order, and a stop drops what was wai
     },
   );
   const saying: Array<string | null> = [];
-  const voice = createSpeechVoice({
-    onLoading: () => undefined,
-    onReady: () => undefined,
-    onSaying: (text) => saying.push(text),
-    onError: () => undefined,
+  const voice = createSpeechVoice();
+  voice.say("before it is loaded");
+  voice.subscribe(() => {
+    const now = voice.state().saying;
+    if (now !== saying.at(-1) || saying.length === 0) saying.push(now);
   });
+  voice.load(true);
+  // A voice read back from this browser's copy is starting, however much progress it reports.
+  answer({ type: "loading", loaded: 5, total: 10 });
+  expect(voice.state().load).toEqual({ step: "starting" });
+  answer({ type: "ready" });
+  expect(voice.state().load).toEqual({ step: "ready" });
+  saying.length = 0;
   const made = (id: number) =>
     answer({ type: "audio", id, pcm: new Float32Array(8), sampleRate: 44_100 });
   const says = () => asked.flatMap((request) => (request.type === "say" ? [request.text] : []));

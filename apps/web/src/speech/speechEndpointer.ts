@@ -14,7 +14,7 @@ const START_AFTER_MS = 120;
 /** A sound that holds one level this long is the room, not a voice. */
 const STEADY_MS = 1_500;
 /** A pause this long ends what the person was saying; shorter ones are breaths. */
-const SPEECH_HANG_MS = 800;
+export const SPEECH_HANG_MS = 800;
 
 export function createSpeechEndpointer(hangMs = SPEECH_HANG_MS): SpeechEndpointer {
   let floor = 0;

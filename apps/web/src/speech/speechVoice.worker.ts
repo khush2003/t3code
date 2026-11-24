@@ -2,11 +2,10 @@
 import { pipeline } from "@huggingface/transformers";
 
 import type { VoiceWorkerReply, VoiceWorkerRequest } from "./speechVoice";
+import { VOICE_MODEL as MODEL } from "./speechVoiceModel";
 
 declare const self: DedicatedWorkerGlobalScope;
 
-// Small enough to keep in the browser's cache and quick enough on a CPU to keep up with a reply.
-const MODEL = "onnx-community/Supertonic-TTS-ONNX";
 const SPEAKER = `https://huggingface.co/${MODEL}/resolve/main/voices/M1.bin`;
 /** Fewer steps is faster and a little rougher; this is where a sentence stops sounding thin. */
 const STEPS = 4;
