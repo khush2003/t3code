@@ -169,11 +169,20 @@ function BotStar(props: {
   );
 }
 
-function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
+function SpaceOf(props: {
+  readonly environmentId: EnvironmentId;
+  /** The machine is not reachable right now; what was last known stays on screen. */
+  readonly offline: boolean;
+}) {
   const gt = useGT();
   const { environmentId } = props;
   const list = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
-  const bots = (list.data?.bots ?? []).filter((bot): bot is StartedBot => bot.threadId !== null);
+  const listed = list.data?.bots;
+  const [lastListed, setLastListed] = useState(listed);
+  if (listed !== undefined && listed !== lastListed) setLastListed(listed);
+  const bots = (listed ?? lastListed ?? []).filter(
+    (bot): bot is StartedBot => bot.threadId !== null,
+  );
   const lead = bots.find((bot) => bot.oversees) ?? bots[0] ?? null;
   const boards = useSpaceBoards(environmentId, bots);
   const tasks = spaceTasks(boards);
@@ -362,7 +371,13 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
           </>
         )}
         <span className={s.grow} />
-        {hears === null ? null : <span>{gt("Hears you through {where}", { where: hears })}</span>}
+        {props.offline ? (
+          <span role="status" className={s.needs}>
+            {gt("Connection lost. Reconnecting…")}
+          </span>
+        ) : hears === null ? null : (
+          <span>{gt("Hears you through {where}", { where: hears })}</span>
+        )}
       </div>
 
       {lead === null ? (
@@ -380,6 +395,7 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
           scene={() => scene.current}
           onShow={show}
           onEscape={() => show(null)}
+          offline={props.offline}
         />
       )}
 
@@ -442,7 +458,12 @@ export function BotSpace() {
   const machines = environments
     .filter((environment) => connected.includes(environment.environmentId))
     .map(({ environmentId, label }) => ({ environmentId, label }));
-  const home = resolveBotHome(bots, machines, primary);
+  const found = resolveBotHome(bots, machines, primary);
+  // A connection that drops for a moment must not close the conversation and lose what was
+  // typed, so the space stays on the machine it was on until that machine is back.
+  const [kept, setKept] = useState<EnvironmentId | null>(null);
+  if (found !== null && found !== kept) setKept(found);
+  const home = found ?? kept;
 
   return home === null ? (
     <div className={`${s.root} dark`}>
@@ -455,6 +476,6 @@ export function BotSpace() {
       <p className={s.empty}>{gt("No machine is connected.")}</p>
     </div>
   ) : (
-    <SpaceOf key={home} environmentId={home} />
+    <SpaceOf key={home} environmentId={home} offline={found === null} />
   );
 }

@@ -68,9 +68,9 @@ describe("the conversation in the space", () => {
 
   it("keeps every message that has not landed in the chat, in the order it was sent", () => {
     const outbox = [
-      { messageId: "m1", text: "first", failed: null },
-      { messageId: "m2", text: "second", failed: "offline" },
-      { messageId: "m3", text: "third", failed: null },
+      { messageId: "m1", text: "first", failed: null, waits: false },
+      { messageId: "m2", text: "second", failed: "offline", waits: false },
+      { messageId: "m3", text: "third", failed: null, waits: true },
     ];
     const chat = [
       row(1, { type: "user_message", messageId: "m1", text: "(voice) first" }),

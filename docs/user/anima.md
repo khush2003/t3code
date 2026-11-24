@@ -124,6 +124,9 @@ speak it falls silent and keeps its place: words from you end the old answer, a 
 noise does not. A pause in the middle of a thought is not the end of it, so what you say with
 short pauses goes over as one message once you stop.
 
+If the connection to the machine drops, the space stays as it is. What you write meanwhile
+waits and goes by itself when the connection is back.
+
 - Hearing you uses the destination chosen in **Settings → Voice**: a speech model on one of
   your machines, or a cloud provider. A cloud provider writes each thing down after you pause.
 - The voice is made on your device. The first use downloads it, about 260 MB, from Hugging Face,

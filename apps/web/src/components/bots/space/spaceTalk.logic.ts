@@ -120,6 +120,8 @@ export interface Outgoing {
   readonly text: string;
   /** Why it did not go, when it did not. */
   readonly failed: string | null;
+  /** Written while the machine was out of reach; it goes by itself once the machine is back. */
+  readonly waits: boolean;
 }
 
 /** What of the outbox the chat does not hold yet, in the order it was sent. */

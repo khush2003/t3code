@@ -2,11 +2,12 @@ import s from "./space.module.css";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
-import type {
-  BotSummary,
-  EnvironmentId,
-  OrchestrationV2ProjectedTurnItem,
-  ThreadId,
+import {
+  MessageId,
+  type BotSummary,
+  type EnvironmentId,
+  type OrchestrationV2ProjectedTurnItem,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { BOT_SPOKEN_PREFIX } from "@t3tools/shared/botShow";
 import { resolveSpeechVocabulary } from "@t3tools/shared/speech";
@@ -67,7 +68,7 @@ const VOICE_ON_KEY = "t3code:space-voice:v1";
 const isVoiceSetupNeeded = Schema.is(VoiceSetupNeeded);
 /** A reply was spoken to its end, or is not to be spoken at all. */
 const ALL_SAID = Number.POSITIVE_INFINITY;
-/** Older than this the conversation is in the bot's chat, a click away. */
+/** How much of the bot's chat the conversation opens on; older is in the chat itself. */
 const ROWS = 40;
 /** A first paragraph longer than this is a report, not a line to set large. */
 const HEADLINE_CHARS = 190;
@@ -173,6 +174,8 @@ export function SpaceTalk(props: {
   readonly onShow: (screen: SpaceScreen | null) => void;
   /** Escape, when nothing here had a use for it. */
   readonly onEscape: () => void;
+  /** The machine is out of reach for now. */
+  readonly offline: boolean;
 }) {
   const gt = useGT();
   const { environmentId, bot, items, from } = props;
@@ -221,17 +224,24 @@ export function SpaceTalk(props: {
   const { prepared, grantId, cloudProvider, cloudModel } = destination;
   const canListen = prepared !== null && grantId !== null;
 
-  const rows = talkRows(items, bot.name, BOT_SPOKEN_PREFIX).slice(-ROWS);
+  const everyRow = talkRows(items, bot.name, BOT_SPOKEN_PREFIX);
+  // The log opens on its last rows and then only grows: a row dropped from the top while the
+  // person reads further up would move everything under their eyes.
+  const [firstRow, setFirstRow] = useState<string | null>(null);
+  const firstAt = everyRow.findIndex((row) => row.id === firstRow);
+  const rows = firstAt === -1 ? everyRow.slice(-ROWS) : everyRow.slice(firstAt);
+  if (ready && firstAt === -1 && rows.length > 0) setFirstRow(rows[0]!.id);
   const replies = from === null ? [] : repliesToSay(items, from, BOT_SPOKEN_PREFIX);
   const unsent = undelivered(outbox, items);
   const lastRow = rows.at(-1);
   const working = shell !== null && isThreadWorking(shell);
   const waiting = unsent.some((message) => message.failed === null) || heard === "writing";
   const mode: SpaceVoice["mode"] =
-    saying !== null
-      ? "speaking"
-      : heard === "speaking"
-        ? "hearing"
+    // The person first: while they speak the voice is held, though it still has things to say.
+    heard === "speaking"
+      ? "hearing"
+      : saying !== null
+        ? "speaking"
         : waiting || working
           ? "thinking"
           : listening
@@ -244,15 +254,7 @@ export function SpaceTalk(props: {
     for (const reply of replies) said.current.set(reply.messageId, ALL_SAID);
   });
 
-  /**
-   * Sends one more message. It never waits for the one before and never stops what the bot is
-   * doing or saying: a bot at work takes it in at its next step.
-   */
-  const send = useStableCallback(async (text: string) => {
-    setEngaged(true);
-    setProblem(null);
-    const messageId = newMessageId();
-    setOutbox((now) => [...undelivered(now, items), { messageId, text, failed: null }]);
+  const deliver = useStableCallback(async ({ messageId, text }: Outgoing) => {
     const fail = (reason: string) =>
       setOutbox((now) =>
         now.map((message) =>
@@ -264,7 +266,12 @@ export function SpaceTalk(props: {
       environmentId,
       input: {
         threadId: bot.threadId,
-        message: { messageId, role: "user", text: `${BOT_SPOKEN_PREFIX}${text}`, attachments: [] },
+        message: {
+          messageId: MessageId.make(messageId),
+          role: "user",
+          text: `${BOT_SPOKEN_PREFIX}${text}`,
+          attachments: [],
+        },
         runtimeMode: shell.runtimeMode,
         interactionMode: shell.interactionMode,
         dispatchMode: "auto",
@@ -276,6 +283,31 @@ export function SpaceTalk(props: {
       error instanceof Error ? error.message : gt("That did not reach {name}.", { name: bot.name }),
     );
   });
+  /**
+   * Sends one more message. It never waits for the one before and never stops what the bot is
+   * doing or saying: a bot at work takes it in at its next step.
+   */
+  const send = useStableCallback((text: string) => {
+    setEngaged(true);
+    setProblem(null);
+    const message = { messageId: newMessageId(), text, failed: null, waits: props.offline };
+    setOutbox((now) => [...undelivered(now, items), message]);
+    if (!props.offline) void deliver(message);
+  });
+  /** What was written while the machine was out of reach goes now, in the order it was written. */
+  const sendWaiting = useStableCallback(() => {
+    const waitingNow = outbox.filter((message) => message.waits);
+    if (waitingNow.length === 0) return;
+    setOutbox((now) =>
+      now.map((message) => (message.waits ? { ...message, waits: false } : message)),
+    );
+    for (const message of waitingNow) void deliver(message);
+  });
+  const { offline } = props;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the connection to the machine is outside React; when it returns, what waited for it is sent
+  useEffect(() => {
+    if (!offline) sendWaiting();
+  }, [offline, sendWaiting]);
   const discard = (message: Outgoing) =>
     setOutbox((now) => now.filter((other) => other.messageId !== message.messageId));
 
@@ -645,9 +677,11 @@ export function SpaceTalk(props: {
               <p>{message.text}</p>
               {message.failed === null ? (
                 <small>
-                  {working
-                    ? gt("{name} reads this at its next step", { name: bot.name })
-                    : gt("Sending…")}
+                  {message.waits
+                    ? gt("Goes when the connection is back")
+                    : working
+                      ? gt("{name} reads this at its next step", { name: bot.name })
+                      : gt("Sending…")}
                 </small>
               ) : (
                 <small role="alert">
@@ -733,6 +767,12 @@ export function SpaceTalk(props: {
               event.target.style.height = `${event.target.scrollHeight}px`;
             }}
             onKeyDown={(event) => {
+              // A message never starts with a space, so on an empty field Space is the microphone.
+              if (event.key === " " && draft === "" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                toggleMic();
+                return;
+              }
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
