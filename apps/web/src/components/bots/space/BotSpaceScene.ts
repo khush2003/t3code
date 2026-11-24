@@ -51,50 +51,163 @@ export interface StarOnScreen {
 }
 
 const FRAME_MS = 32;
-const SPARKS_SHOWN = 8;
+const TASKS_SHOWN = 8;
 const CAMERA_HOME = new THREE.Vector3(0, 0, 12);
 const WAITING = new THREE.Color("#ffb347");
+/** How far a bot's rings reach, in units of its globe's radius. */
+const REACH = 2.4;
+/** The size of the bot in the middle and of the others, in units of the scene's bot size. */
+const LEAD_SIZE = 0.62;
+const OTHER_SIZE = 0.32;
+/** Where a line between two bots meets a bot: just outside its rings. */
+const RING_EDGE = 2.12;
+const BEAM_POINTS = 28;
 
-const BODY_VERTEX = /* glsl */ `
+const GLOBE_VERTEX = /* glsl */ `
 uniform float uTime;
-uniform float uSwell;
+uniform float uScan;
+uniform float uLevel;
+uniform float uPx;
 uniform float uSeed;
-varying vec3 vNormal;
-varying vec3 vView;
-float wobble(vec3 p) {
-  return sin(p.x * 2.1 + uTime * 0.9 + uSeed) * sin(p.y * 2.7 + uTime * 0.7)
-    * sin(p.z * 2.3 - uTime * 0.8 + uSeed * 1.7);
-}
+varying float vLight;
+varying float vFront;
 void main() {
-  float lift = wobble(normal * 1.4) + wobble(normal * 3.1 + 2.0) * 0.4;
-  vec4 at = modelViewMatrix * vec4(position + normal * lift * uSwell, 1.0);
-  vNormal = normalize(normalMatrix * normal);
-  vView = normalize(-at.xyz);
+  // The voice runs over the globe as bands that swell, like a level meter wrapped round it.
+  float ripple = 0.5 + 0.5 * sin(position.y * 8.0 + uTime * 9.0 + uSeed);
+  vec4 at = modelViewMatrix * vec4(position * (1.0 + uLevel * 0.22 * ripple), 1.0);
+  vFront = smoothstep(-0.25, 0.35, normalize(normalMatrix * position).z);
+  float scan = smoothstep(0.72, 1.0, sin(position.y * 2.6 - uScan));
+  vLight = 0.5 + scan * 1.1 + uLevel * ripple * 0.6;
+  gl_PointSize = uPx * (0.75 + scan * 0.6) * mix(0.7, 1.0, vFront);
   gl_Position = projectionMatrix * at;
 }`;
 
-const BODY_FRAGMENT = /* glsl */ `
+const GLOBE_FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
 uniform float uGlow;
-varying vec3 vNormal;
-varying vec3 vView;
+varying float vLight;
+varying float vFront;
 void main() {
-  float facing = max(dot(normalize(vNormal), vView), 0.0);
-  // White-hot in the middle and gone at the rim, so it reads as a light and not a ball.
-  float core = pow(facing, 2.2);
-  vec3 lit = mix(uColor * 1.25, vec3(1.0), core * 0.9) * uGlow;
-  gl_FragColor = vec4(lit, pow(facing, 1.6));
+  float dotEdge = 1.0 - smoothstep(0.28, 0.5, length(gl_PointCoord - 0.5));
+  vec3 lit = mix(uColor, vec3(1.0), clamp(vLight - 0.9, 0.0, 0.7)) * vLight * uGlow;
+  // The far side shows through, dimmer, so it reads as a globe and not a disc.
+  gl_FragColor = vec4(lit, dotEdge * mix(0.2, 1.0, vFront));
+  #include <colorspace_fragment>
+}`;
+
+const FLAT_VERTEX = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+/**
+ * The rings round a bot, drawn by distance and angle so every line stays sharp at any size.
+ * Each ring says one thing: the ticked dial turns faster while the bot works, a light circles
+ * for every task, the brackets turn amber when the person is needed, the innermost ring is the
+ * voice.
+ */
+const RINGS_FRAGMENT = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uWarn;
+uniform float uTime;
+uniform float uSpin;
+uniform float uSeed;
+uniform float uGlow;
+uniform float uTasks;
+uniform float uWaiting;
+uniform float uVoice;
+uniform float uLevel;
+uniform float uLead;
+varying vec2 vUv;
+const float PI = 3.14159265;
+const float TAU = 6.2831853;
+float band(float r, float at, float half_, float aa) {
+  return 1.0 - smoothstep(half_ - aa, half_ + aa, abs(r - at));
+}
+// A line with the bloom a bright one throws round itself.
+float lit(float r, float at, float half_, float aa) {
+  return band(r, at, half_, aa) + exp(-abs(r - at) * 26.0) * 0.16;
+}
+float arc(float a, float at, float span, float aa) {
+  float d = abs(mod(a - at + PI, TAU) - PI);
+  return 1.0 - smoothstep(span * 0.5 - aa, span * 0.5 + aa, d);
+}
+void main() {
+  vec2 p = (vUv - 0.5) * 2.0 * ${REACH.toFixed(1)};
+  float r = length(p);
+  float a = atan(p.y, p.x);
+  float aa = fwidth(r);
+  // The angle's own derivative breaks where it wraps, so its smoothing comes from the radius.
+  float aaA = aa / max(r, 0.05);
+  // A small bot gets fewer, bolder marks: a scaled-down dial is only noise.
+  float bold = mix(1.9, 1.0, uLead);
+  vec3 light = vec3(0.0);
+
+  float wave = sin(a * 9.0 + uTime * 5.0) * 0.5 + sin(a * 17.0 - uTime * 7.0) * 0.3
+    + sin(a * 5.0 + uTime * 3.0) * 0.2;
+  float voiceAt = 1.3 + wave * (0.015 + uLevel * 0.11);
+  light += mix(uColor, vec3(1.0), 0.45) * lit(r, voiceAt, 0.013 * bold, aa) * uVoice;
+  light += uColor * band(r, 1.3, 0.005 * bold, aa) * 0.3 * (1.0 - uVoice);
+
+  float count = mix(24.0, 72.0, uLead);
+  float turn = (a + uSpin * 0.35 + uSeed) / TAU * count;
+  float aaTick = aaA / TAU * count;
+  float tick = 1.0 - smoothstep(0.1 - aaTick, 0.1 + aaTick, abs(fract(turn) - 0.5));
+  float major = step(mod(floor(turn), 6.0), 0.5);
+  float tickBand = mix(band(r, 1.5, 0.024, aa), band(r, 1.5, 0.052, aa), major);
+  light += uColor * tick * tickBand * mix(0.42, 0.9, major);
+
+  float third = fract((a - uSpin + uSeed * 2.0) / TAU * 3.0);
+  float aaThird = aaA / TAU * 3.0;
+  float dash = 1.0 - smoothstep(0.39 - aaThird, 0.39 + aaThird, abs(third - 0.5));
+  light += uColor * band(r, 1.67, 0.008 * bold, aa) * dash * 0.8;
+
+  float bracketAt = uSpin * 0.4 + uSeed * 3.0;
+  float bracket = max(arc(a, bracketAt, 0.8, aaA), arc(a, bracketAt + PI, 0.8, aaA));
+  float between = max(arc(a, bracketAt + PI * 0.5, 1.5, aaA), arc(a, bracketAt - PI * 0.5, 1.5, aaA));
+  vec3 edge = mix(uColor, uWarn, uWaiting);
+  float throb = mix(1.0, 0.62 + 0.38 * sin(uTime * 3.2), uWaiting);
+  light += edge * lit(r, 1.85, 0.03, aa) * bracket * 0.85 * throb;
+  light += edge * band(r, 1.85, 0.006 * bold, aa) * between * 0.5;
+
+  float beat = fract(uTime * 0.45 + uSeed * 0.1);
+  light += uWarn * uWaiting * band(r, 2.07 + beat * 0.28, 0.012 * bold, aa) * (1.0 - beat) * 0.8;
+
+  float tasks = min(uTasks, ${TASKS_SHOWN.toFixed(1)});
+  float comet = 0.0;
+  for (int i = 0; i < ${TASKS_SHOWN}; i++) {
+    if (float(i) >= tasks) break;
+    float head = uTime * (0.55 + float(i) * 0.06) + float(i) * 2.399 + uSeed;
+    float behind = mod(head - a, TAU);
+    comet = max(comet, max(exp(-behind * 4.0), exp(-(TAU - behind) * 60.0)));
+  }
+  light += uColor * band(r, 2.03, 0.005 * bold, aa) * 0.16 * step(0.5, tasks);
+  light += mix(uColor, vec3(1.0), 0.5 * comet) * lit(r, 2.03, 0.02 * bold, aa) * comet * 1.15;
+
+  gl_FragColor = vec4(light * uGlow, 1.0);
+  #include <colorspace_fragment>
 }`;
 
 interface Star {
   readonly group: THREE.Group;
-  readonly body: THREE.Mesh<THREE.IcosahedronGeometry, THREE.ShaderMaterial>;
+  /** Never drawn: what a click or the pointer has to land on. */
+  readonly target: THREE.Mesh;
+  readonly globe: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  readonly rings: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  readonly core: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+  readonly hoops: ReadonlyArray<THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>>;
+  readonly heart: THREE.Sprite;
   readonly halo: THREE.Sprite;
-  readonly signal: THREE.Sprite;
-  readonly sparks: THREE.Sprite[];
   readonly seed: number;
   input: SpaceStar;
   glow: number;
+  /** Turned through so far. Kept as a sum so a change of pace never makes a ring jump. */
+  spin: number;
+  scan: number;
+  voice: number;
+  waiting: number;
 }
 
 function softDisc(inner: number, innerLight = 0.32) {
@@ -114,24 +227,44 @@ function softDisc(inner: number, innerLight = 0.32) {
   return texture;
 }
 
-function thinRing() {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const paint = canvas.getContext("2d")!;
-  paint.strokeStyle = "white";
-  paint.lineWidth = 3;
-  paint.beginPath();
-  paint.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2);
-  paint.stroke();
-  return new THREE.CanvasTexture(canvas);
+/** Points along lines of latitude: a globe drawn in dots, which a blur of scattered ones is not. */
+function dottedGlobe(latitudes: number, round: number) {
+  const points: number[] = [0, 1, 0, 0, -1, 0];
+  for (let line = 1; line <= latitudes; line++) {
+    const latitude = -Math.PI / 2 + (Math.PI * line) / (latitudes + 1);
+    const count = Math.max(4, Math.round(round * Math.cos(latitude)));
+    for (let index = 0; index < count; index++) {
+      const longitude = ((index + (line % 2) * 0.5) / count) * Math.PI * 2;
+      points.push(
+        Math.cos(latitude) * Math.cos(longitude),
+        Math.sin(latitude),
+        Math.cos(latitude) * Math.sin(longitude),
+      );
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+  return geometry;
+}
+
+const WHITE = new THREE.Color("#ffffff");
+
+function freeMaterial(object: THREE.Object3D) {
+  if ("material" in object) (object.material as THREE.Material).dispose();
+}
+
+function hoop() {
+  const points = Array.from({ length: 128 }, (_, index) => {
+    const angle = (index / 128) * Math.PI * 2;
+    return new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0);
+  });
+  return new THREE.BufferGeometry().setFromPoints(points);
 }
 
 /**
- * The bots as lights in an empty dark: the one you talk to in the middle, the rest around it.
- * Rendering is gated like the anima world's: the loop runs only while the host is on screen, the
- * tab is visible and motion is allowed, at thirty frames a second; otherwise a frame is drawn
- * only when something changes.
+ * The bots as instruments of light in an empty dark, the one you talk to in the middle. The loop
+ * runs only while the host is on screen, the tab is visible and motion is allowed, at thirty
+ * frames a second; otherwise a frame is drawn only when something changes.
  */
 export class BotSpaceScene {
   private readonly scene = new THREE.Scene();
@@ -141,9 +274,12 @@ export class BotSpaceScene {
   private readonly stars = new Map<string, Star>();
   private readonly glowTexture = softDisc(0.14, 0.5);
   private readonly sparkTexture = softDisc(0.4);
-  private readonly ringTexture = thinRing();
-  private readonly bodyGeometry = new THREE.IcosahedronGeometry(1, 5);
-  private readonly ring: THREE.Sprite;
+  private readonly leadGlobe = dottedGlobe(15, 54);
+  private readonly otherGlobe = dottedGlobe(9, 30);
+  private readonly ringsGeometry = new THREE.PlaneGeometry(REACH * 2, REACH * 2);
+  private readonly coreGeometry = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(0.46, 1));
+  private readonly hoopGeometry = hoop();
+  private readonly targetGeometry = new THREE.SphereGeometry(1.5, 12, 8);
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly beams = new Map<string, Beam>();
@@ -162,6 +298,8 @@ export class BotSpaceScene {
   private disposed = false;
   /** World units per unit of a bot's size, set so a bot is the same size on any view. */
   private unit = 1;
+  /** Device pixels a world unit covers at the bots' depth: the globe's dots are sized in pixels. */
+  private pixelsPerUnit = 1;
   private frame = 0;
   private lastFrame = 0;
   private time = 0;
@@ -174,7 +312,8 @@ export class BotSpaceScene {
     private readonly onPlace: (id: string, at: StarOnScreen | null) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "low-power" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    // Hairlines are the look: at less than the screen's own density they turn soft.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setClearColor(0x000000, 1);
     this.canvas = this.renderer.domElement;
     this.canvas.className = "absolute inset-0 size-full";
@@ -184,16 +323,6 @@ export class BotSpaceScene {
     this.camera.lookAt(0, 0, 0);
 
     this.scene.add(this.distantStars());
-    this.ring = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: this.ringTexture,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    );
-    this.scene.add(this.ring);
 
     this.canvas.addEventListener("pointerdown", this.onPointerDown);
     this.canvas.addEventListener("pointerup", this.onPointerUp);
@@ -247,77 +376,116 @@ export class BotSpaceScene {
     const seen = new Set<string>();
     for (const input of inputs) {
       seen.add(input.id);
+      // A bot that becomes the one in the middle, or stops being it, is built again at that size.
+      const kept = this.stars.get(input.id);
+      if (kept !== undefined && kept.input.centre !== input.centre) this.removeStar(kept);
       const star = this.stars.get(input.id) ?? this.addStar(input);
       star.input = input;
       const color = new THREE.Color(input.color);
-      star.body.material.uniforms.uColor!.value = color;
+      star.globe.material.uniforms.uColor!.value = color;
+      star.rings.material.uniforms.uColor!.value = color;
+      star.rings.material.uniforms.uTasks!.value = Math.min(input.working, TASKS_SHOWN);
+      star.core.material.color = color;
+      for (const ring of star.hoops) ring.material.color = color;
+      star.heart.material.color = color.clone().lerp(WHITE, 0.55);
       star.halo.material.color = color;
-      star.group.scale.setScalar((input.centre ? 0.62 : 0.34) * this.unit);
-      const shown = Math.min(input.working, SPARKS_SHOWN);
-      star.sparks.forEach((spark, index) => {
-        spark.visible = index < shown;
-        spark.material.color = color;
-      });
-      star.signal.visible = input.waiting > 0;
+      star.group.scale.setScalar((input.centre ? LEAD_SIZE : OTHER_SIZE) * this.unit);
     }
-    for (const [id, star] of this.stars) {
-      if (seen.has(id)) continue;
-      this.scene.remove(star.group);
-      star.body.material.dispose();
-      star.halo.material.dispose();
-      star.signal.material.dispose();
-      for (const spark of star.sparks) spark.material.dispose();
-      this.stars.delete(id);
-      this.onPlace(id, null);
+    for (const star of this.stars.values()) {
+      if (seen.has(star.input.id)) continue;
+      this.removeStar(star);
+      this.onPlace(star.input.id, null);
     }
     this.invalidate();
+  }
+
+  private removeStar(star: Star) {
+    this.scene.remove(star.group);
+    star.group.traverse(freeMaterial);
+    this.stars.delete(star.input.id);
   }
 
   private addStar(input: SpaceStar): Star {
     const group = new THREE.Group();
     const seed = [...input.id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 97;
-    const body = new THREE.Mesh(
-      this.bodyGeometry,
+    const color = new THREE.Color(input.color);
+    const light = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
+
+    const target = new THREE.Mesh(this.targetGeometry, new THREE.MeshBasicMaterial());
+    target.visible = false;
+    target.userData.starId = input.id;
+    const globe = new THREE.Points(
+      input.centre ? this.leadGlobe : this.otherGlobe,
       new THREE.ShaderMaterial({
-        vertexShader: BODY_VERTEX,
-        fragmentShader: BODY_FRAGMENT,
+        vertexShader: GLOBE_VERTEX,
+        fragmentShader: GLOBE_FRAGMENT,
         uniforms: {
           uTime: { value: 0 },
-          uSwell: { value: 0.05 },
+          uScan: { value: 0 },
+          uLevel: { value: 0 },
+          uPx: { value: 2 },
           uSeed: { value: seed },
-          uColor: { value: new THREE.Color(input.color) },
+          uColor: { value: color },
           uGlow: { value: 1 },
         },
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        ...light,
       }),
     );
-    body.userData.starId = input.id;
-    const sprite = (map: THREE.Texture) =>
-      new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map,
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-    const halo = sprite(this.glowTexture);
-    halo.scale.setScalar(10);
-    const signal = sprite(this.ringTexture);
-    signal.material.color = WAITING;
-    signal.visible = false;
-    const sparks = Array.from({ length: SPARKS_SHOWN }, () => {
-      const spark = sprite(this.sparkTexture);
-      spark.scale.setScalar(0.5);
-      spark.visible = false;
-      return spark;
+    globe.rotation.x = 0.36;
+    const rings = new THREE.Mesh(
+      this.ringsGeometry,
+      new THREE.ShaderMaterial({
+        vertexShader: FLAT_VERTEX,
+        fragmentShader: RINGS_FRAGMENT,
+        uniforms: {
+          uColor: { value: color },
+          uWarn: { value: WAITING },
+          uTime: { value: 0 },
+          uSpin: { value: 0 },
+          uSeed: { value: seed },
+          uGlow: { value: 1 },
+          uTasks: { value: 0 },
+          uWaiting: { value: 0 },
+          uVoice: { value: 0 },
+          uLevel: { value: 0 },
+          uLead: { value: input.centre ? 1 : 0 },
+        },
+        ...light,
+      }),
+    );
+    const line = (opacity: number) => new THREE.LineBasicMaterial({ ...light, opacity });
+    const core = new THREE.LineSegments(this.coreGeometry, line(0.6));
+    // Two hoops crossing the globe at angles of their own, which is what gives it depth.
+    const hoops = (input.centre ? [1.1, 1.18] : [1.12]).map((radius) => {
+      const ring = new THREE.LineLoop(this.hoopGeometry, line(0.42));
+      ring.scale.setScalar(radius);
+      return ring;
     });
-    group.add(halo, body, signal, ...sparks);
+    const sprite = (map: THREE.Texture) =>
+      new THREE.Sprite(new THREE.SpriteMaterial({ map, ...light }));
+    const heart = sprite(this.glowTexture);
+    const halo = sprite(this.glowTexture);
+    group.add(halo, rings, globe, core, ...hoops, heart, target);
     group.position.copy(this.home(input));
     this.scene.add(group);
-    const star: Star = { group, body, halo, signal, sparks, seed, input, glow: 1 };
+    const star: Star = {
+      group,
+      target,
+      globe,
+      rings,
+      core,
+      hoops,
+      heart,
+      halo,
+      seed,
+      input,
+      glow: 1,
+      // Each bot starts turned its own way, so a still frame is not a row of identical dials.
+      spin: seed * 0.37,
+      scan: seed * 0.61,
+      voice: 0,
+      waiting: input.waiting > 0 ? 1 : 0,
+    };
     this.stars.set(input.id, star);
     return star;
   }
@@ -380,7 +548,9 @@ export class BotSpaceScene {
     for (const key of wanted) {
       if (this.beams.has(key)) continue;
       const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+        new THREE.BufferGeometry().setFromPoints(
+          Array.from({ length: BEAM_POINTS }, () => new THREE.Vector3()),
+        ),
         new THREE.LineBasicMaterial({
           transparent: true,
           opacity: 0.45,
@@ -402,6 +572,21 @@ export class BotSpaceScene {
     this.invalidate();
   }
 
+  private readonly beamAlong = new THREE.Vector3();
+  private readonly beamStart = new THREE.Vector3();
+  private readonly beamEnd = new THREE.Vector3();
+  private readonly beamBow = new THREE.Vector3();
+  private readonly beamPoint = new THREE.Vector3();
+
+  private onBow(start: THREE.Vector3, bow: THREE.Vector3, end: THREE.Vector3, t: number) {
+    const u = 1 - t;
+    return this.beamPoint
+      .set(0, 0, 0)
+      .addScaledVector(start, u * u)
+      .addScaledVector(bow, 2 * u * t)
+      .addScaledVector(end, t * t);
+  }
+
   private drawBeams() {
     for (const link of this.links) {
       const beam = this.beams.get(`${link.from}\n${link.to}`);
@@ -412,18 +597,31 @@ export class BotSpaceScene {
       beam.line.visible = shown;
       beam.pulse.visible = shown;
       if (!shown) continue;
+      // From the edge of one bot's rings to the edge of the other's, not through their middles.
+      const along = this.beamAlong.subVectors(to.group.position, from.group.position);
+      const length = along.length() || 1;
+      const start = this.beamStart
+        .copy(from.group.position)
+        .addScaledVector(along, (from.group.scale.x * RING_EDGE) / length);
+      const end = this.beamEnd
+        .copy(to.group.position)
+        .addScaledVector(along, (-to.group.scale.x * RING_EDGE) / length);
+      // Bowed to one side, so a line to a far bot goes round the ones between and not through.
+      const bow = this.beamBow
+        .set(-along.y, along.x, 0)
+        .multiplyScalar(0.16)
+        .addScaledVector(start, 0.5)
+        .addScaledVector(end, 0.5);
       const points = beam.line.geometry.getAttribute("position") as THREE.BufferAttribute;
-      points.setXYZ(0, from.group.position.x, from.group.position.y, from.group.position.z);
-      points.setXYZ(1, to.group.position.x, to.group.position.y, to.group.position.z);
+      for (let index = 0; index < BEAM_POINTS; index++) {
+        const at = this.onBow(start, bow, end, index / (BEAM_POINTS - 1));
+        points.setXYZ(index, at.x, at.y, at.z);
+      }
       points.needsUpdate = true;
       beam.line.material.color = to.halo.material.color;
       beam.pulse.material.color = to.halo.material.color;
-      beam.pulse.position.lerpVectors(
-        from.group.position,
-        to.group.position,
-        (this.time * 0.45) % 1,
-      );
-      beam.pulse.scale.setScalar(0.22 * this.unit);
+      beam.pulse.position.copy(this.onBow(start, bow, end, (this.time * 0.45) % 1));
+      beam.pulse.scale.setScalar(0.16 * this.unit);
     }
   }
 
@@ -460,8 +658,7 @@ export class BotSpaceScene {
     // The voice's level jumps; the light follows it a little behind so it does not flicker.
     this.heard += (this.voice.level - this.heard) * (delta === 0 ? 1 : Math.min(1, delta * 14));
 
-    for (const star of this.stars.values()) this.drawStar(star);
-    this.drawRing();
+    for (const star of this.stars.values()) this.drawStar(star, delta);
     this.drawBeams();
     try {
       this.renderer.render(this.scene, this.camera);
@@ -472,57 +669,67 @@ export class BotSpaceScene {
     this.reportPlaces();
   }
 
-  private drawStar(star: Star) {
+  private drawStar(star: Star, delta: number) {
     const { input, seed } = star;
     const t = this.time;
-    const talking = input.centre && this.voice.mode === "speaking";
-    const thinking = input.centre ? this.voice.mode === "thinking" : input.busy;
+    const mode = input.centre ? this.voice.mode : "off";
+    const talking = mode === "speaking";
+    const thinking = mode === "thinking" || input.busy;
+    // With no time passing (a still frame) every eased value is where it is going.
+    const ease = delta === 0 ? 1 : Math.min(1, delta * 7);
     const home = this.home(input);
     star.group.position.set(
-      home.x + Math.sin(t * 0.23 + seed) * 0.14,
-      home.y + Math.sin(t * 0.31 + seed * 1.3) * 0.18,
-      home.z + Math.cos(t * 0.19 + seed) * 0.12,
+      home.x + Math.sin(t * 0.23 + seed) * 0.1,
+      home.y + Math.sin(t * 0.31 + seed * 1.3) * 0.12,
+      home.z,
     );
-    const lit =
-      (input.working > 0 || thinking ? 1.12 : 0.82) +
-      (thinking ? Math.sin(t * 3.1) * 0.12 : 0) +
-      (talking ? this.heard * 0.7 : 0) +
-      (this.hovered === input.id ? 0.16 : 0);
-    star.glow += (lit - star.glow) * 0.2;
-    const uniforms = star.body.material.uniforms;
-    uniforms.uTime!.value = t * (thinking ? 2.4 : 1) + (talking ? this.heard * 2 : 0);
-    uniforms.uSwell!.value = 0.05 + (thinking ? 0.05 : 0) + (talking ? this.heard * 0.22 : 0);
-    uniforms.uGlow!.value = star.glow;
-    star.halo.material.opacity = 0.5 * star.glow;
-    star.halo.scale.setScalar(8 + star.glow * 2 + (talking ? this.heard * 4 : 0));
-    star.sparks.forEach((spark, index) => {
-      if (!spark.visible) return;
-      const turn = t * (0.42 + index * 0.05) + index * 2.4 + seed;
-      const reach = 2.1 + (index % 3) * 0.42;
-      const tilt = 0.5 + index * 0.37;
-      spark.position.set(
-        Math.cos(turn) * reach,
-        Math.sin(turn) * reach * Math.sin(tilt),
-        Math.sin(turn) * reach * Math.cos(tilt),
-      );
-    });
-    if (star.signal.visible) {
-      const beat = (t * 0.42 + seed * 0.1) % 1;
-      star.signal.scale.setScalar(2.6 + beat * 3.4);
-      star.signal.material.opacity = (1 - beat) * 0.75;
-    }
-  }
+    const level = talking || mode === "hearing" ? this.heard : 0;
+    star.voice +=
+      ((talking || mode === "hearing" ? 1 : mode === "listening" ? 0.55 : 0) - star.voice) * ease;
+    star.waiting += ((input.waiting > 0 ? 1 : 0) - star.waiting) * ease;
+    star.glow +=
+      ((input.working > 0 || thinking ? 1.1 : 0.78) +
+        (thinking ? Math.sin(t * 3.1) * 0.08 : 0) +
+        (talking ? this.heard * 0.45 : 0) +
+        (this.hovered === input.id ? 0.22 : 0) -
+        star.glow) *
+      ease;
+    star.spin += delta * (thinking ? 0.95 : input.working > 0 ? 0.32 : 0.12);
+    star.scan += delta * (thinking ? 3.4 : 0.9);
 
-  private drawRing() {
-    const centre = [...this.stars.values()].find((star) => star.input.centre);
-    const { mode } = this.voice;
-    const shown = centre !== undefined && (mode === "listening" || mode === "hearing");
-    const want = shown ? (mode === "hearing" ? 0.85 : 0.3) : 0;
-    this.ring.material.opacity += (want - this.ring.material.opacity) * 0.25;
-    if (centre === undefined) return;
-    this.ring.position.copy(centre.group.position);
-    this.ring.material.color = centre.halo.material.color;
-    this.ring.scale.setScalar(3.1 + (mode === "hearing" ? this.heard * 1.6 : 0));
+    const globe = star.globe.material.uniforms;
+    globe.uTime!.value = t;
+    globe.uScan!.value = star.scan;
+    globe.uLevel!.value = talking ? level : 0;
+    globe.uGlow!.value = star.glow;
+    globe.uPx!.value = Math.max(
+      star.group.scale.x * this.pixelsPerUnit * (input.centre ? 0.036 : 0.05),
+      1.6 * this.renderer.getPixelRatio(),
+    );
+    star.globe.rotation.y = star.spin * 1.4;
+    const rings = star.rings.material.uniforms;
+    rings.uTime!.value = t;
+    rings.uSpin!.value = star.spin;
+    rings.uGlow!.value = star.glow;
+    rings.uWaiting!.value = star.waiting;
+    rings.uVoice!.value = star.voice;
+    rings.uLevel!.value = level;
+
+    star.core.rotation.set(star.spin * 1.1, -star.spin * 1.7, 0);
+    star.core.material.opacity = 0.5 * star.glow;
+    star.hoops.forEach((ring, index) => {
+      ring.rotation.set(
+        index === 0 ? 1.15 : -0.95,
+        star.spin * (index === 0 ? 0.9 : -1.3),
+        index * 0.6,
+      );
+      ring.material.opacity = 0.4 * star.glow;
+    });
+    star.heart.scale.setScalar(1.25 + level * 1.3 + (thinking ? Math.sin(t * 3.1) * 0.12 : 0));
+    star.heart.material.opacity = Math.min(1, 0.85 * star.glow);
+    // Faint, so the bot's own colour is what is seen and not a white bloom.
+    star.halo.scale.setScalar(6.5 + level * 2.5);
+    star.halo.material.opacity = 0.13 * star.glow;
   }
 
   private readonly corner = new THREE.Vector3();
@@ -559,7 +766,7 @@ export class BotSpaceScene {
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects(
-      [...this.stars.values()].map((star) => star.body),
+      [...this.stars.values()].map((star) => star.target),
       false,
     )[0];
     return (hit?.object.userData.starId as string | undefined) ?? null;
@@ -600,11 +807,12 @@ export class BotSpaceScene {
     // otherwise shrink them to dots, and a wide one would let them fill it.
     const pixelsPerUnit =
       height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * CAMERA_HOME.z);
+    this.pixelsPerUnit = pixelsPerUnit * this.renderer.getPixelRatio();
     const room = this.region ?? { width, height };
     this.unit =
       Math.min(Math.max(Math.min(room.width * 0.24, room.height * 0.11), 56), 96) / pixelsPerUnit;
     for (const star of this.stars.values())
-      star.group.scale.setScalar((star.input.centre ? 0.62 : 0.34) * this.unit);
+      star.group.scale.setScalar((star.input.centre ? LEAD_SIZE : OTHER_SIZE) * this.unit);
     this.invalidate();
   }
 
@@ -622,17 +830,22 @@ export class BotSpaceScene {
     this.canvas.removeEventListener("pointermove", this.onPointerMove);
     this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
     this.scene.traverse((object) => {
-      if (object instanceof THREE.Points) {
-        object.geometry.dispose();
-        (object.material as THREE.Material).dispose();
-      }
-      if (object instanceof THREE.Mesh || object instanceof THREE.Sprite)
-        (object.material as THREE.Material).dispose();
+      freeMaterial(object);
+      // The far points and the lines between bots own their shape; a bot's parts share theirs.
+      if (object.parent === this.scene && "geometry" in object)
+        (object.geometry as THREE.BufferGeometry).dispose();
     });
-    this.bodyGeometry.dispose();
+    for (const shared of [
+      this.leadGlobe,
+      this.otherGlobe,
+      this.ringsGeometry,
+      this.coreGeometry,
+      this.hoopGeometry,
+      this.targetGeometry,
+    ])
+      shared.dispose();
     this.glowTexture.dispose();
     this.sparkTexture.dispose();
-    this.ringTexture.dispose();
     this.renderer.dispose();
     this.canvas.remove();
   }

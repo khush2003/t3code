@@ -258,7 +258,7 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
     if (label === undefined) return;
     label.style.opacity = at === null ? "0" : "1";
     if (at !== null)
-      label.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y + at.radius * 1.55 + 4)}px)`;
+      label.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y + at.radius * 2.08 + 4)}px)`;
   });
   const register = useStableCallback((id: string, star: SpaceStar | null) => {
     if (star === null) stars.current.delete(id);
