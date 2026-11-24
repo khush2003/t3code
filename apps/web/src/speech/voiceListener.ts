@@ -20,6 +20,7 @@ import workletUrl from "./pcmWorklet.ts?worker&url";
 import { requestMicrophone } from "./requestMicrophone";
 import { runEnvironmentSpeech } from "./runEnvironmentSpeech";
 import { createSpeechEndpointer, SPEECH_HANG_MS } from "./speechEndpointer";
+import { createUtteranceJoiner } from "./utteranceJoiner";
 
 type Pcm = Float32Array<ArrayBuffer>;
 
@@ -48,7 +49,15 @@ export interface VoiceListenerInput {
   readonly onSpeechEnd: () => void;
   /** Words heard so far of what is being said; null once it has been handed over. */
   readonly onPartial: (text: string | null) => void;
+  /**
+   * What the person said, whole: pieces said with short pauses between them arrive as one, once
+   * nothing more is being said or written down.
+   */
   readonly onUtterance: (text: string) => void;
+  /** What was heard held no words, so nothing is handed over. */
+  readonly onNothing: () => void;
+  /** Words already written down that wait for the rest of what is being said; "" when none. */
+  readonly onHeld: (text: string) => void;
   readonly onError: (error: Error) => void;
 }
 
@@ -79,9 +88,8 @@ async function requireDestination(input: VoiceListenerInput) {
 
 /**
  * Listens for as long as `signal` lives and hands over each thing the person says, hands free.
- * Audio leaves the device only while they speak: the level decides where an utterance starts and
- * ends. Each is written down where the person chose: streamed to a model on their environment,
- * one stream at a time, or sent whole to their cloud provider when they stop.
+ * Audio leaves the device only while they speak. Each piece is streamed to a model on their
+ * environment or sent whole to their cloud provider; pieces said close together arrive as one.
  */
 export async function startVoiceListener(input: VoiceListenerInput): Promise<void> {
   const { signal, cloudProvider } = input;
@@ -160,7 +168,9 @@ export async function startVoiceListener(input: VoiceListenerInput): Promise<voi
     return result.text;
   };
 
+  const joiner = createUtteranceJoiner(input);
   const transcribe = (utterance: NonNullable<typeof current>, ended: Promise<number>) => {
+    joiner.begin();
     const run = async () => {
       const text = (
         await (cloudProvider === undefined
@@ -169,12 +179,19 @@ export async function startVoiceListener(input: VoiceListenerInput): Promise<voi
       ).trim();
       input.onPartial(null);
       // A provider handed a noise answers with punctuation alone.
-      if (/[\p{L}\p{N}]/u.test(text)) input.onUtterance(text);
+      return /[\p{L}\p{N}]/u.test(text) ? text : null;
     };
-    previous = previous.then(run).catch((error: unknown) => {
-      input.onPartial(null);
-      if (!signal.aborted) input.onError(error instanceof Error ? error : new Error(String(error)));
-    });
+    previous = previous
+      .then(run)
+      .catch((error: unknown) => {
+        input.onPartial(null);
+        if (!signal.aborted)
+          input.onError(error instanceof Error ? error : new Error(String(error)));
+        return null;
+      })
+      .then((text) => {
+        if (!signal.aborted) joiner.end(text);
+      });
   };
 
   node.port.onmessage = ({ data }: MessageEvent<Pcm | number | "flushed" | "stopped">) => {

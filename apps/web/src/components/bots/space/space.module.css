@@ -96,6 +96,8 @@
   flex: 1;
   flex-direction: column-reverse;
   overflow-y: auto;
+  /* The rows being read are kept in place by hand; the browser doing it too would double it. */
+  overflow-anchor: none;
   padding-right: 10px;
   scrollbar-width: none;
   mask-image: linear-gradient(to bottom, transparent 0, #000 72px);
@@ -118,16 +120,50 @@
   margin-top: 8px;
   border-radius: 50%;
 }
-.row.isYou .mark {
-  box-shadow: inset 0 0 0 1.5px var(--sp-ink-3);
+/* what you said: to the right, so the two sides of the talk read at a glance */
+.row.isYou {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding-left: 44px;
 }
 .row.isYou p {
+  max-width: 100%;
   margin: 0;
-  color: var(--sp-ink-2);
+  padding: 8px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: rgb(234 240 250 / 0.085);
+  box-shadow: inset 0 0 0 1px rgb(234 240 250 / 0.07);
+  color: var(--sp-ink);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.row.isYou.isPending p {
+.row.isYou small {
+  font-size: 12px;
+  color: var(--sp-ink-3);
+}
+.row.isPending p {
+  background: none;
+  box-shadow: inset 0 0 0 1px rgb(234 240 250 / 0.2);
+  color: var(--sp-ink-2);
+}
+.row.isFailed p {
+  background: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sp-need) 60%, transparent);
+}
+.row.isFailed small {
+  color: var(--sp-need);
+}
+.root .row.isFailed small button {
+  margin-left: 8px;
   color: var(--sp-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.row.isHearing p {
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
 }
 .row.isReply .mark {
   background: var(--c);
@@ -178,13 +214,29 @@
   font-weight: 500;
   color: var(--c);
 }
-.event q {
-  display: -webkit-box;
+.root .event > div > button {
+  border-radius: 4px;
+  color: inherit;
+  text-align: start;
+}
+.root .event > div > button:hover {
+  color: var(--sp-ink);
+}
+.quote {
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--c) 45%, transparent);
+  font-size: 13px;
+  color: var(--sp-ink-2);
+}
+.quote > div {
+  font-size: 13px;
+  color: var(--sp-ink-2);
+}
+.quote.isShort {
+  max-height: 5.6em;
   overflow: hidden;
-  margin-top: 2px;
-  quotes: none;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
 }
 .chip {
   display: inline-flex;
@@ -221,9 +273,68 @@
   color: var(--sp-ink-3);
 }
 .status {
-  margin: 0 0 0 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 0 5px;
   font-size: 13px;
-  color: var(--sp-ink-3);
+  color: var(--sp-ink-2);
+}
+.status span {
+  display: flex;
+  width: 18px;
+  justify-content: center;
+  gap: 3px;
+}
+.status i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--c);
+  animation: spaceThinking 1.2s ease-in-out infinite;
+}
+.status i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.status i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes spaceThinking {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status i {
+    animation: none;
+  }
+}
+.root .latest {
+  position: absolute;
+  z-index: 1;
+  bottom: 114px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  background: rgb(14 18 28 / 0.94);
+  box-shadow:
+    inset 0 0 0 1px rgb(234 240 250 / 0.2),
+    0 10px 30px -10px #000;
+  font-size: 12.5px;
+  color: var(--sp-ink);
+  transform: translateX(-50%);
+}
+.latest svg {
+  width: 14px;
+  height: 14px;
 }
 .alert {
   margin: 12px 8px 0 4px;
@@ -349,15 +460,30 @@
   box-shadow: inset 0 0 0 1px rgb(234 240 250 / 0.24);
   color: var(--sp-ink);
 }
-.root .act.isOff {
-  color: var(--sp-ink-3);
-}
 .under {
   display: flex;
+  align-items: center;
   gap: 14px;
   margin: 8px 16px 0;
   font-size: 12px;
   color: var(--sp-ink-3);
+}
+.root .voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 5px;
+  color: var(--sp-ink-2);
+}
+.root .voice:hover {
+  color: var(--sp-ink);
+}
+.root .voice.isOff {
+  color: var(--sp-ink-3);
+}
+.voice svg {
+  width: 13px;
+  height: 13px;
 }
 .under kbd {
   padding: 0 5px;

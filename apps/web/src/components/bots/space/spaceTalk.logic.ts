@@ -114,6 +114,26 @@ export function replyParts(text: string, streaming: boolean) {
       };
 }
 
+/** A message the person sent that has not shown up in the bot's chat yet. */
+export interface Outgoing {
+  readonly messageId: string;
+  readonly text: string;
+  /** Why it did not go, when it did not. */
+  readonly failed: string | null;
+}
+
+/** What of the outbox the chat does not hold yet, in the order it was sent. */
+export function undelivered(
+  outbox: ReadonlyArray<Outgoing>,
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+): ReadonlyArray<Outgoing> {
+  if (outbox.length === 0) return outbox;
+  const landed = new Set(
+    items.flatMap(({ item }) => (item.type === "user_message" ? [item.messageId as string] : [])),
+  );
+  return outbox.filter((message) => !landed.has(message.messageId));
+}
+
 /** What the lead is doing this instant, in a few words; null when it is doing nothing to name. */
 export function leadActivity(
   items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,

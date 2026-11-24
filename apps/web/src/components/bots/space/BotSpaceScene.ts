@@ -300,6 +300,7 @@ export class BotSpaceScene {
   private unit = 1;
   /** Device pixels a world unit covers at the bots' depth: the globe's dots are sized in pixels. */
   private pixelsPerUnit = 1;
+  private otherSize = OTHER_SIZE;
   private frame = 0;
   private lastFrame = 0;
   private time = 0;
@@ -389,7 +390,12 @@ export class BotSpaceScene {
       for (const ring of star.hoops) ring.material.color = color;
       star.heart.material.color = color.clone().lerp(WHITE, 0.55);
       star.halo.material.color = color;
-      star.group.scale.setScalar((input.centre ? LEAD_SIZE : OTHER_SIZE) * this.unit);
+    }
+    // Many bots round the one in the middle are each drawn smaller, so none sits on another.
+    const others = inputs.length - inputs.filter((input) => input.centre).length;
+    this.otherSize = OTHER_SIZE * (others > 4 ? 0.72 : others > 2 ? 0.88 : 1);
+    for (const star of this.stars.values()) {
+      if (seen.has(star.input.id)) star.group.scale.setScalar(this.sizeOf(star.input));
     }
     for (const star of this.stars.values()) {
       if (seen.has(star.input.id)) continue;
@@ -397,6 +403,10 @@ export class BotSpaceScene {
       this.onPlace(star.input.id, null);
     }
     this.invalidate();
+  }
+
+  private sizeOf(input: SpaceStar) {
+    return (input.centre ? LEAD_SIZE : this.otherSize) * this.unit;
   }
 
   private removeStar(star: Star) {
@@ -811,8 +821,7 @@ export class BotSpaceScene {
     const room = this.region ?? { width, height };
     this.unit =
       Math.min(Math.max(Math.min(room.width * 0.24, room.height * 0.11), 56), 96) / pixelsPerUnit;
-    for (const star of this.stars.values())
-      star.group.scale.setScalar((star.input.centre ? LEAD_SIZE : OTHER_SIZE) * this.unit);
+    for (const star of this.stars.values()) star.group.scale.setScalar(this.sizeOf(star.input));
     this.invalidate();
   }
 

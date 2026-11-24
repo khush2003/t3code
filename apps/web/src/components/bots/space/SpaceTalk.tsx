@@ -14,6 +14,7 @@ import { Link } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
 import {
+  ArrowDownIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   ArrowUpIcon,
@@ -29,11 +30,13 @@ import {
   useSyncExternalStore,
   type CSSProperties,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { observeResize } from "~/lib/observeResize";
 import { newMessageId } from "~/lib/utils";
 import { createSpeechVoice, isSpeechVoiceKept } from "~/speech/speechVoice";
 import { useVoiceTranscriptionDestination } from "~/speech/useEnvironmentSpeechInput";
@@ -48,7 +51,14 @@ import { BotTaskStateLabel } from "../BotBlocks";
 import { repliesToSay, spokenUnits, unitsToSay, type SpaceScreen } from "./botSpace.logic";
 import type { BotSpaceScene, SpaceVoice } from "./BotSpaceScene";
 import type { SpaceTask } from "./spaceBoards";
-import { leadActivity, replyParts, talkRows, type TalkRow } from "./spaceTalk.logic";
+import {
+  leadActivity,
+  replyParts,
+  talkRows,
+  undelivered,
+  type Outgoing,
+  type TalkRow,
+} from "./spaceTalk.logic";
 
 type StartedBot = BotSummary & { readonly threadId: ThreadId };
 
@@ -62,6 +72,8 @@ const ROWS = 40;
 /** A first paragraph longer than this is a report, not a line to set large. */
 const HEADLINE_CHARS = 190;
 const WAVE_BARS = 11;
+/** Scrolled further up than this, the person is reading back and is left where they are. */
+const AWAY_PX = 140;
 const lit = (color: string) => ({ "--c": color }) as CSSProperties;
 
 /** What of a reply is set large, and what is detail to read under it. */
@@ -116,6 +128,33 @@ function Reply(props: {
   );
 }
 
+/** What the lead told another bot, or what that bot said back; long ones open on a click. */
+function Between(props: {
+  readonly row: Extract<TalkRow, { kind: "told" | "heard" }>;
+  readonly lead: string;
+  readonly color: string;
+}) {
+  const gt = useGT();
+  const [open, setOpen] = useState(false);
+  const { row } = props;
+  return (
+    <div className={s.event} style={lit(props.color)}>
+      {row.kind === "told" ? <ArrowRightIcon /> : <ArrowLeftIcon />}
+      <div>
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {row.kind === "told"
+            ? gt("{name} asked", { name: props.lead })
+            : gt("Back to {name} from", { name: props.lead })}{" "}
+          <b>{row.bot}</b>
+        </button>
+        <div className={open ? s.quote : `${s.quote} ${s.isShort}`}>
+          <ChatMarkdown text={row.text} cwd={undefined} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Talking with the bot in the middle. What is said or typed goes to its chat as a message like
  * any other. The whole exchange stays readable here: what was asked, the answer and its detail,
@@ -154,9 +193,11 @@ export function SpaceTalk(props: {
   /** The person is speaking, or has paused and their words are still being written down. */
   const [heard, setHeard] = useState<"speaking" | "writing" | null>(null);
   const [partial, setPartial] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ readonly messageId: string; readonly text: string } | null>(
-    null,
-  );
+  /** Words already written down, waiting for the rest of what is being said. */
+  const [heldWords, setHeldWords] = useState("");
+  const [outbox, setOutbox] = useState<ReadonlyArray<Outgoing>>([]);
+  /** The person has scrolled up to read; the log is not dragged back down under them. */
+  const [away, setAway] = useState(false);
   const [problem, setProblem] = useState<{
     readonly text: string;
     readonly setup: boolean;
@@ -173,17 +214,19 @@ export function SpaceTalk(props: {
   const level = useRef(0);
   const wave = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const log = useRef<HTMLDivElement>(null);
+  const logRows = useRef<HTMLDivElement>(null);
+  /** The voice is paused because the person may be speaking, so its echo cannot be heard. */
+  const holding = useRef(false);
   const { prepared, grantId, cloudProvider, cloudModel } = destination;
   const canListen = prepared !== null && grantId !== null;
 
   const rows = talkRows(items, bot.name, BOT_SPOKEN_PREFIX).slice(-ROWS);
   const replies = from === null ? [] : repliesToSay(items, from, BOT_SPOKEN_PREFIX);
-  const delivered =
-    sent !== null &&
-    items.some(({ item }) => "messageId" in item && item.messageId === sent.messageId);
+  const unsent = undelivered(outbox, items);
   const lastRow = rows.at(-1);
   const working = shell !== null && isThreadWorking(shell);
-  const waiting = (sent !== null && !delivered) || heard === "writing";
+  const waiting = unsent.some((message) => message.failed === null) || heard === "writing";
   const mode: SpaceVoice["mode"] =
     saying !== null
       ? "speaking"
@@ -201,13 +244,22 @@ export function SpaceTalk(props: {
     for (const reply of replies) said.current.set(reply.messageId, ALL_SAID);
   });
 
+  /**
+   * Sends one more message. It never waits for the one before and never stops what the bot is
+   * doing or saying: a bot at work takes it in at its next step.
+   */
   const send = useStableCallback(async (text: string) => {
-    if (shell === null) return;
-    hush();
     setEngaged(true);
-    const messageId = newMessageId();
-    setSent({ messageId, text });
     setProblem(null);
+    const messageId = newMessageId();
+    setOutbox((now) => [...undelivered(now, items), { messageId, text, failed: null }]);
+    const fail = (reason: string) =>
+      setOutbox((now) =>
+        now.map((message) =>
+          message.messageId === messageId ? { ...message, failed: reason } : message,
+        ),
+      );
+    if (shell === null) return fail(gt("{name}'s chat is not reachable yet.", { name: bot.name }));
     const result = await startTurn({
       environmentId,
       input: {
@@ -219,16 +271,13 @@ export function SpaceTalk(props: {
       },
     });
     if (result._tag !== "Failure") return;
-    setSent(null);
     const error = squashAtomCommandFailure(result);
-    setProblem({
-      text:
-        error instanceof Error
-          ? error.message
-          : gt("That did not reach {name}.", { name: bot.name }),
-      setup: false,
-    });
+    fail(
+      error instanceof Error ? error.message : gt("That did not reach {name}.", { name: bot.name }),
+    );
   });
+  const discard = (message: Outgoing) =>
+    setOutbox((now) => now.filter((other) => other.messageId !== message.messageId));
 
   /** Silences the bot, and stops the turn it is in. */
   const stop = useStableCallback(() => {
@@ -300,7 +349,7 @@ export function SpaceTalk(props: {
     };
   }, [loaded, kept]);
 
-  const guarded = voice.speaking;
+  const guarded = useStableCallback(() => voice.speaking() && !holding.current);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the microphone is a browser resource held only while listening is on
   useEffect(() => {
     if (!micOn || prepared === null || grantId === null) return;
@@ -331,17 +380,27 @@ export function SpaceTalk(props: {
           (bar as HTMLElement).style.height = `${heights[index]}px`;
         });
       },
+      // A sound is not yet words: the voice waits mid-sentence and is only cut off by words.
       onSpeechStart: () => {
         setHeard("speaking");
         setProblem(null);
+        holding.current = true;
+        voice.hold();
+      },
+      onSpeechEnd: () => setHeard((now) => (now === "speaking" ? "writing" : now)),
+      onPartial: setPartial,
+      onHeld: setHeldWords,
+      onUtterance: (text) => {
+        setHeard(null);
+        holding.current = false;
         hush();
+        void send(text);
       },
-      onSpeechEnd: () => setHeard("writing"),
-      onPartial: (text) => {
-        setPartial(text);
-        if (text === null) setHeard((now) => (now === "writing" ? null : now));
+      onNothing: () => {
+        setHeard(null);
+        holding.current = false;
+        voice.resume();
       },
-      onUtterance: (text) => void send(text),
       onError: failed,
     }).then(
       () => setListening(!abort.signal.aborted),
@@ -354,11 +413,38 @@ export function SpaceTalk(props: {
     return () => {
       abort.abort();
       level.current = 0;
+      holding.current = false;
+      voice.resume();
       setListening(false);
       setHeard(null);
       setPartial(null);
+      setHeldWords("");
     };
-  }, [micOn, prepared, grantId, cloudProvider, cloudModel, speechOptions, guarded, hush, send]);
+  }, [
+    micOn,
+    prepared,
+    grantId,
+    cloudProvider,
+    cloudModel,
+    speechOptions,
+    guarded,
+    hush,
+    send,
+    voice,
+  ]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the rows being read where they are while new ones arrive below; a reversed column would otherwise slide them up
+  useEffect(() => {
+    const rowsElement = logRows.current;
+    if (rowsElement === null) return;
+    let height = rowsElement.offsetHeight;
+    return observeResize(rowsElement, () => {
+      const grown = rowsElement.offsetHeight - height;
+      height = rowsElement.offsetHeight;
+      const scroller = log.current;
+      if (scroller !== null && scroller.scrollTop < -AWAY_PX) scroller.scrollTop -= grown;
+    });
+  }, []);
 
   // A reply that came while the voice was being downloaded is read, not said late.
   const speaks =
@@ -428,8 +514,10 @@ export function SpaceTalk(props: {
     void send(text);
   };
 
-  const pending =
-    partial !== null && partial !== "" ? partial : sent !== null && !delivered ? sent.text : null;
+  const hearingWords = [heldWords, partial ?? ""].filter((part) => part !== "").join(" ");
+  const hearing = hearingWords !== "" ? hearingWords : heard !== null ? "…" : null;
+  /** A click on a control of the bar leaves the cursor in the field, ready for the next message. */
+  const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
   const lastReplyId = rows.findLast((row) => row.kind === "reply")?.id;
   const color = props.light(bot.name);
   const load = voiceOn ? voiceState.load : null;
@@ -468,14 +556,17 @@ export function SpaceTalk(props: {
 
   return (
     <section className={s.talk} style={lit(color)}>
-      <div className={s.log}>
-        <div className={s.logRows} aria-live="polite">
+      <div
+        ref={log}
+        className={s.log}
+        onScroll={(event) => setAway(event.currentTarget.scrollTop < -AWAY_PX)}
+      >
+        <div ref={logRows} className={s.logRows} aria-live="polite">
           {rows.map((row) => {
             switch (row.kind) {
               case "you":
                 return (
                   <div key={row.id} className={`${s.row} ${s.isYou}`}>
-                    <i className={s.mark} />
                     <p>{row.text}</p>
                   </div>
                 );
@@ -491,16 +582,7 @@ export function SpaceTalk(props: {
               case "told":
               case "heard":
                 return (
-                  <div key={row.id} className={s.event} style={lit(props.light(row.bot))}>
-                    {row.kind === "told" ? <ArrowRightIcon /> : <ArrowLeftIcon />}
-                    <div>
-                      {row.kind === "told"
-                        ? gt("{name} asked", { name: bot.name })
-                        : gt("Back to {name} from", { name: bot.name })}{" "}
-                      <b>{row.bot}</b>
-                      <q>{row.text}</q>
-                    </div>
-                  </div>
+                  <Between key={row.id} row={row} lead={bot.name} color={props.light(row.bot)} />
                 );
               case "task": {
                 const task = taskOf(row.threadId);
@@ -555,19 +637,64 @@ export function SpaceTalk(props: {
                 return null;
             }
           })}
-          {pending === null ? null : (
-            <div className={`${s.row} ${s.isYou} ${s.isPending}`}>
-              <i className={s.mark} />
-              <p>{pending}</p>
+          {unsent.map((message) => (
+            <div
+              key={message.messageId}
+              className={`${s.row} ${s.isYou} ${message.failed === null ? s.isPending : s.isFailed}`}
+            >
+              <p>{message.text}</p>
+              {message.failed === null ? (
+                <small>
+                  {working
+                    ? gt("{name} reads this at its next step", { name: bot.name })
+                    : gt("Sending…")}
+                </small>
+              ) : (
+                <small role="alert">
+                  {gt("Not sent: {reason}", { reason: message.failed })}{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      discard(message);
+                      void send(message.text);
+                    }}
+                  >
+                    {gt("Try again")}
+                  </button>
+                  <button type="button" onClick={() => discard(message)}>
+                    {gt("Discard")}
+                  </button>
+                </small>
+              )}
+            </div>
+          ))}
+          {hearing === null ? null : (
+            <div className={`${s.row} ${s.isYou} ${s.isHearing}`}>
+              <p>{hearing}</p>
             </div>
           )}
           {mode === "thinking" && lastRow?.kind !== "reply" ? (
             <p className={s.status}>
+              <span aria-hidden>
+                <i />
+                <i />
+                <i />
+              </span>
               {leadActivity(items) ?? gt("{name} is on it…", { name: bot.name })}
             </p>
           ) : null}
         </div>
       </div>
+      {away ? (
+        <button
+          type="button"
+          className={s.latest}
+          onClick={() => log.current?.scrollTo({ top: 0, behavior: "smooth" })}
+        >
+          <ArrowDownIcon />
+          {gt("Latest")}
+        </button>
+      ) : null}
       {problem === null ? null : (
         <p role="alert" className={s.alert}>
           {problem.text}{" "}
@@ -582,6 +709,7 @@ export function SpaceTalk(props: {
             aria-pressed={micOn}
             disabled={!ready}
             aria-label={micOn ? gt("Stop listening") : gt("Talk with {name}", { name: bot.name })}
+            onMouseDown={keepFocus}
             onClick={toggleMic}
           >
             <MicIcon />
@@ -612,38 +740,45 @@ export function SpaceTalk(props: {
             placeholder={
               !ready
                 ? gt("Reaching {name}…", { name: bot.name })
-                : saying !== null
-                  ? gt("Talk or type to cut in")
+                : working
+                  ? gt("Add to it, or ask more")
                   : micOn
                     ? gt("Say it, or type")
-                    : gt("Type to {name}", { name: bot.name })
+                    : gt("Message {name}", { name: bot.name })
             }
             aria-label={gt("Message to {name}", { name: bot.name })}
           />
-          {stoppable && draft.trim() === "" ? (
+          {/* Stop has a place of its own: Send never turns into it under the cursor. */}
+          {stoppable ? (
             <button
               type="button"
               className={`${s.act} ${s.isStop}`}
               aria-label={gt("Stop {name}", { name: bot.name })}
+              onMouseDown={keepFocus}
               onClick={stop}
             >
               <SquareIcon fill="currentColor" strokeWidth={0} />
             </button>
-          ) : (
-            <button
-              type="submit"
-              className={`${s.act} ${s.isSend}`}
-              disabled={!ready || draft.trim() === ""}
-              aria-label={gt("Send")}
-            >
-              <ArrowUpIcon />
-            </button>
-          )}
+          ) : null}
+          <button
+            type="submit"
+            className={`${s.act} ${s.isSend}`}
+            disabled={!ready || draft.trim() === ""}
+            aria-label={gt("Send")}
+            onMouseDown={keepFocus}
+          >
+            <ArrowUpIcon />
+          </button>
+        </div>
+        <div className={s.under}>
+          <span>{state}</span>
+          <span className={s.grow} />
           <button
             type="button"
-            className={voiceOn ? s.act : `${s.act} ${s.isOff}`}
+            className={voiceOn ? s.voice : `${s.voice} ${s.isOff}`}
             aria-pressed={voiceOn}
             aria-label={voiceOn ? gt("Stop reading replies aloud") : gt("Read replies aloud")}
+            onMouseDown={keepFocus}
             onClick={() => {
               hush();
               if (!voiceOn) setEngaged(true);
@@ -651,11 +786,8 @@ export function SpaceTalk(props: {
             }}
           >
             {voiceOn ? <Volume2Icon /> : <VolumeXIcon />}
+            {voiceOn ? gt("Voice on") : gt("Voice off")}
           </button>
-        </div>
-        <div className={s.under}>
-          <span>{state}</span>
-          <span className={s.grow} />
           {saying !== null ? (
             <span>
               <kbd>Esc</kbd> {gt("quiets {name}", { name: bot.name })}

@@ -53,6 +53,10 @@ export interface SpeechVoice {
   readonly say: (text: string) => void;
   /** Falls silent at once and forgets what was waiting. */
   readonly stop: () => void;
+  /** Falls silent mid-word and keeps its place, until `resume` or `stop`. */
+  readonly hold: () => void;
+  /** Carries on from where `hold` left it. */
+  readonly resume: () => void;
   /** Whether anything is being said or waiting to be. */
   readonly speaking: () => boolean;
   /** 0..1, how loud the voice is this instant. */
@@ -88,6 +92,7 @@ export function createSpeechVoice(): SpeechVoice {
   const made = new Map<number, AudioBuffer>();
   let playing: { readonly id: number; readonly source: AudioBufferSourceNode } | null = null;
   let playNext = 0;
+  let held = false;
   // The worker is handed one piece at a time, so a stop leaves it at most that one to finish.
   let unmade: number[] = [];
   let making = false;
@@ -121,11 +126,13 @@ export function createSpeechVoice(): SpeechVoice {
     });
     playing = { id, source };
     set({ saying: entry.text });
-    void loaded.context.resume();
+    // While held the piece is started all the same: it plays when the output runs again.
+    if (!held) void loaded.context.resume();
     source.start();
   };
 
   const stop = () => {
+    held = false;
     generation++;
     unmade = [];
     waiting.clear();
@@ -193,6 +200,16 @@ export function createSpeechVoice(): SpeechVoice {
       make();
     },
     stop,
+    hold() {
+      if (loaded === null || held) return;
+      held = true;
+      void loaded.context.suspend();
+    },
+    resume() {
+      if (!held) return;
+      held = false;
+      void loaded?.context.resume();
+    },
     speaking: () => waiting.size > 0,
     level() {
       if (playing === null || loaded === null) return 0;

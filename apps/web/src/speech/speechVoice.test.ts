@@ -25,6 +25,8 @@ it("makes one piece at a time, says them in order, and a stop drops what was wai
     },
   );
   const sources: Array<{ end: () => void; stop: ReturnType<typeof vi.fn> }> = [];
+  const resumed = vi.fn(() => Promise.resolve());
+  const suspended = vi.fn(() => Promise.resolve());
   setGlobal(
     "AudioContext",
     class {
@@ -46,7 +48,8 @@ it("makes one piece at a time, says them in order, and a stop drops what was wai
         sources.push(source);
         return source;
       };
-      resume = () => Promise.resolve();
+      resume = resumed;
+      suspend = suspended;
       close = () => Promise.resolve();
     },
   );
@@ -92,4 +95,24 @@ it("makes one piece at a time, says them in order, and a stop drops what was wai
   sources.at(-1)!.end();
   expect(saying).toEqual(["a", "b", null, "d", null]);
   expect(voice.speaking()).toBe(false);
+
+  // Held, it keeps its place: the next piece is lined up but the output stays silent.
+  for (const text of ["e", "f"]) voice.say(text);
+  made(4);
+  made(5);
+  voice.hold();
+  expect(suspended).toHaveBeenCalledTimes(1);
+  resumed.mockClear();
+  sources.at(-1)!.end();
+  expect(saying.at(-1)).toBe("f");
+  expect(resumed).not.toHaveBeenCalled();
+  voice.resume();
+  expect(resumed).toHaveBeenCalledTimes(1);
+  expect(voice.speaking()).toBe(true);
+  // A stop while held ends the hold, so what is said next is heard.
+  voice.hold();
+  voice.stop();
+  voice.say("g");
+  made(6);
+  expect(resumed).toHaveBeenCalledTimes(2);
 });

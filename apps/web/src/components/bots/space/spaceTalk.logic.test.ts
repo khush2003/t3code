@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { OrchestrationV2ProjectedTurnItem, OrchestrationV2TurnItem } from "@t3tools/contracts";
 
-import { leadActivity, replyParts, talkRows } from "./spaceTalk.logic";
+import { leadActivity, replyParts, talkRows, undelivered } from "./spaceTalk.logic";
 
 const row = (position: number, item: Record<string, unknown>) =>
   ({
@@ -64,6 +64,21 @@ describe("the conversation in the space", () => {
       detail: "",
     });
     expect(replyParts("Six posters.", false).headlineDone).toBe(true);
+  });
+
+  it("keeps every message that has not landed in the chat, in the order it was sent", () => {
+    const outbox = [
+      { messageId: "m1", text: "first", failed: null },
+      { messageId: "m2", text: "second", failed: "offline" },
+      { messageId: "m3", text: "third", failed: null },
+    ];
+    const chat = [
+      row(1, { type: "user_message", messageId: "m1", text: "(voice) first" }),
+      // A reply carries a message id too, and is not what was sent.
+      row(2, { type: "assistant_message", messageId: "m3", text: "ok", streaming: false }),
+    ];
+    expect(undelivered(outbox, chat).map((message) => message.messageId)).toEqual(["m2", "m3"]);
+    expect(undelivered([], chat)).toEqual([]);
   });
 
   it("names what the lead is doing while a tool of its own runs", () => {

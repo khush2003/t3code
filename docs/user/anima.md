@@ -114,9 +114,15 @@ in the middle. On the right is a screen that holds up what the conversation is a
 
 Speak with the microphone on, or type; Space turns the microphone on and off. What you say goes
 to the middle bot's chat as a message that starts with `(voice)`. Its answer has two parts: a
-sentence or two that is read aloud with the speaker on, and any detail written under it for you
-to read. Start talking to cut it off, or select Stop to end what it is doing. Tasks it started
-keep running while you carry on.
+sentence or two that is read aloud with the voice on, and any detail written under it for you
+to read.
+
+You can keep sending while it works or speaks. A message sent to a bot at work does not stop
+it: the bot takes it in at its next step, and tasks it started keep running. Typing does not
+cut off what it is saying; Escape does, and Stop ends what it is doing as well. While you
+speak it falls silent and keeps its place: words from you end the old answer, a cough or a
+noise does not. A pause in the middle of a thought is not the end of it, so what you say with
+short pauses goes over as one message once you stop.
 
 - Hearing you uses the destination chosen in **Settings → Voice**: a speech model on one of
   your machines, or a cloud provider. A cloud provider writes each thing down after you pause.

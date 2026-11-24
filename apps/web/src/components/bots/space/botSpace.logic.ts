@@ -127,7 +127,8 @@ export function placeBotStars(
       const row = Math.floor(index / abreast);
       places.set(bot.name, {
         x: abreast === 1 ? (index % 2 === 0 ? -0.1 : 0.12) : index % 2 === 0 ? -0.46 : 0.46,
-        y: rows === 1 ? 0.62 : 0.8 - (row / (rows - 1)) * 0.5,
+        // More rows take more of the column, down to just above the lead's rings.
+        y: rows === 1 ? 0.62 : rows === 2 ? 0.8 - row * 0.5 : 0.86 - (row / (rows - 1)) * 0.62,
         z: -(((bot.seed >>> 20) % 100) / 100) * 1.5,
       });
     });
