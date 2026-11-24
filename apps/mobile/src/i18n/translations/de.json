@@ -305,6 +305,8 @@
   "cc32789cb80f1509": "{count, plural, one {Tried to create {count} anima} other {Tried to create {count} animas}}",
   "4ad19e849f7d1a97": "Read the board",
   "fea8a974fa0de8f5": "Tried to read the board",
+  "e0c062988069392d": "Put something on screen",
+  "9c41c3330febcafa": "Tried to put something on screen",
   "6e0be86ea3c60926": "{count, plural, one {Saved {count} work item} other {Saved {count} work items}}",
   "2a61e43cef89dc96": "{count, plural, one {Tried to save {count} work item} other {Tried to save {count} work items}}",
   "55bd4c3f3ee7056b": "Changed its charter",

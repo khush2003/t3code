@@ -132,3 +132,33 @@ describe("BotBoards.context", () => {
     }).pipe(Effect.provide(layer)),
   );
 });
+
+describe("BotBoards.atScreen", () => {
+  const atScreen = (started: string | undefined) =>
+    Effect.gen(function* () {
+      return yield* (yield* BotBoards.BotBoards).atScreen(threadId);
+    }).pipe(
+      Effect.provide(
+        BotBoards.layer.pipe(
+          Layer.provideMerge(BotStore.layerMemory),
+          Layer.provide(
+            Layer.mock(ProjectionStore.ProjectionStoreV2)({
+              getThreadRecords: () =>
+                Effect.succeed({ runs: started === undefined ? [] : [{ id: "run-1" }] } as never),
+              getRunMessage: () => Effect.succeed({ text: started } as never),
+            }),
+          ),
+          Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    );
+
+  it.effect("is true only for a turn the person started from the screen of their bots", () =>
+    Effect.gen(function* () {
+      expect(yield* atScreen("(voice) show me the poster")).toBe(true);
+      expect(yield* atScreen("show me the poster")).toBe(false);
+      // A turn a finished task started has no message of theirs.
+      expect(yield* atScreen(undefined)).toBe(false);
+    }),
+  );
+});

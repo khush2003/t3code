@@ -9,6 +9,7 @@ import { deriveBoard } from "../../../bots/BotBoard.ts";
 import * as BotBoards from "../../../bots/BotBoards.ts";
 import * as BotFiles from "../../../bots/BotFiles.ts";
 import { renderBotMessage } from "@t3tools/shared/botMessages";
+import { findBotFile } from "@t3tools/shared/botShow";
 import { requireBot } from "../../../bots/BotService.ts";
 import * as BotStore from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -24,6 +25,7 @@ const RECALL_HITS = 12;
 const BOT_MESSAGES_PER_HOUR = 12;
 const NOTE_HITS = 5;
 const RECALL_CHARS = 4_000;
+const SHOWN_FILE_TITLES = 12;
 
 const failure = (error: { readonly _tag: string; readonly message: string }) =>
   isMcpFailure(error)
@@ -64,6 +66,53 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         includeClosed: input.includeClosed,
       });
       return { items: deriveBoard(sources) };
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_bot_show: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { bot, threadId } = yield* callerBot;
+      const boards = yield* BotBoards.BotBoards;
+      if (!(yield* boards.atScreen(threadId)))
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            "Nothing was shown: your person is not looking at the screen of their bots in this turn, so there is nowhere to show it. Tell them what the thing is and where to find it, and do not mention the screen.",
+        });
+      const whose = input.bot ?? bot.name;
+      if (whose !== bot.name) {
+        const other = bot.oversees
+          ? yield* BotStore.BotStore.pipe(Effect.flatMap((store) => store.getBot(whose)))
+          : null;
+        if (other === null)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: bot.oversees
+              ? `No bot is named ${whose}.`
+              : "Only a bot that oversees the others shows another bot's work.",
+          });
+      }
+      if (input.thread !== undefined && input.file !== undefined)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Show one thing at a time: a thread or a file.",
+        });
+      if (input.thread !== undefined) return { showing: `the task ${input.thread}` };
+      if (input.file === undefined) return { showing: `${whose}'s board` };
+      const items = deriveBoard(yield* boards.sources(whose, { includeClosed: true }));
+      const files = items.flatMap((item) => item.files);
+      const file = findBotFile(files, input.file);
+      if (file === null)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            files.length === 0
+              ? `${whose} has no handed-over files.`
+              : `No handed-over file of ${whose} matches "${input.file}". There are: ${files
+                  .slice(-SHOWN_FILE_TITLES)
+                  .map((candidate) => candidate.title)
+                  .join("; ")}.`,
+        });
+      return { showing: file.title };
     }).pipe(Effect.mapError(failure)),
   ),
   t3_bot_tell: McpToolAccess.actsAsCaller((input) =>

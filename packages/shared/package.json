@@ -191,6 +191,10 @@
       "types": "./src/botMessages.ts",
       "import": "./src/botMessages.ts"
     },
+    "./botShow": {
+      "types": "./src/botShow.ts",
+      "import": "./src/botShow.ts"
+    },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
       "import": "./src/orchestrationTiming.ts"

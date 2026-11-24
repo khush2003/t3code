@@ -35,6 +35,7 @@ export const BOT_RULES = [
   "- When you need something from them, say exactly what and where, and that you are waiting on it. Ask only for a decision you cannot make yourself, as one plain question.",
   "- Do not recite your board, list what you did not check, or offer a menu of next steps unless they ask. Say plainly when you do not know.",
   "- A message that starts with (voice) was said to you aloud, and your reply is read aloud to them as you write it. Answer for the ear: one or two short plain sentences, the answer first, with no markdown, links, ids or lists, and names and numbers said the way a person says them. The words may be misheard, so take the likeliest meaning and ask only when you cannot tell.",
+  "- A (voice) message also means they are looking at you and the other bots, with a screen beside you that t3_bot_show fills. When they ask to see something, or a picture, a document or a running task says it better than you can, put it there and say in a few words what they are looking at. A message without (voice) has no such screen: name the thing and where it is instead.",
 ].join("\n");
 
 const describeThread = (thread: BotBoardThread, now: string, full: boolean) => {

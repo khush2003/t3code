@@ -136,6 +136,25 @@ const BotTellTool = Tool.make("t3_bot_tell", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
 
+const BotShowTool = Tool.make("t3_bot_show", {
+  ...shared,
+  description:
+    "Put one thing on the screen beside you, which your person has only while their messages start with (voice). Use it when they ask to see something, and when seeing it serves them better than hearing it described. Give one of: thread, a task to watch as it works; file, a handed-over file by its title; bot, that bot's whole board. With nothing given it shows your own board.",
+  parameters: Schema.Struct({
+    thread: Schema.optional(ThreadId),
+    /** The machine `thread` is on, when it is not this one. */
+    environmentId: Schema.optional(EnvironmentId),
+    /** A handed-over file, by its title or id. */
+    file: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))),
+    /** Whose board to show, or whose file `file` is, for a bot that oversees the others. */
+    bot: Schema.optional(BotName),
+  }),
+  success: Schema.Struct({ showing: Schema.String }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForBots);
+
 const BotFileGiveTool = Tool.make("t3_bot_file_give", {
   ...shared,
   description:
@@ -161,5 +180,6 @@ export const BotToolkit = Toolkit.make(
   BotRecallTool,
   BotNoteRetireTool,
   BotTellTool,
+  BotShowTool,
   BotFileGiveTool,
 );

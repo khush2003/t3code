@@ -1,20 +1,19 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
-import type { BotSummary, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type {
+  BotBoardThread,
+  BotSummary,
+  EnvironmentId,
+  OrchestrationV2ProjectedTurnItem,
+  ThreadId,
+} from "@t3tools/contracts";
+import { BOT_SPOKEN_PREFIX } from "@t3tools/shared/botShow";
 import { resolveSpeechVocabulary } from "@t3tools/shared/speech";
 import { Link } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
 import * as Schema from "effect/Schema";
-import {
-  ArrowUpIcon,
-  MessageSquareIcon,
-  MicIcon,
-  MicOffIcon,
-  Volume2Icon,
-  VolumeXIcon,
-  XIcon,
-} from "lucide-react";
+import { ArrowUpIcon, MicIcon, MicOffIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -45,12 +44,21 @@ import { resolveBotHome } from "../../sidebar/SidebarBots.logic";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { SidebarInset } from "../../ui/sidebar";
-import { BotAvatar } from "../BotAvatar";
-import { BotStateIcon, BotTaskStateLabel, useOpenBotTask } from "../BotBlocks";
+import { BotStateIcon, BotTaskStateLabel } from "../BotBlocks";
+import { sortBotTasks } from "../botBoard.logic";
 import { botColorName } from "../botLook";
-import { isBotThreadId, useOpenBotView } from "../botView";
+import { isBotThreadId } from "../botView";
 import { useBotBoard } from "../useBot";
-import { placeBotStars, spokenUnits, type BotStarPlace } from "./botSpace.logic";
+import {
+  lastLedScreen,
+  placeBotStars,
+  repliesToSay,
+  spokenUnits,
+  unitsToSay,
+  type BotStarPlace,
+  type SpaceScreen,
+} from "./botSpace.logic";
+import { SpaceScreenPane } from "./BotSpaceScreens";
 import type { BotSpaceScene, SpaceStar, SpaceVoice, StarOnScreen } from "./BotSpaceScene";
 
 /** The light each of a bot's colours gives off against black. */
@@ -66,13 +74,19 @@ const STAR_LIGHT: Readonly<Record<string, string>> = {
 };
 
 /** Tells the bot its reply will be read aloud; BOT_RULES says what to do with it. */
-const SPOKEN = "(voice) ";
+const SPOKEN = BOT_SPOKEN_PREFIX;
 /** Whether replies are read aloud here, kept across visits. */
 const VOICE_ON_KEY = "t3code:space-voice:v1";
 const isVoiceSetupNeeded = Schema.is(VoiceSetupNeeded);
 const OFF_LOAD = { step: "off" } as const;
+/** More than this many tasks under a bot crowd the ones beside it. */
+const TASKS_UNDER_A_BOT = 3;
 
 type StartedBot = BotSummary & { readonly threadId: ThreadId };
+
+/** The light a bot gives off; a screen that is no bot's is plain white light. */
+const starLight = (bot: StartedBot | null) =>
+  (bot === null ? undefined : STAR_LIGHT[botColorName(bot.name, bot.look)]) ?? STAR_LIGHT.slate!;
 
 function BotStar(props: {
   readonly environmentId: EnvironmentId;
@@ -83,6 +97,7 @@ function BotStar(props: {
   readonly register: (id: string, star: SpaceStar | null) => void;
   readonly label: (id: string, element: HTMLElement | null) => void;
   readonly onSelect: () => void;
+  readonly onShowTask: (thread: BotBoardThread) => void;
 }) {
   const gt = useGT();
   const { bot, place, register } = props;
@@ -92,10 +107,14 @@ function BotStar(props: {
     ...(board?.items.flatMap((item) => item.threads) ?? []),
     ...(board?.unfiled ?? []),
   ];
-  const working = tasks.filter((task) => task.status === "working").length;
-  const waiting = bot.waitingOnYou + tasks.filter((task) => task.status === "needs-input").length;
+  // What it is doing now hangs under it: the tasks at work and the ones waiting on the person.
+  const live = sortBotTasks(
+    tasks.filter((task) => task.status === "working" || task.status === "needs-input"),
+  );
+  const working = live.filter((task) => task.status === "working").length;
+  const waiting = bot.waitingOnYou + live.length - working;
   const busy = shell !== null && isThreadWorking(shell);
-  const color = STAR_LIGHT[botColorName(bot.name, bot.look)] ?? STAR_LIGHT.slate!;
+  const color = starLight(bot);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the three.js scene is outside React and draws this bot from these values
   useEffect(() => {
@@ -146,121 +165,38 @@ function BotStar(props: {
           {status}
         </span>
       </button>
-    </div>
-  );
-}
-
-/** A bot's open work on a screen beside it. */
-function BotScreen(props: {
-  readonly environmentId: EnvironmentId;
-  readonly bot: StartedBot;
-  readonly onClose: () => void;
-}) {
-  const gt = useGT();
-  const { bot } = props;
-  const board = useBotBoard(props.environmentId, bot.threadId);
-  const openTask = useOpenBotTask();
-  const openBot = useOpenBotView();
-  const color = STAR_LIGHT[botColorName(bot.name, bot.look)] ?? STAR_LIGHT.slate!;
-  const items = board.data?.items ?? [];
-  const unfiled = board.data?.unfiled ?? [];
-
-  return (
-    <div className="pointer-events-none absolute inset-x-4 top-16 bottom-44 flex items-center @3xl/space:inset-x-auto @3xl/space:right-10 @3xl/space:w-96">
-      <section
-        aria-label={gt("{name}'s work", { name: bot.name })}
-        className="pointer-events-auto flex max-h-full w-full flex-col overflow-hidden rounded-2xl border bg-black/85"
-        // Lit by its bot, and turned a little toward it like a pane hanging in the same space.
-        style={{
-          borderColor: `${color}66`,
-          boxShadow: `0 0 70px -12px ${color}66, inset 0 0 40px -24px ${color}`,
-          transform: "perspective(1600px) rotateY(-7deg)",
-        }}
-      >
-        <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-          <BotAvatar
-            environmentId={props.environmentId}
-            name={bot.name}
-            look={bot.look}
-            size="md"
-          />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate font-medium text-sm text-white">{bot.name}</h2>
-            <p className="truncate text-white/50 text-xs">{bot.purpose}</p>
-          </div>
-          <Button
-            variant="ghost-muted"
-            size="icon-sm"
-            aria-label={gt("Open {name}'s chat", { name: bot.name })}
-            onClick={() =>
-              void openBot({ environmentId: props.environmentId, threadId: bot.threadId })
-            }
-          >
-            <MessageSquareIcon />
-          </Button>
-          <Button
-            variant="ghost-muted"
-            size="icon-sm"
-            aria-label={gt("Close the screen")}
-            onClick={props.onClose}
-          >
-            <XIcon />
-          </Button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          {board.data === null ? (
-            <p className="px-2 py-3 text-sm text-white/50">
-              {board.error ?? <T>Reading its board…</T>}
-            </p>
-          ) : items.length === 0 && unfiled.length === 0 ? (
-            <p className="px-2 py-3 text-sm text-white/50">
-              <T>Nothing open. Ask it for something and the work shows here.</T>
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {[
-                ...items.map((item) => ({ key: item.id as string, item, tasks: item.threads })),
-                ...(unfiled.length === 0 ? [] : [{ key: "unfiled", item: null, tasks: unfiled }]),
-              ].map(({ key, item, tasks }) => (
-                <li key={key} className="px-2">
-                  <p className="text-sm text-white">
-                    {item === null ? <T>Other running tasks</T> : item.title}
-                    {item?.waitingOnYou ? (
-                      <span className="ms-2 text-warning text-xs">
-                        <T>Needs you</T>
-                      </span>
-                    ) : null}
-                  </p>
-                  {item === null || item.nextStep === "" ? null : (
-                    <p className="mt-0.5 text-white/50 text-xs">{item.nextStep}</p>
+      {live.length === 0 ? null : (
+        <ul
+          className="pointer-events-auto mt-1 flex w-56 -translate-x-1/2 flex-col overflow-hidden rounded-lg border bg-black/70"
+          style={{ borderColor: `${color}40`, boxShadow: `0 0 28px -12px ${color}` }}
+        >
+          {live.slice(0, TASKS_UNDER_A_BOT).map((task) => (
+            <li key={`${task.environmentId}:${task.threadId}`}>
+              <button
+                type="button"
+                onClick={() => props.onShowTask(task)}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-start text-xs outline-none hover:bg-white/8 focus-visible:bg-white/8"
+              >
+                <BotStateIcon status={task.status} className="size-3" />
+                <span className="min-w-0 flex-1 truncate text-white/80">{task.title}</span>
+                <span
+                  className={cn(
+                    "shrink-0",
+                    task.status === "needs-input" ? "text-warning" : "text-white/40",
                   )}
-                  {tasks.length === 0 ? null : (
-                    <ul className="mt-1.5 flex flex-col">
-                      {tasks.map((task) => (
-                        <li key={`${task.environmentId}:${task.threadId}`}>
-                          <button
-                            type="button"
-                            onClick={() => void openTask(task)}
-                            className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-start text-xs hover:bg-white/8 focus-visible:bg-white/8 focus-visible:outline-none"
-                          >
-                            <BotStateIcon status={task.status} className="size-3.5" />
-                            <span className="min-w-0 flex-1 truncate text-white/85">
-                              {task.title}
-                            </span>
-                            <span className="shrink-0 text-white/45">
-                              <BotTaskStateLabel thread={task} />
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
+                >
+                  <BotTaskStateLabel thread={task} />
+                </span>
+              </button>
+            </li>
+          ))}
+          {live.length <= TASKS_UNDER_A_BOT ? null : (
+            <li className="px-2 py-1 text-white/40 text-xs">
+              {gt("and {count} more", { count: live.length - TASKS_UNDER_A_BOT })}
+            </li>
           )}
-        </div>
-      </section>
+        </ul>
+      )}
     </div>
   );
 }
@@ -275,25 +211,22 @@ const ALL_SAID = Number.POSITIVE_INFINITY;
 function SpaceConversation(props: {
   readonly environmentId: EnvironmentId;
   readonly bot: StartedBot;
+  /** The bot's chat, and where this visit starts in it; null until the chat is live. */
+  readonly items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  readonly from: number | null;
   readonly words: ReadonlyArray<string>;
   readonly scene: () => BotSpaceScene | null;
 }) {
   const gt = useGT();
-  const { environmentId, bot } = props;
-  const ref = scopeThreadRef(environmentId, bot.threadId);
-  const shell = useQuietThreadShell(ref);
-  const items = useThreadVisibleTurnItems(ref);
-  // Until the chat is in step with its machine, an old reply would count as new and be read out.
-  const ready = useThreadStatus(ref) === "live";
+  const { environmentId, bot, items, from } = props;
+  const shell = useQuietThreadShell(scopeThreadRef(environmentId, bot.threadId));
+  const ready = from !== null;
   const destination = useVoiceTranscriptionDestination();
   const settings = useClientSettings();
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
 
-  /** Replies after this point of the chat belong to this visit; null until the chat is live. */
-  const [from, setFrom] = useState<number | null>(null);
-  if (ready && from === null) setFrom(items.at(-1)?.position ?? -1);
   const [voiceOn, setVoiceOn] = useLocalStorage(VOICE_ON_KEY, true, Schema.Boolean);
   const [micOn, setMicOn] = useState(false);
   const [listening, setListening] = useState(false);
@@ -320,14 +253,7 @@ function SpaceConversation(props: {
   const { prepared, grantId, cloudProvider, cloudModel } = destination;
   const canListen = prepared !== null && grantId !== null;
 
-  const replies =
-    from === null
-      ? []
-      : items.flatMap(({ position, item }) =>
-          position > from && item.type === "assistant_message" && item.text.trim() !== ""
-            ? [item]
-            : [],
-        );
+  const replies = from === null ? [] : repliesToSay(items, from, SPOKEN);
   const sentAt =
     sent === null
       ? -1
@@ -500,7 +426,7 @@ function SpaceConversation(props: {
         said.current.set(reply.messageId, ALL_SAID);
         continue;
       }
-      const units = spokenUnits(reply.text, !reply.streaming);
+      const units = unitsToSay(spokenUnits(reply.text, !reply.streaming), reply.asked);
       const before = said.current.get(reply.messageId) ?? 0;
       for (const unit of units.slice(before)) voice.say(unit);
       if (units.length > before) said.current.set(reply.messageId, units.length);
@@ -671,13 +597,42 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
   const bots = (list.data?.bots ?? []).filter((bot): bot is StartedBot => bot.threadId !== null);
   const places = placeBotStars(bots);
   const centre = bots.find((bot) => bot.oversees) ?? bots[0] ?? null;
-  const [selected, setSelected] = useState<string | null>(null);
+  const leadRef = centre === null ? null : scopeThreadRef(environmentId, centre.threadId);
+  const leadItems = useThreadVisibleTurnItems(leadRef);
+  // Until the chat is in step with its machine, an old reply would count as new and be read out.
+  const leadLive = useThreadStatus(leadRef) === "live";
+  /** This visit starts at this point of the lead's chat; what came before is not said or shown. */
+  const [since, setSince] = useState<{ readonly lead: string; readonly position: number } | null>(
+    null,
+  );
+  const from = centre !== null && since?.lead === centre.name ? since.position : null;
+  if (centre !== null && leadLive && from === null)
+    setSince({ lead: centre.name, position: leadItems.at(-1)?.position ?? -1 });
+  // The screen follows what the lead looks at, until the person picks or closes one themselves.
+  const led = centre === null || from === null ? null : lastLedScreen(leadItems, from, centre.name);
+  const [picked, setPicked] = useState<{
+    readonly screen: SpaceScreen | null;
+    /** The lead's last look when the person chose; a newer look takes the screen back. */
+    readonly after: string | null;
+  }>({ screen: null, after: null });
+  // A screen the person opened stays until they close it or the lead shows them something.
+  const screen =
+    led !== null && led.id !== picked.after && (led.shown || picked.screen === null)
+      ? led.screen
+      : picked.screen;
+  const show = useStableCallback((next: SpaceScreen | null) =>
+    setPicked({ screen: next, after: led?.id ?? null }),
+  );
+  const selected = screen?.kind === "board" ? screen.bot : null;
+  const select = useStableCallback((name: string | null) =>
+    show(name === null || name === selected ? null : { kind: "board", bot: name }),
+  );
   const [flat, setFlat] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<BotSpaceScene | null>(null);
   const stars = useRef(new Map<string, SpaceStar>());
   const labels = useRef(new Map<string, HTMLElement>());
-  const shown = bots.find((bot) => bot.name === selected) ?? null;
+  const focused = screen?.bot ?? null;
 
   const place = useStableCallback((id: string, at: StarOnScreen | null) => {
     const label = labels.current.get(id);
@@ -703,7 +658,7 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
     import("./BotSpaceScene")
       .then(({ BotSpaceScene: Scene }) => {
         if (closed || host.current === null) return;
-        created = new Scene(host.current, setSelected, place);
+        created = new Scene(host.current, select, place);
         scene.current = created;
         created.update([...stars.current.values()]);
       })
@@ -714,12 +669,12 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
       created?.dispose();
       scene.current = null;
     };
-  }, [place]);
+  }, [place, select]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves the scene's camera, which is outside React, to the chosen bot
   useEffect(() => {
-    scene.current?.focus(shown?.name ?? null);
-  }, [shown?.name]);
+    scene.current?.focus(focused);
+  }, [focused]);
 
   return (
     <div
@@ -727,7 +682,7 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
       className="dark @container/space relative min-h-0 flex-1 overflow-hidden bg-black text-white"
       // Escape leaves a bot's screen from anywhere in the view.
       onKeyDown={(event) => {
-        if (event.key === "Escape" && selected !== null) setSelected(null);
+        if (event.key === "Escape" && screen !== null) show(null);
       }}
     >
       {flat ? (
@@ -745,7 +700,15 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
           selected={bot.name === selected}
           register={register}
           label={label}
-          onSelect={() => setSelected(bot.name === selected ? null : bot.name)}
+          onSelect={() => select(bot.name)}
+          onShowTask={(task) =>
+            show({
+              kind: "task",
+              bot: bot.name,
+              environmentId: task.environmentId,
+              threadId: task.threadId,
+            })
+          }
         />
       ))}
       {list.data !== null && bots.length === 0 ? (
@@ -761,12 +724,14 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
           {list.error}
         </p>
       ) : null}
-      {shown === null ? null : (
-        <BotScreen
-          key={shown.name}
+      {screen === null ? null : (
+        <SpaceScreenPane
+          key={`${screen.kind}:${screen.bot}:${screen.kind === "board" ? "" : screen.kind === "task" ? screen.threadId : screen.file}`}
           environmentId={environmentId}
-          bot={shown}
-          onClose={() => setSelected(null)}
+          bots={bots}
+          screen={screen}
+          lights={starLight}
+          onShow={show}
         />
       )}
       {centre === null ? null : (
@@ -774,6 +739,8 @@ function SpaceOf(props: { readonly environmentId: EnvironmentId }) {
           key={centre.name}
           environmentId={environmentId}
           bot={centre}
+          items={leadItems}
+          from={from}
           words={bots.map((bot) => bot.name)}
           scene={() => scene.current}
         />

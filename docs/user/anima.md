@@ -94,16 +94,23 @@ the dialog asks where the bot runs and suggests the machine your bots are alread
 
 The orbit button beside **Bots** in the sidebar opens every bot as a light in the dark. The bot
 that oversees the others is in the middle, and it is the one you talk to. A bot with tasks
-running has a spark circling it for each, and one that needs you sends out a ring. Select a bot
-to bring its open work up beside it.
+running has a spark circling it for each and lists them under its name, and one that needs you
+sends out a ring.
 
-Press the microphone, then speak or type. What you say goes to the middle bot's chat as a message
-that starts with `(voice)`, and its reply is read aloud while it is still being written. Start
-talking to cut it off. Tasks it starts keep running while you carry on.
+A screen beside a bot holds up one thing: its open work, a task as it works, or a file a task
+handed over. Select a bot or one of its tasks to open one. The screen also follows the middle
+bot: when it reads a board, starts or reads a task, or asks another bot, that is what you see.
+Ask it to show you something, such as a screenshot or a report a task handed over, and it puts
+that on the screen. Close a screen with Escape.
 
-- Hearing you uses the speech model chosen in **Settings → Voice**, and needs one that
-  transcribes as you speak. Without one you can still type.
-- The voice is made on your device. The first use downloads it, about 260 MB, from Hugging Face.
+Speak with the microphone on, or type. What you say goes to the middle bot's chat as a message
+that starts with `(voice)`. With the speaker on, its reply is read aloud while it is still being
+written; start talking to cut it off. Tasks it starts keep running while you carry on.
+
+- Hearing you uses the destination chosen in **Settings → Voice**: a speech model on one of
+  your machines, or a cloud provider. A cloud provider writes each thing down after you pause.
+- The voice is made on your device. The first use downloads it, about 260 MB, from Hugging Face,
+  and your browser keeps it.
 - Use headphones if the bot keeps hearing itself.
 
 ## Open animas

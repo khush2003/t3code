@@ -77,6 +77,7 @@ export type T3McpToolSummaryAction =
   | "bot-recall"
   | "bot-note-retire"
   | "bot-tell"
+  | "bot-show"
   | "bot-file-give"
   | "attachment-prepare"
   | "attachment-discard"
@@ -448,6 +449,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_bot_recall: tool(["Look", "Looking", "Looked", "back through its memory"], "bot-recall"),
   t3_bot_note_retire: tool(["Retire", "Retiring", "Retired", "a note"], "bot-note-retire"),
   t3_bot_tell: tool(["Ask", "Asking", "Asked", "another bot"], "bot-tell"),
+  t3_bot_show: tool(["Show", "Showing", "Showed", "something on screen"], "bot-show"),
   t3_bot_file_give: tool(["Hand", "Handing", "Handed", "over a file"], "bot-file-give"),
   t3_anima_read: tool(["Read", "Reading", "Read", "an anima"], "anima-read"),
   t3_anima_policy: tool(["Update", "Updating", "Updated", "an anima policy"], "anima-policy"),

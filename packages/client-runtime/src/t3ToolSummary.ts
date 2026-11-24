@@ -1594,6 +1594,11 @@ export function summarizeT3ToolCalls(
     case "bot-board":
       label = done ? resolve(msg("Read the board")) : resolve(msg("Tried to read the board"));
       break;
+    case "bot-show":
+      label = done
+        ? resolve(msg("Put something on screen"))
+        : resolve(msg("Tried to put something on screen"));
+      break;
     case "bot-item-save": {
       const count = countEntities(
         selected.map((call) => id(call.output?.id) ?? id(call.input?.id) ?? id(call.input?.title)),

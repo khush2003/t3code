@@ -15,6 +15,8 @@ import * as Option from "effect/Option";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { BOT_SPOKEN_PREFIX } from "@t3tools/shared/botShow";
+
 import { type BoardSources, deriveBoard, taskThread, unfiledTasks } from "./BotBoard.ts";
 import { renderBotContext, renderBotStanding } from "./BotContext.ts";
 import * as BotStore from "./BotStore.ts";
@@ -41,6 +43,11 @@ export class BotBoards extends Context.Service<
      * and full board go only to a session that does not hold them: `startedRunIds` shows
      * whether the run that last carried them ever reached the model.
      */
+    /**
+     * Whether the bot's person is at the screen that shows their bots: the turn the bot is in
+     * began with a message they sent from it. A turn a task or another bot started did not.
+     */
+    readonly atScreen: (botThreadId: ThreadId) => Effect.Effect<boolean>;
     readonly context: (
       botThreadId: ThreadId,
       tasks: ReadonlyArray<OrchestrationV2Subagent>,
@@ -199,7 +206,21 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return BotBoards.of({ sources, summaries, conversations, context });
+  const atScreen: BotBoards["Service"]["atScreen"] = Effect.fn("BotBoards.atScreen")(
+    function* (botThreadId) {
+      const { runs } = yield* projections.getThreadRecords(botThreadId, ["runs"], {
+        latestRunLimit: 1,
+      });
+      const run = runs.at(-1);
+      if (run === undefined) return false;
+      const message = yield* projections.getRunMessage(botThreadId, run.id);
+      return message?.text.startsWith(BOT_SPOKEN_PREFIX) === true;
+    },
+    // Unknown is no: a bot told it showed something nobody can see would say so to its person.
+    (effect) => effect.pipe(Effect.orElseSucceed(() => false)),
+  );
+
+  return BotBoards.of({ sources, summaries, conversations, atScreen, context });
 });
 
 export const layer = Layer.effect(BotBoards, make);

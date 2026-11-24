@@ -1,17 +1,32 @@
+import { liveThoughtLine } from "@t3tools/client-runtime/work-log/presentation";
+import {
+  EnvironmentId,
+  ThreadId,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2TurnItem,
+} from "@t3tools/contracts";
+import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
+
 const FENCE = /^\s*(```|~~~)/;
 const TABLE_ROW = /^\s*\|/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const SENTENCE_END = /[.!?…]["')\]]*\s+/g;
 
 function sayable(markdown: string) {
-  return markdown
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/^\s*(#{1,6}|>|[-*+]|\d+[.)])\s+/, "")
-    .replace(/[*_~#`]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    markdown
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      // An address is for the eye: a thread link or a URL said aloud is noise.
+      .replace(/<[a-z][a-z0-9+.-]*:\/\/[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "")
+      .replace(/`([^`]*)`/g, "$1")
+      .replace(/^\s*(#{1,6}|>|[-*+]|\d+[.)])\s+/, "")
+      // A name like node_modules is said, and read, as its words.
+      .replace(/(?<=\w)_+(?=\w)/g, " ")
+      .replace(/[*_~#`]+/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 const LONG_UNIT = 80;
@@ -119,4 +134,188 @@ export function placeBotStars(
       });
     });
   return places;
+}
+
+/** One thing held up beside a bot for the person to look at. */
+export type SpaceScreen =
+  | { readonly kind: "board"; readonly bot: string }
+  | {
+      readonly kind: "task";
+      /** Whose task it is, when that is known. */
+      readonly bot: string | null;
+      /** Null for the machine the bots live on. */
+      readonly environmentId: EnvironmentId | null;
+      readonly threadId: ThreadId;
+    }
+  /** `file` is an id, or the words a bot named the file by. */
+  | { readonly kind: "file"; readonly bot: string; readonly file: string };
+
+const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : null);
+
+/**
+ * What the bot in the middle is looking at or has just started, as the screen that shows it:
+ * the board it reads, the task it starts or reads, the bot it asks, the thing it chose to show.
+ * Null for everything else it does.
+ */
+function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | null {
+  if (item.type === "subagent") {
+    const threadId = item.remoteChild?.threadId ?? item.childThreadId;
+    return threadId == null
+      ? null
+      : {
+          kind: "task",
+          bot: lead,
+          environmentId: item.remoteChild?.environmentId ?? null,
+          threadId,
+        };
+  }
+  if (item.type !== "dynamic_tool") return null;
+  const input =
+    typeof item.input === "object" && item.input !== null
+      ? (item.input as Readonly<Record<string, unknown>>)
+      : {};
+  const task = (threadId: string | null, bot: string | null): SpaceScreen | null =>
+    threadId === null
+      ? null
+      : {
+          kind: "task",
+          bot,
+          environmentId:
+            text(input.environmentId) === null
+              ? null
+              : EnvironmentId.make(input.environmentId as string),
+          threadId: ThreadId.make(threadId),
+        };
+  switch (resolveT3McpToolId(item.toolName)) {
+    case "t3_bot_board":
+      return { kind: "board", bot: text(input.bot) ?? lead };
+    case "t3_bot_tell":
+      return text(input.bot) === null ? null : { kind: "board", bot: input.bot as string };
+    case "t3_thread_read":
+    case "t3_thread_send":
+      return task(text(input.threadId), null);
+    case "t3_bot_show": {
+      const bot = text(input.bot) ?? lead;
+      const file = text(input.file);
+      return file !== null
+        ? { kind: "file", bot, file }
+        : (task(text(input.thread), text(input.bot)) ?? { kind: "board", bot });
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The newest thing the bot in the middle looked at since `from`, with the item that says so.
+ * `shown` is true when the bot chose to show it, which outranks a screen the person opened;
+ * what it merely looked at on the way does not.
+ */
+export function lastLedScreen(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  from: number,
+  lead: string,
+): { readonly id: string; readonly screen: SpaceScreen; readonly shown: boolean } | null {
+  for (const { position, item } of items.toReversed()) {
+    if (position <= from) return null;
+    const screen = item.status === "failed" ? null : ledScreen(item, lead);
+    if (screen !== null)
+      return {
+        id: item.id,
+        screen,
+        shown: item.type === "dynamic_tool" && resolveT3McpToolId(item.toolName) === "t3_bot_show",
+      };
+  }
+  return null;
+}
+
+const HEADLINE_UNITS = 3;
+const ENDS_SENTENCE = /[.!?…]["')\]]*$/;
+
+/**
+ * What of a reply is said aloud. One the person asked for is said whole. One that came by itself
+ * is said as far as its first sentence, its headline; the rest is on the page to read.
+ */
+export function unitsToSay(units: ReadonlyArray<string>, asked: boolean): ReadonlyArray<string> {
+  if (asked) return units;
+  const end = units.slice(0, HEADLINE_UNITS).findIndex((unit) => ENDS_SENTENCE.test(unit));
+  return units.slice(0, end === -1 ? HEADLINE_UNITS : end + 1);
+}
+
+/**
+ * The lead's replies since `from`, each with whether the person asked for it here. One that
+ * came by itself, when a task ended or another bot answered, was not asked for.
+ */
+export function repliesToSay(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  from: number,
+  spokenPrefix: string,
+) {
+  // A turn that starts by itself has no message of the person's, so replies go by their turn.
+  const asked = new Set<string | null>();
+  const replies: Array<{
+    readonly messageId: string;
+    readonly text: string;
+    readonly streaming: boolean;
+    readonly asked: boolean;
+  }> = [];
+  for (const { position, item } of items) {
+    if (item.type === "user_message") {
+      if (item.text.startsWith(spokenPrefix)) asked.add(item.runId);
+    } else if (position > from && item.type === "assistant_message" && item.text.trim() !== "")
+      replies.push({
+        messageId: item.messageId,
+        text: item.text,
+        streaming: item.streaming,
+        asked: asked.has(item.runId),
+      });
+  }
+  return replies;
+}
+
+export interface TaskFeedLine {
+  readonly id: string;
+  /** What the agent wrote, or one thing it did. */
+  readonly kind: "says" | "does";
+  readonly text: string;
+}
+
+const FEED_CHARS = 260;
+const short = (value: string) =>
+  value.length <= FEED_CHARS ? value : `${value.slice(0, FEED_CHARS).trimEnd()}…`;
+
+/** The last things a task wrote and did, oldest first, as lines short enough to watch go by. */
+export function taskFeed(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  limit: number,
+): ReadonlyArray<TaskFeedLine> {
+  const lines: TaskFeedLine[] = [];
+  for (const { item } of items.toReversed()) {
+    if (lines.length === limit) break;
+    const line = ((): string | null => {
+      switch (item.type) {
+        case "assistant_message":
+          return spokenUnits(item.text, !item.streaming).join(" ") || null;
+        case "reasoning":
+          return liveThoughtLine(item.text) || null;
+        case "command_execution":
+          return `$ ${item.input.split("\n")[0]!.trim()}`;
+        case "file_change":
+          return item.fileName;
+        case "file_search":
+          return item.pattern ?? null;
+        case "web_search":
+          return item.patterns?.[0] ?? null;
+        default:
+          return null;
+      }
+    })();
+    if (line !== null)
+      lines.push({
+        id: item.id,
+        kind: item.type === "assistant_message" ? "says" : "does",
+        text: short(line),
+      });
+  }
+  return lines.toReversed();
 }
