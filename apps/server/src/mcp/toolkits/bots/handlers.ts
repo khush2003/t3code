@@ -76,7 +76,7 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
-            "Nothing was shown: your person is not looking at the screen of their bots in this turn, so there is nowhere to show it. Tell them what the thing is and where to find it, and do not mention the screen.",
+            "Nothing was shown: your person is not at the screen of their bots, so there is nowhere to show it. Tell them what the thing is and where to find it, and do not mention the screen.",
         });
       const whose = input.bot ?? bot.name;
       if (whose !== bot.name) {
@@ -98,21 +98,34 @@ export const layer = McpToolAccess.toLayer(BotToolkit, {
         });
       if (input.thread !== undefined) return { showing: `the task ${input.thread}` };
       if (input.file === undefined) return { showing: `${whose}'s board` };
-      const items = deriveBoard(yield* boards.sources(whose, { includeClosed: true }));
-      const files = items.flatMap((item) => item.files);
-      const file = findBotFile(files, input.file);
-      if (file === null)
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            files.length === 0
-              ? `${whose} has no handed-over files.`
-              : `No handed-over file of ${whose} matches "${input.file}". There are: ${files
-                  .slice(-SHOWN_FILE_TITLES)
-                  .map((candidate) => candidate.title)
-                  .join("; ")}.`,
-        });
-      return { showing: file.title };
+      // With no bot named, a bot that oversees the others may mean a file of any of them.
+      const owners =
+        input.bot !== undefined || !bot.oversees
+          ? [whose]
+          : [
+              bot.name,
+              ...(yield* BotStore.BotStore.pipe(Effect.flatMap((store) => store.listBots)))
+                .map((other) => other.name)
+                .filter((name) => name !== bot.name),
+            ];
+      const titles: string[] = [];
+      for (const owner of owners) {
+        const items = deriveBoard(yield* boards.sources(owner, { includeClosed: true }));
+        const files = items.flatMap((item) => item.files);
+        const file = findBotFile(files, input.file);
+        if (file !== null)
+          return { showing: owner === bot.name ? file.title : `${file.title}, from ${owner}` };
+        titles.push(...files.slice(-SHOWN_FILE_TITLES).map((candidate) => candidate.title));
+      }
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          titles.length === 0
+            ? `${owners.join(", ")} has no handed-over files.`
+            : `No handed-over file matches "${input.file}". There are: ${titles
+                .slice(-SHOWN_FILE_TITLES * 2)
+                .join("; ")}.`,
+      });
     }).pipe(Effect.mapError(failure)),
   ),
   t3_bot_tell: McpToolAccess.actsAsCaller((input) =>

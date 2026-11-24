@@ -25,6 +25,24 @@ export interface SpaceVoice {
   readonly level: number;
 }
 
+/** One bot is telling another something, or waiting on its answer. */
+export interface SpaceLink {
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface SpaceRegion {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+interface Beam {
+  readonly line: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+  readonly pulse: THREE.Sprite;
+}
+
 /** Where a star is on screen, in CSS pixels from the host's top left. */
 export interface StarOnScreen {
   readonly x: number;
@@ -34,7 +52,7 @@ export interface StarOnScreen {
 
 const FRAME_MS = 32;
 const SPARKS_SHOWN = 8;
-const CAMERA_HOME = new THREE.Vector3(0, 0.5, 12);
+const CAMERA_HOME = new THREE.Vector3(0, 0, 12);
 const WAITING = new THREE.Color("#ffb347");
 
 const BODY_VERTEX = /* glsl */ `
@@ -128,9 +146,9 @@ export class BotSpaceScene {
   private readonly ring: THREE.Sprite;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
-  private readonly lookAt = new THREE.Vector3(0, 0.5, 0);
-  private readonly wantLookAt = new THREE.Vector3(0, 0.5, 0);
-  private readonly wantCamera = CAMERA_HOME.clone();
+  private readonly beams = new Map<string, Beam>();
+  private links: ReadonlyArray<SpaceLink> = [];
+  private region: SpaceRegion | null = null;
   private readonly reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private readonly stopResize: () => void;
   private readonly visibility: IntersectionObserver;
@@ -138,11 +156,12 @@ export class BotSpaceScene {
   /** Read once a frame, so a level that moves twenty times a second never renders React. */
   voiceSource: (() => SpaceVoice) | null = null;
   private heard = 0;
-  private focused: string | null = null;
   private hovered: string | null = null;
   private onScreen = true;
   private running = false;
   private disposed = false;
+  /** World units per unit of a bot's size, set so a bot is the same size on any view. */
+  private unit = 1;
   private frame = 0;
   private lastFrame = 0;
   private time = 0;
@@ -162,6 +181,7 @@ export class BotSpaceScene {
     this.canvas.setAttribute("aria-hidden", "true");
     host.prepend(this.canvas);
     this.camera.position.copy(CAMERA_HOME);
+    this.camera.lookAt(0, 0, 0);
 
     this.scene.add(this.distantStars());
     this.ring = new THREE.Sprite(
@@ -232,7 +252,7 @@ export class BotSpaceScene {
       const color = new THREE.Color(input.color);
       star.body.material.uniforms.uColor!.value = color;
       star.halo.material.color = color;
-      star.group.scale.setScalar(input.centre ? 0.62 : 0.36);
+      star.group.scale.setScalar((input.centre ? 0.62 : 0.34) * this.unit);
       const shown = Math.min(input.working, SPARKS_SHOWN);
       star.sparks.forEach((spark, index) => {
         spark.visible = index < shown;
@@ -309,42 +329,102 @@ export class BotSpaceScene {
 
   private readonly homePoint = new THREE.Vector3();
 
-  /** A place in the view's own proportions, so the bots fill a wide window and fit a narrow one. */
+  /**
+   * The part of the view the bots live in, in CSS pixels from the host's top left. The stars
+   * fill the whole view; the bots keep to this part, clear of what is laid over the rest.
+   */
+  setRegion(region: SpaceRegion) {
+    this.region = region;
+    this.resize();
+  }
+
+  /** A place in the region's own proportions, so the bots fill a wide one and fit a narrow one. */
   private home(input: SpaceStar) {
     const halfHeight = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * CAMERA_HOME.z;
+    const halfWidth = halfHeight * this.camera.aspect;
+    const width = this.host.clientWidth || 1;
+    const height = this.host.clientHeight || 1;
+    const {
+      left,
+      top,
+      width: wide,
+      height: tall,
+    } = this.region ?? {
+      left: 0,
+      top: 0,
+      width,
+      height,
+    };
     return this.homePoint.set(
-      input.place.x * halfHeight * this.camera.aspect,
-      input.place.y * halfHeight + (input.centre ? 0.7 : 0.9),
+      (((left + wide / 2) / width) * 2 - 1 + input.place.x * (wide / width)) * halfWidth,
+      (1 - ((top + tall / 2) / height) * 2 + input.place.y * (tall / height)) * halfHeight,
       input.place.z,
     );
   }
 
-  /** Brings one bot close and to the left, leaving the right of the view for its screen. */
-  focus(id: string | null) {
-    this.focused = id;
-    const star = id === null ? undefined : this.stars.get(id);
-    if (star === undefined) {
-      this.wantCamera.copy(CAMERA_HOME);
-      this.wantLookAt.set(0, 0.5, 0);
-    } else {
-      const at = this.home(star.input).clone();
-      const near = star.input.centre ? 7.5 : 5.2;
-      const aside = this.camera.aspect > 1.2 ? near * 0.3 : 0;
-      this.wantLookAt.set(at.x + aside, at.y, at.z);
-      this.wantCamera.set(at.x + aside, at.y + 0.2, at.z + near);
+  /**
+   * Which bots are talking to each other now. Each pair is joined by a line of light with a
+   * point travelling along it, from the one that spoke to the one it spoke to.
+   */
+  setLinks(links: ReadonlyArray<SpaceLink>) {
+    this.links = links;
+    const wanted = new Set(links.map((link) => `${link.from}\n${link.to}`));
+    for (const [key, beam] of this.beams) {
+      if (wanted.has(key)) continue;
+      this.scene.remove(beam.line, beam.pulse);
+      beam.line.geometry.dispose();
+      beam.line.material.dispose();
+      beam.pulse.material.dispose();
+      this.beams.delete(key);
     }
-    if (this.reducedMotion.matches) {
-      this.camera.position.copy(this.wantCamera);
-      this.lookAt.copy(this.wantLookAt);
+    for (const key of wanted) {
+      if (this.beams.has(key)) continue;
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+        new THREE.LineBasicMaterial({
+          transparent: true,
+          opacity: 0.45,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      const pulse = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: this.sparkTexture,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      this.scene.add(line, pulse);
+      this.beams.set(key, { line, pulse });
     }
     this.invalidate();
   }
 
-  private moving() {
-    return (
-      this.camera.position.distanceToSquared(this.wantCamera) > 1e-5 ||
-      this.lookAt.distanceToSquared(this.wantLookAt) > 1e-5
-    );
+  private drawBeams() {
+    for (const link of this.links) {
+      const beam = this.beams.get(`${link.from}\n${link.to}`);
+      const from = this.stars.get(link.from);
+      const to = this.stars.get(link.to);
+      if (beam === undefined) continue;
+      const shown = from !== undefined && to !== undefined;
+      beam.line.visible = shown;
+      beam.pulse.visible = shown;
+      if (!shown) continue;
+      const points = beam.line.geometry.getAttribute("position") as THREE.BufferAttribute;
+      points.setXYZ(0, from.group.position.x, from.group.position.y, from.group.position.z);
+      points.setXYZ(1, to.group.position.x, to.group.position.y, to.group.position.z);
+      points.needsUpdate = true;
+      beam.line.material.color = to.halo.material.color;
+      beam.pulse.material.color = to.halo.material.color;
+      beam.pulse.position.lerpVectors(
+        from.group.position,
+        to.group.position,
+        (this.time * 0.45) % 1,
+      );
+      beam.pulse.scale.setScalar(0.22 * this.unit);
+    }
   }
 
   private readonly syncLoop = () => {
@@ -376,18 +456,13 @@ export class BotSpaceScene {
   private draw(delta: number) {
     if (this.disposed) return;
     this.time += delta;
-    const ease = delta === 0 ? 1 : 1 - Math.exp(-delta * 3.2);
-    if (this.moving()) {
-      this.camera.position.lerp(this.wantCamera, ease);
-      this.lookAt.lerp(this.wantLookAt, ease);
-    }
-    this.camera.lookAt(this.lookAt);
     if (this.voiceSource !== null) this.voice = this.voiceSource();
     // The voice's level jumps; the light follows it a little behind so it does not flicker.
     this.heard += (this.voice.level - this.heard) * (delta === 0 ? 1 : Math.min(1, delta * 14));
 
     for (const star of this.stars.values()) this.drawStar(star);
     this.drawRing();
+    this.drawBeams();
     try {
       this.renderer.render(this.scene, this.camera);
     } catch {
@@ -412,7 +487,7 @@ export class BotSpaceScene {
       (input.working > 0 || thinking ? 1.12 : 0.82) +
       (thinking ? Math.sin(t * 3.1) * 0.12 : 0) +
       (talking ? this.heard * 0.7 : 0) +
-      (this.hovered === input.id || this.focused === input.id ? 0.16 : 0);
+      (this.hovered === input.id ? 0.16 : 0);
     star.glow += (lit - star.glow) * 0.2;
     const uniforms = star.body.material.uniforms;
     uniforms.uTime!.value = t * (thinking ? 2.4 : 1) + (talking ? this.heard * 2 : 0);
@@ -520,10 +595,17 @@ export class BotSpaceScene {
     if (width === 0 || height === 0) return;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
-    // A narrow view pulls back so the outer bots stay in frame.
-    this.camera.fov = this.camera.aspect < 1 ? 62 : 40;
     this.camera.updateProjectionMatrix();
-    this.focus(this.focused);
+    // Bots keep their size on screen whatever the shape of their region: a narrow one would
+    // otherwise shrink them to dots, and a wide one would let them fill it.
+    const pixelsPerUnit =
+      height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * CAMERA_HOME.z);
+    const room = this.region ?? { width, height };
+    this.unit =
+      Math.min(Math.max(Math.min(room.width * 0.24, room.height * 0.11), 56), 96) / pixelsPerUnit;
+    for (const star of this.stars.values())
+      star.group.scale.setScalar((star.input.centre ? 0.62 : 0.34) * this.unit);
+    this.invalidate();
   }
 
   dispose() {

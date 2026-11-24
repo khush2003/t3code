@@ -4,6 +4,8 @@ import type { OrchestrationV2ProjectedTurnItem, OrchestrationV2TurnItem } from "
 
 import {
   lastLedScreen,
+  lastOwnMessage,
+  namedFile,
   placeBotStars,
   repliesToSay,
   spokenUnits,
@@ -80,7 +82,11 @@ describe("bot space", () => {
       (name) => ({ name, oversees: name === "rover" }),
     );
     const places = placeBotStars(bots);
-    expect(places.get("rover")).toEqual({ x: 0, y: 0, z: 0 });
+    expect(places.get("rover")).toEqual({ x: 0, y: 0.1, z: 0 });
+    // In a tall column the lead sits low and the others stand above it.
+    const tall = placeBotStars(bots.slice(0, 3), true);
+    expect(tall.get("rover")!.y).toBeLessThan(0);
+    for (const bot of bots.slice(1, 3)) expect(tall.get(bot.name)!.y).toBeGreaterThan(0);
     const sides = bots.slice(1).map((bot) => places.get(bot.name)!);
     for (const place of sides) {
       expect(Math.abs(place.x)).toBeGreaterThan(0.35);
@@ -95,17 +101,9 @@ describe("bot space", () => {
     expect(placeBotStars([]).size).toBe(0);
   });
 
-  it("holds up what the lead last looked at, started or chose to show, since the visit began", () => {
+  it("holds up what the lead's answer is about, since the visit began", () => {
     const led = (...items: OrchestrationV2ProjectedTurnItem[]) =>
       lastLedScreen(items, 10, "rover")?.screen ?? null;
-    expect(led(tool(11, "t3_bot_board", {}))).toEqual({ kind: "board", bot: "rover" });
-    expect(
-      led(tool(11, "t3_bot_board", { bot: "scout" }), tool(12, "t3_bot_item_save", {})),
-    ).toEqual({ kind: "board", bot: "scout" });
-    expect(led(tool(11, "t3_bot_tell", { bot: "scout", message: "hi" }))).toEqual({
-      kind: "board",
-      bot: "scout",
-    });
     expect(led(tool(11, "t3_thread_read", { threadId: "t1", environmentId: "e1" }))).toEqual({
       kind: "task",
       bot: null,
@@ -115,6 +113,9 @@ describe("bot space", () => {
     expect(led(row(11, { type: "subagent", childThreadId: "t2", remoteChild: undefined }))).toEqual(
       { kind: "task", bot: "rover", environmentId: null, threadId: "t2" },
     );
+    expect(
+      led(row(11, { type: "assistant_message", text: "It is at <t3-thread://v2/e1/t9>." })),
+    ).toEqual({ kind: "task", bot: null, environmentId: "e1", threadId: "t9" });
     expect(led(tool(11, "t3_bot_show", { file: "Poster notes", bot: "scout" }))).toEqual({
       kind: "file",
       bot: "scout",
@@ -127,13 +128,83 @@ describe("bot space", () => {
       threadId: "t3",
     });
     expect(led(tool(11, "t3_bot_show", {}))).toEqual({ kind: "board", bot: "rover" });
-    // Only what it chose to show outranks a screen the person opened.
     expect(lastLedScreen([tool(11, "t3_bot_show", {})], 10, "rover")?.shown).toBe(true);
-    expect(lastLedScreen([tool(11, "t3_bot_board", {})], 10, "rover")?.shown).toBe(false);
+    expect(
+      lastLedScreen([tool(11, "t3_thread_read", { threadId: "t1" })], 10, "rover")?.shown,
+    ).toBe(false);
+    // Reading a board or telling a bot is how it got there, not what the answer is about.
+    expect(led(tool(11, "t3_bot_board", { bot: "scout" }))).toBeNull();
+    expect(led(tool(11, "t3_bot_tell", { bot: "scout", message: "hi" }))).toBeNull();
     // What it looked at before the visit, a look that failed, and other work show nothing.
-    expect(led(tool(10, "t3_bot_board", {}))).toBeNull();
+    expect(led(tool(10, "t3_bot_show", {}))).toBeNull();
     expect(led(tool(11, "t3_bot_show", { file: "x" }, "failed"))).toBeNull();
     expect(led(tool(11, "t3_bot_recall", { query: "x" }))).toBeNull();
+  });
+
+  it("brings up a file the answer names, after what was shown or worked on", () => {
+    const files = [
+      { bot: "scout", id: "f1", title: "Rules, GC, before (shows the sentence)", createdAt: "1" },
+      { bot: "scout", id: "f2", title: "Rules, GC, after (sentence removed)", createdAt: "2" },
+      { bot: "scout", id: "f3", title: "Rules, GC", createdAt: "3" },
+      { bot: "scout", id: "f4", title: "Report", createdAt: "4" },
+    ];
+    expect(namedFile('It is "Rules, GC, after (sentence removed)".', files)?.id).toBe("f2");
+    // The note in brackets may be left off, and the longest title named wins.
+    expect(namedFile("See rules GC before, on its board.", files)?.id).toBe("f1");
+    // A short title is too likely to be ordinary words.
+    expect(namedFile("The report is in.", files)).toBeNull();
+
+    const you = (position: number, text: string) =>
+      row(position, { type: "user_message", text, id: `you-${position}` });
+    const says = (position: number, text: string) =>
+      row(position, { type: "assistant_message", text });
+    const answer = lastLedScreen(
+      [you(11, "(voice) show me"), says(12, "That is Rules, GC, after.")],
+      10,
+      "rover",
+      files,
+    );
+    expect(answer).toMatchObject({
+      screen: { kind: "file", bot: "scout", file: "f2" },
+      shown: false,
+      after: "you-11",
+    });
+    // What another bot answered counts as well, and what the lead chose to show outranks both.
+    const heard = row(13, {
+      type: "user_message",
+      text: 'The bot "scout" answers what you told it:\n\nIt is Rules, GC, before.',
+    });
+    expect(lastLedScreen([you(11, "(voice) which?"), heard], 10, "rover", files)?.screen).toEqual({
+      kind: "file",
+      bot: "scout",
+      file: "f1",
+    });
+    expect(
+      lastLedScreen(
+        [
+          you(11, "(voice) x"),
+          tool(12, "t3_bot_show", { thread: "t3" }),
+          says(13, "Rules, GC, after."),
+        ],
+        10,
+        "rover",
+        files,
+      )?.screen.kind,
+    ).toBe("task");
+    // An answer about nothing to see leaves the earlier subject, marked as older than the question.
+    const stale = lastLedScreen(
+      [
+        you(11, "(voice) x"),
+        says(12, "Rules, GC, after."),
+        you(13, "(voice) thanks"),
+        says(14, "Sure."),
+      ],
+      10,
+      "rover",
+      files,
+    );
+    expect(stale?.after).toBe("you-11");
+    expect(lastOwnMessage([you(11, "a"), heard, you(14, "b")], 10)).toBe("you-14");
   });
 
   it("says a reply to the person whole, and only the headline of one nobody asked for", () => {

@@ -139,14 +139,14 @@ const BotTellTool = Tool.make("t3_bot_tell", {
 const BotShowTool = Tool.make("t3_bot_show", {
   ...shared,
   description:
-    "Put one thing on the screen beside you, which your person has only while their messages start with (voice). Use it when they ask to see something, and when seeing it serves them better than hearing it described. Give one of: thread, a task to watch as it works; file, a handed-over file by its title; bot, that bot's whole board. With nothing given it shows your own board.",
+    "Put one thing on the screen beside you, which your person has only while their messages start with (voice). Use it when they ask to see something, and when seeing it serves them better than hearing it described. Give the most telling thing: file, a handed-over picture, document or link by its title, when one shows what they asked about (a picture of before a change brings its after with it, so show one of the two); thread, a task to watch as it works or to see everything it handed over; bot, that bot's whole board, only when the board itself is what they asked for.",
   parameters: Schema.Struct({
     thread: Schema.optional(ThreadId),
     /** The machine `thread` is on, when it is not this one. */
     environmentId: Schema.optional(EnvironmentId),
     /** A handed-over file, by its title or id. */
     file: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))),
-    /** Whose board to show, or whose file `file` is, for a bot that oversees the others. */
+    /** Whose board to show, for a bot that oversees the others. It may leave this out for a file. */
     bot: Schema.optional(BotName),
   }),
   success: Schema.Struct({ showing: Schema.String }),

@@ -5,6 +5,7 @@ import {
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import { parseBotMessage } from "@t3tools/shared/botMessages";
 import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 
 const FENCE = /^\s*(```|~~~)/;
@@ -96,6 +97,8 @@ function hash(text: string) {
 }
 
 const ARC = (50 * Math.PI) / 180;
+/** More bots than this above the lead and they go two abreast, with no room for task lists. */
+export const TALL_ALONE = 2;
 
 /**
  * Where each bot hangs. The one that oversees the others is at the centre; the rest sit to its
@@ -104,15 +107,33 @@ const ARC = (50 * Math.PI) / 180;
  */
 export function placeBotStars(
   bots: ReadonlyArray<{ readonly name: string; readonly oversees: boolean }>,
+  /** The bots have a column taller than it is wide, between the conversation and the screen. */
+  tall = false,
 ): ReadonlyMap<string, BotStarPlace> {
   const places = new Map<string, BotStarPlace>();
   const centre = bots.find((bot) => bot.oversees) ?? bots[0];
   if (centre === undefined) return places;
-  places.set(centre.name, { x: 0, y: 0, z: 0 });
   const around = bots
     .filter((bot) => bot !== centre)
     .map((bot) => ({ name: bot.name, seed: hash(bot.name) }))
     .toSorted((a, b) => a.seed - b.seed || a.name.localeCompare(b.name));
+  if (tall) {
+    // The lead low in the column, the others above it: one under another while each has room
+    // for its tasks, then two abreast.
+    places.set(centre.name, { x: 0, y: around.length === 0 ? 0.1 : -0.32, z: 0 });
+    const abreast = around.length > TALL_ALONE ? 2 : 1;
+    const rows = Math.ceil(around.length / abreast);
+    around.forEach((bot, index) => {
+      const row = Math.floor(index / abreast);
+      places.set(bot.name, {
+        x: abreast === 1 ? (index % 2 === 0 ? -0.1 : 0.12) : index % 2 === 0 ? -0.46 : 0.46,
+        y: rows === 1 ? 0.62 : 0.8 - (row / (rows - 1)) * 0.5,
+        z: -(((bot.seed >>> 20) % 100) / 100) * 1.5,
+      });
+    });
+    return places;
+  }
+  places.set(centre.name, { x: 0, y: 0.1, z: 0 });
   const right = around.filter((bot) => bot.seed % 2 === 0);
   const left = around.filter((bot) => bot.seed % 2 === 1);
   // One lopsided side reads as a mistake; the fuller side lends its last bot to the other.
@@ -152,12 +173,14 @@ export type SpaceScreen =
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : null);
 
+const THREAD_LINK = /t3-thread:\/\/v2\/([^/\s<>()]+)\/([^\s<>()]+)/g;
+
 /**
- * What the bot in the middle is looking at or has just started, as the screen that shows it:
- * the board it reads, the task it starts or reads, the bot it asks, the thing it chose to show.
- * Null for everything else it does.
+ * What an answer of the bot in the middle is about, as the screen that shows it: the task it
+ * started, read or named, or the thing it chose to show. Its own board is not an answer, so
+ * reading one shows nothing; a board comes up only when the bot shows it on purpose.
  */
-function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | null {
+export function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | null {
   if (item.type === "subagent") {
     const threadId = item.remoteChild?.threadId ?? item.childThreadId;
     return threadId == null
@@ -167,6 +190,17 @@ function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | n
           bot: lead,
           environmentId: item.remoteChild?.environmentId ?? null,
           threadId,
+        };
+  }
+  if (item.type === "assistant_message") {
+    const link = [...item.text.matchAll(THREAD_LINK)].at(-1);
+    return link === undefined
+      ? null
+      : {
+          kind: "task",
+          bot: null,
+          environmentId: EnvironmentId.make(decodeURIComponent(link[1]!)),
+          threadId: ThreadId.make(decodeURIComponent(link[2]!)),
         };
   }
   if (item.type !== "dynamic_tool") return null;
@@ -187,10 +221,6 @@ function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | n
           threadId: ThreadId.make(threadId),
         };
   switch (resolveT3McpToolId(item.toolName)) {
-    case "t3_bot_board":
-      return { kind: "board", bot: text(input.bot) ?? lead };
-    case "t3_bot_tell":
-      return text(input.bot) === null ? null : { kind: "board", bot: input.bot as string };
     case "t3_thread_read":
     case "t3_thread_send":
       return task(text(input.threadId), null);
@@ -206,27 +236,122 @@ function ledScreen(item: OrchestrationV2TurnItem, lead: string): SpaceScreen | n
   }
 }
 
+/** A handed-over file as an answer can name it. */
+interface NameableFile {
+  readonly bot: string;
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: string;
+}
+
+const plainWords = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+/** A shorter title is too likely to be ordinary words of the sentence. */
+const SHORTEST_NAMED = 12;
+
 /**
- * The newest thing the bot in the middle looked at since `from`, with the item that says so.
- * `shown` is true when the bot chose to show it, which outranks a screen the person opened;
- * what it merely looked at on the way does not.
+ * The file an answer names by its title, with or without the note in brackets at its end.
+ * The longest title named wins, so "rules, GC, after" is not taken for "rules, GC".
+ */
+export function namedFile(answer: string, files: ReadonlyArray<NameableFile>): NameableFile | null {
+  const said = ` ${plainWords(answer)} `;
+  let best: { readonly file: NameableFile; readonly length: number } | null = null;
+  for (const file of files) {
+    const whole = plainWords(file.title);
+    const short = plainWords(file.title.replace(/\([^)]*\)?\s*$/, ""));
+    const named = [whole, short].find(
+      (title) => title.length >= SHORTEST_NAMED && said.includes(` ${title} `),
+    );
+    if (named === undefined) continue;
+    if (
+      best === null ||
+      named.length > best.length ||
+      (named.length === best.length && file.createdAt > best.file.createdAt)
+    )
+      best = { file, length: named.length };
+  }
+  return best?.file ?? null;
+}
+
+/** The person's own words, not what a bot or a finished task put into the chat. */
+const isOwnMessage = (item: OrchestrationV2TurnItem) =>
+  item.type === "user_message" &&
+  item.senderThreadId === undefined &&
+  parseBotMessage(item.text) === null;
+
+interface LedScreen {
+  readonly id: string;
+  readonly screen: SpaceScreen;
+  /** The bot chose to show it, which outranks a screen the person opened. */
+  readonly shown: boolean;
+  /** The message of the person it came after; null when they have said nothing this visit. */
+  readonly after: string | null;
+}
+
+/**
+ * What the bot in the middle's latest answer is about, since `from`: what it chose to show,
+ * else the task it started, read or linked, else a handed-over file it named. Only what came
+ * after the person last spoke counts, unless that held nothing.
  */
 export function lastLedScreen(
   items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
   from: number,
   lead: string,
-): { readonly id: string; readonly screen: SpaceScreen; readonly shown: boolean } | null {
+  files: ReadonlyArray<NameableFile> = [],
+): LedScreen | null {
+  let best:
+    | (Omit<LedScreen, "after"> & { readonly rank: number; readonly position: number })
+    | null = null;
   for (const { position, item } of items.toReversed()) {
-    if (position <= from) return null;
-    const screen = item.status === "failed" ? null : ledScreen(item, lead);
-    if (screen !== null)
-      return {
-        id: item.id,
-        screen,
-        shown: item.type === "dynamic_tool" && resolveT3McpToolId(item.toolName) === "t3_bot_show",
-      };
+    if (position <= from) break;
+    if (isOwnMessage(item)) {
+      if (best !== null) break;
+      continue;
+    }
+    if (item.status === "failed") continue;
+    const led = ledScreen(item, lead);
+    const shown =
+      item.type === "dynamic_tool" && resolveT3McpToolId(item.toolName) === "t3_bot_show";
+    const text =
+      led !== null
+        ? null
+        : item.type === "assistant_message"
+          ? item.text
+          : item.type === "user_message"
+            ? (parseBotMessage(item.text)?.body ?? null)
+            : null;
+    const named = text === null ? null : namedFile(text, files);
+    const screen: SpaceScreen | null =
+      led ?? (named === null ? null : { kind: "file", bot: named.bot, file: named.id });
+    const rank = shown ? 3 : led !== null ? 2 : 1;
+    if (screen !== null && (best === null || rank > best.rank))
+      best = { id: item.id, screen, shown, rank, position };
+    if (shown) break;
   }
-  return null;
+  return best === null
+    ? null
+    : {
+        id: best.id,
+        screen: best.screen,
+        shown: best.shown,
+        after: lastOwnMessage(items, from, best.position),
+      };
+}
+
+/** The last thing the person themselves said since `from` and before `before`, as its id. */
+export function lastOwnMessage(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  from: number,
+  before = Infinity,
+): string | null {
+  return (
+    items.findLast(
+      ({ position, item }) => position > from && position < before && isOwnMessage(item),
+    )?.item.id ?? null
+  );
 }
 
 const HEADLINE_UNITS = 3;

@@ -97,15 +97,26 @@ that oversees the others is in the middle, and it is the one you talk to. A bot 
 running has a spark circling it for each and lists them under its name, and one that needs you
 sends out a ring.
 
-A screen beside a bot holds up one thing: its open work, a task as it works, or a file a task
-handed over. Select a bot or one of its tasks to open one. The screen also follows the middle
-bot: when it reads a board, starts or reads a task, or asks another bot, that is what you see.
-Ask it to show you something, such as a screenshot or a report a task handed over, and it puts
-that on the screen. Close a screen with Escape.
+The page has three parts. On the left is your conversation with the middle bot: what you said,
+its answers, the tasks it started, and what it and the other bots told each other. The bots are
+in the middle. On the right is a screen that holds up what the conversation is about.
 
-Speak with the microphone on, or type. What you say goes to the middle bot's chat as a message
-that starts with `(voice)`. With the speaker on, its reply is read aloud while it is still being
-written; start talking to cut it off. Tasks it starts keep running while you carry on.
+- **The screen follows the answer.** When the middle bot starts or reads a task, links one, or
+  names a file a task handed over, that comes up. Ask to see something, such as a screenshot, a
+  report or a page to try, and it puts that there. A picture of before a change comes up with
+  its after. Under a task's screen is everything else that task handed over, its result and its
+  work step by step.
+- **With nothing held up**, the screen shows the tasks running now, each with its plan and last
+  lines, and the newest pictures your bots have made. Select one to open it.
+- **A bot's open work** comes up when you select the bot: what waits on you first, then what is
+  being worked on.
+- A screen you opened yourself stays until you close it with Escape or ask for something else.
+
+Speak with the microphone on, or type; Space turns the microphone on and off. What you say goes
+to the middle bot's chat as a message that starts with `(voice)`. Its answer has two parts: a
+sentence or two that is read aloud with the speaker on, and any detail written under it for you
+to read. Start talking to cut it off, or select Stop to end what it is doing. Tasks it started
+keep running while you carry on.
 
 - Hearing you uses the destination chosen in **Settings → Voice**: a speech model on one of
   your machines, or a cloud provider. A cloud provider writes each thing down after you pause.

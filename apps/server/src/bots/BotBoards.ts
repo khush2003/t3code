@@ -44,8 +44,9 @@ export class BotBoards extends Context.Service<
      * whether the run that last carried them ever reached the model.
      */
     /**
-     * Whether the bot's person is at the screen that shows their bots: the turn the bot is in
-     * began with a message they sent from it. A turn a task or another bot started did not.
+     * Whether the bot's person is at the screen that shows their bots: the last thing they said
+     * to it came from there, a short while ago. Turns a task or another bot started in between
+     * do not change that, so the bot can still show them what came back.
      */
     readonly atScreen: (botThreadId: ThreadId) => Effect.Effect<boolean>;
     readonly context: (
@@ -62,6 +63,10 @@ export class BotBoards extends Context.Service<
 >()("t3/bots/BotBoards") {}
 
 const NO_LOOK = { icon: null, color: null, avatarAttachmentId: null };
+/** How far back to look for the person's last message among turns that others started. */
+const RUNS_BACK = 12;
+/** After this long without a word from the screen, the person is taken to have left it. */
+const AT_SCREEN_MS = 20 * 60_000;
 
 const make = Effect.gen(function* () {
   const store = yield* BotStore.BotStore;
@@ -209,12 +214,24 @@ const make = Effect.gen(function* () {
   const atScreen: BotBoards["Service"]["atScreen"] = Effect.fn("BotBoards.atScreen")(
     function* (botThreadId) {
       const { runs } = yield* projections.getThreadRecords(botThreadId, ["runs"], {
-        latestRunLimit: 1,
+        latestRunLimit: RUNS_BACK,
       });
-      const run = runs.at(-1);
-      if (run === undefined) return false;
-      const message = yield* projections.getRunMessage(botThreadId, run.id);
-      return message?.text.startsWith(BOT_SPOKEN_PREFIX) === true;
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      for (const run of runs.toReversed()) {
+        const message = yield* projections.getRunMessage(botThreadId, run.id);
+        // A task ending or another bot answering starts a turn too; those are not the person.
+        if (
+          message === undefined ||
+          message.notification !== undefined ||
+          message.senderThreadId !== undefined
+        )
+          continue;
+        return (
+          message.text.startsWith(BOT_SPOKEN_PREFIX) &&
+          now - DateTime.toEpochMillis(run.requestedAt) <= AT_SCREEN_MS
+        );
+      }
+      return false;
     },
     // Unknown is no: a bot told it showed something nobody can see would say so to its person.
     (effect) => effect.pipe(Effect.orElseSucceed(() => false)),

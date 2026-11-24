@@ -2,6 +2,8 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { BotName, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -134,31 +136,76 @@ describe("BotBoards.context", () => {
 });
 
 describe("BotBoards.atScreen", () => {
-  const atScreen = (started: string | undefined) =>
+  /** The turns of a chat, oldest first: what started each, and how many minutes ago. */
+  const atScreen = (
+    ...turns: ReadonlyArray<{
+      readonly said?: string;
+      readonly by?: "bot" | "task";
+      readonly minutesAgo: number;
+    }>
+  ) =>
     Effect.gen(function* () {
-      return yield* (yield* BotBoards.BotBoards).atScreen(threadId);
-    }).pipe(
-      Effect.provide(
-        BotBoards.layer.pipe(
-          Layer.provideMerge(BotStore.layerMemory),
-          Layer.provide(
-            Layer.mock(ProjectionStore.ProjectionStoreV2)({
-              getThreadRecords: () =>
-                Effect.succeed({ runs: started === undefined ? [] : [{ id: "run-1" }] } as never),
-              getRunMessage: () => Effect.succeed({ text: started } as never),
-            }),
+      const now = yield* DateTime.now;
+      return yield* Effect.gen(function* () {
+        return yield* (yield* BotBoards.BotBoards).atScreen(threadId);
+      }).pipe(
+        Effect.provide(
+          BotBoards.layer.pipe(
+            Layer.provideMerge(BotStore.layerMemory),
+            Layer.provide(
+              Layer.mock(ProjectionStore.ProjectionStoreV2)({
+                getThreadRecords: () =>
+                  Effect.succeed({
+                    runs: turns.map((turn, index) => ({
+                      id: `run-${index}`,
+                      requestedAt: DateTime.subtractDuration(
+                        now,
+                        Duration.minutes(turn.minutesAgo),
+                      ),
+                    })),
+                  } as never),
+                getRunMessage: (_threadId, runId) => {
+                  const turn = turns[Number(runId.slice(4))]!;
+                  return Effect.succeed(
+                    (turn.by === "task"
+                      ? { text: "", notification: {} }
+                      : turn.by === "bot"
+                        ? { text: turn.said, senderThreadId: "bot:scout" }
+                        : { text: turn.said }) as never,
+                  );
+                },
+              }),
+            ),
+            Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
           ),
-          Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
         ),
-      ),
-    );
+      );
+    });
 
   it.effect("is true only for a turn the person started from the screen of their bots", () =>
     Effect.gen(function* () {
-      expect(yield* atScreen("(voice) show me the poster")).toBe(true);
-      expect(yield* atScreen("show me the poster")).toBe(false);
-      // A turn a finished task started has no message of theirs.
-      expect(yield* atScreen(undefined)).toBe(false);
+      expect(yield* atScreen({ said: "(voice) show me the poster", minutesAgo: 0 })).toBe(true);
+      expect(yield* atScreen({ said: "show me the poster", minutesAgo: 0 })).toBe(false);
+      expect(yield* atScreen()).toBe(false);
+      // What a task or another bot started since then does not move the person.
+      expect(
+        yield* atScreen(
+          { said: "(voice) ask scout", minutesAgo: 4 },
+          { said: 'The bot "scout" answers what you told it:\n\nDone.', by: "bot", minutesAgo: 1 },
+          { by: "task", minutesAgo: 0 },
+        ),
+      ).toBe(true);
+      expect(
+        yield* atScreen(
+          { said: "(voice) ask scout", minutesAgo: 9 },
+          { said: "typed in the chat", minutesAgo: 5 },
+          { by: "task", minutesAgo: 0 },
+        ),
+      ).toBe(false);
+      // Long silent, they are taken to have left.
+      expect(
+        yield* atScreen({ said: "(voice) hello", minutesAgo: 45 }, { by: "task", minutesAgo: 0 }),
+      ).toBe(false);
     }),
   );
 });
