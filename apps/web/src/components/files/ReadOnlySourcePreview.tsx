@@ -1,9 +1,9 @@
 import { File, type FileOptions, Virtualizer } from "@pierre/diffs/react";
-import { type ClipboardEvent, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, use, useEffect, useRef, useState } from "react";
 
 import { DiffWorkerPoolProvider } from "~/components/DiffWorkerPoolProvider";
 import { useClientSettings } from "~/hooks/useSettings";
-import { useRenderedAppearance } from "~/hooks/useTheme";
+import { FixedAppearance, useRenderedAppearance } from "~/hooks/useTheme";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 
@@ -19,6 +19,7 @@ export default function ReadOnlySourcePreview(props: {
   readonly wordWrap?: boolean;
 }) {
   const resolvedTheme = useRenderedAppearance();
+  const fixedAppearance = use(FixedAppearance) !== null;
   const defaultWordWrap = useClientSettings((settings) => settings.wordWrap);
   const wordWrap = props.wordWrap ?? defaultWordWrap;
   const { text, onPostRender } = props;
@@ -56,43 +57,43 @@ export default function ReadOnlySourcePreview(props: {
     if (phase !== "unmount" && node.shadowRoot) selection.render(node.shadowRoot, text);
     return onPostRender?.(node, instance, phase);
   };
-  return (
-    <DiffWorkerPoolProvider>
-      <div
-        ref={wrapper}
-        className="contents"
-        onCopy={copySelection}
-        onPointerDown={(event) => selection.press(event.button !== 0 || event.shiftKey)}
-        // Scrolling unmounts rows, and a selection made in the same task has not been reported yet.
-        onScrollCapture={(event) => {
-          const root = event.currentTarget.querySelector("diffs-container")?.shadowRoot;
-          if (root) selection.sync(root, text);
-        }}
+  const preview = (
+    <div
+      ref={wrapper}
+      className="contents"
+      onCopy={copySelection}
+      onPointerDown={(event) => selection.press(event.button !== 0 || event.shiftKey)}
+      // Scrolling unmounts rows, and a selection made in the same task has not been reported yet.
+      onScrollCapture={(event) => {
+        const root = event.currentTarget.querySelector("diffs-container")?.shadowRoot;
+        if (root) selection.sync(root, text);
+      }}
+    >
+      <Virtualizer
+        key={`${props.name}:${resolvedTheme}:${props.text.length}`}
+        className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
+        config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
       >
-        <Virtualizer
-          key={`${props.name}:${resolvedTheme}:${props.text.length}`}
-          className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
-          config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
-        >
-          <File
-            file={{
-              name: props.name,
-              contents: props.text,
-              ...(props.cacheKey ? { cacheKey: props.cacheKey } : {}),
-            }}
-            options={{
-              disableFileHeader: true,
-              overflow: wordWrap ? "wrap" : "scroll",
-              theme: resolveDiffThemeName(resolvedTheme),
-              preferredHighlighter: PREFERRED_HIGHLIGHTER,
-              themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-              onPostRender: drawSelection,
-            }}
-            className="min-h-full"
-          />
-        </Virtualizer>
-      </div>
-    </DiffWorkerPoolProvider>
+        <File
+          file={{
+            name: props.name,
+            contents: props.text,
+            ...(props.cacheKey ? { cacheKey: props.cacheKey } : {}),
+          }}
+          options={{
+            disableFileHeader: true,
+            overflow: wordWrap ? "wrap" : "scroll",
+            theme: resolveDiffThemeName(resolvedTheme),
+            preferredHighlighter: PREFERRED_HIGHLIGHTER,
+            themeType: resolvedTheme,
+            unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+            onPostRender: drawSelection,
+          }}
+          className="min-h-full"
+        />
+      </Virtualizer>
+    </div>
   );
+  // The shared workers colour code for the app's own appearance, so a fixed one is coloured here.
+  return fixedAppearance ? preview : <DiffWorkerPoolProvider>{preview}</DiffWorkerPoolProvider>;
 }

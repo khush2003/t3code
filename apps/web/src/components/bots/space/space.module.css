@@ -43,7 +43,8 @@
   --contrast-secondary-label: var(--sp-ink-2);
   --contrast-icon-muted: var(--sp-ink-2);
   --contrast-placeholder: var(--sp-ink-3);
-  --code-background: rgb(234 240 250 / 0.06);
+  /* Solid: a code view mixes this into its line colours, and layers of a see-through one go grey. */
+  --code-background: #0a0d14;
   --code-foreground: var(--sp-ink);
   --info: #60a5fa;
   --info-foreground: #8ec5ff;
