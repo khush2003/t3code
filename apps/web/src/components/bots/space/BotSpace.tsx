@@ -10,6 +10,7 @@ import { ChevronLeftIcon } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { FixedAppearance } from "~/hooks/useTheme";
 import { observeResize } from "~/lib/observeResize";
 import { useVoiceTranscriptionDestination } from "~/speech/useEnvironmentSpeechInput";
 import { botsEnvironment } from "~/state/bots";
@@ -476,6 +477,9 @@ export function BotSpace() {
       <p className={s.empty}>{gt("No machine is connected.")}</p>
     </div>
   ) : (
-    <SpaceOf key={home} environmentId={home} offline={found === null} />
+    // The space is black in every theme, so code and files shown in it take their dark colours.
+    <FixedAppearance value="dark">
+      <SpaceOf key={home} environmentId={home} offline={found === null} />
+    </FixedAppearance>
   );
 }

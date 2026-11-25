@@ -4,15 +4,58 @@
  */
 .root {
   --sp-ink: #eaf0fa;
-  --sp-ink-2: rgb(234 240 250 / 0.62);
-  --sp-ink-3: rgb(234 240 250 / 0.38);
+  --sp-ink-2: rgb(234 240 250 / 0.74);
+  --sp-ink-3: rgb(234 240 250 / 0.52);
   --sp-line: rgb(234 240 250 / 0.12);
   --sp-need: #ffb454;
   --c: #cbd5e1;
-  /* App components shown inside (a document, a file) sit on the dark, not on a card. */
+  /*
+   * App components shown inside (an answer, a document, a file) take their colours from the
+   * app's theme. The space is black in every theme, so it sets each of those colours itself:
+   * the app works them out once at the top of the page, and a light theme would give dark text.
+   */
+  color-scheme: dark;
   --background: transparent;
   --card: transparent;
-  --border: rgb(234 240 250 / 0.12);
+  --popover: #0a0d14;
+  --muted: rgb(234 240 250 / 0.06);
+  --accent: rgb(234 240 250 / 0.08);
+  --secondary: rgb(234 240 250 / 0.08);
+  --message-surface: rgb(234 240 250 / 0.06);
+  --border: var(--sp-line);
+  --contrast-border: var(--sp-line);
+  --input: rgb(234 240 250 / 0.2);
+  --contrast-input: rgb(234 240 250 / 0.2);
+  --foreground: var(--sp-ink);
+  --contrast-foreground: var(--sp-ink);
+  --card-foreground: var(--sp-ink);
+  --contrast-card-foreground: var(--sp-ink);
+  --popover-foreground: var(--sp-ink);
+  --contrast-popover-foreground: var(--sp-ink);
+  --accent-foreground: var(--sp-ink);
+  --contrast-accent-foreground: var(--sp-ink);
+  --secondary-foreground: var(--sp-ink);
+  --contrast-secondary-foreground: var(--sp-ink);
+  --message-foreground: var(--sp-ink);
+  --contrast-message-foreground: var(--sp-ink);
+  --muted-foreground: var(--sp-ink-2);
+  --contrast-muted-foreground: var(--sp-ink-2);
+  --contrast-secondary-label: var(--sp-ink-2);
+  --contrast-icon-muted: var(--sp-ink-2);
+  --contrast-placeholder: var(--sp-ink-3);
+  --code-background: rgb(234 240 250 / 0.06);
+  --code-foreground: var(--sp-ink);
+  --info: #60a5fa;
+  --info-foreground: #8ec5ff;
+  /* File and thread chips get their colour from a script that fits it to the app's canvas. */
+  --context-chip-message-ink: #8ec5ff;
+  --success-foreground: #34d399;
+  --warning-foreground: #fbbf24;
+  --error-foreground: #f87171;
+  --destructive-foreground: #f87171;
+  --tool-error-icon: #fca5a5;
+  --diff-addition-foreground: #34d399;
+  --diff-deletion-foreground: #f87171;
 
   position: fixed;
   inset: 0;
@@ -911,7 +954,9 @@
   flex: none;
   align-items: stretch;
   gap: 10px;
-  overflow: hidden;
+  overflow: auto hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sp-line) transparent;
 }
 .railLabel {
   width: 62px;
@@ -924,7 +969,7 @@
 .root .thumb {
   position: relative;
   display: flex;
-  min-width: 0;
+  min-width: 44px;
   max-width: 124px;
   flex: 1 1 0;
   flex-direction: column;
@@ -940,6 +985,10 @@
 }
 .root .thumb.isOn {
   box-shadow: inset 0 0 0 1.5px var(--c);
+}
+/* Pictures may narrow to make room; a piece that is only its name has to stay readable. */
+.root .thumb:not(:has(img)) {
+  min-width: 88px;
 }
 .thumb img {
   position: absolute;

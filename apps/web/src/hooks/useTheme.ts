@@ -2,7 +2,7 @@ import { pipe } from "effect/Function";
 import type { DesktopBridge } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
-import { useSyncExternalStore } from "react";
+import { createContext, use, useSyncExternalStore } from "react";
 import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
@@ -505,14 +505,18 @@ export function getRenderedAppearance(): ThemeAppearance {
   return getThemePreviewAppearance() ?? getSnapshot().resolvedTheme;
 }
 
+/** A part of the page that keeps one look in every theme sets this for what it shows inside. */
+export const FixedAppearance = createContext<ThemeAppearance | null>(null);
+
 export function useRenderedAppearance() {
+  const fixed = use(FixedAppearance);
   const { resolvedTheme } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const previewAppearance = useSyncExternalStore(
     subscribeToThemePreview,
     getThemePreviewAppearance,
     () => null,
   );
-  return previewAppearance ?? resolvedTheme;
+  return fixed ?? previewAppearance ?? resolvedTheme;
 }
 
 export function setTheme(next: Theme): boolean {
